@@ -2,7 +2,17 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from core.analytics.trends import RollingAverage, rolling_average, rolling_average_series
+from core.analytics.trends import (
+    Delta,
+    RollingAverage,
+    Trend,
+    compute_delta,
+    get_trend,
+    month_over_month_delta,
+    rolling_average,
+    rolling_average_series,
+    week_over_week_delta,
+)
 from core.storage import repository
 from core.storage.db import connect
 from core.storage.models import MetricReading
@@ -93,3 +103,67 @@ def test_rolling_average_series_rejects_start_after_end(tmp_path):
 
     with pytest.raises(ValueError, match="must not be after"):
         rolling_average_series(conn, "resting_hr", window_days=3, start=date(2026, 1, 5), end=date(2026, 1, 1))
+
+
+def test_week_over_week_delta(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    previous_week = [_reading("steps", d, 1000.0, "count") for d in range(1, 8)]
+    current_week = [_reading("steps", d, 2000.0, "count") for d in range(8, 15)]
+    repository.upsert_readings(conn, previous_week + current_week)
+
+    result = week_over_week_delta(conn, "steps", as_of=date(2026, 1, 14))
+
+    assert result == compute_delta(conn, "steps", 7, as_of=date(2026, 1, 14))
+    assert result.current.average == 2000.0
+    assert result.previous.average == 1000.0
+    assert result.absolute_change == 1000.0
+    assert result.percent_change == 100.0
+
+
+def test_month_over_month_delta(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading("weight", d, float(d), "kg") for d in range(1, 61)]
+    repository.upsert_readings(conn, readings)
+
+    result = month_over_month_delta(conn, "weight", as_of=date(2026, 3, 1))
+
+    expected_current_mean = sum(range(31, 61)) / 30
+    expected_previous_mean = sum(range(1, 31)) / 30
+    assert result.window_days == 30
+    assert result.current.window_start == date(2026, 1, 31)
+    assert result.current.window_end == date(2026, 3, 1)
+    assert result.current.average == pytest.approx(expected_current_mean)
+    assert result.previous.window_start == date(2026, 1, 1)
+    assert result.previous.window_end == date(2026, 1, 30)
+    assert result.previous.average == pytest.approx(expected_previous_mean)
+    assert result.absolute_change == pytest.approx(expected_current_mean - expected_previous_mean)
+    assert result.percent_change == pytest.approx(
+        (expected_current_mean - expected_previous_mean) / expected_previous_mean * 100
+    )
+
+
+def test_delta_handles_missing_previous_window_data(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading("steps", d, 1000.0, "count") for d in range(1, 4)]
+    repository.upsert_readings(conn, readings)
+
+    result = compute_delta(conn, "steps", window_days=3, as_of=date(2026, 1, 3))
+
+    assert result.current.average == 1000.0
+    assert result.previous.average is None
+    assert result.absolute_change is None
+    assert result.percent_change is None
+
+
+def test_get_trend_combines_current_average_and_delta(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    previous_week = [_reading("steps", d, 1000.0, "count") for d in range(1, 8)]
+    current_week = [_reading("steps", d, 2000.0, "count") for d in range(8, 15)]
+    repository.upsert_readings(conn, previous_week + current_week)
+
+    trend = get_trend(conn, "steps", window_days=7, as_of=date(2026, 1, 14))
+
+    assert trend.metric_type == "steps"
+    assert trend.window_days == 7
+    assert trend.current == rolling_average(conn, "steps", 7, as_of=date(2026, 1, 14))
+    assert trend.delta == compute_delta(conn, "steps", 7, as_of=date(2026, 1, 14))
