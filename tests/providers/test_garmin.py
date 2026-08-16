@@ -285,3 +285,44 @@ def test_parse_training_load_produces_one_daily_reading():
 
     assert len(readings) == 1
     _assert_valid_reading(readings[0], "training_load", "load")
+
+
+def test_parse_race_predictions_produces_four_metric_types_per_day():
+    raw = _load_fixture("get_race_predictions")
+
+    readings = GarminProvider._parse_race_predictions(raw)
+
+    assert len(readings) > 0
+    metric_types = {r.metric_type for r in readings}
+    assert metric_types == {
+        "race_predictor_5k",
+        "race_predictor_10k",
+        "race_predictor_half_marathon",
+        "race_predictor_marathon",
+    }
+    for reading in readings:
+        assert reading.source == "garmin"
+        assert reading.unit == "seconds"
+        assert reading.timestamp.tzinfo is None
+        assert isinstance(reading.value, float)
+
+
+def test_fetch_race_predictor_caches_one_call_across_all_four_metric_types(tmp_path):
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    raw = _load_fixture("get_race_predictions")
+
+    class _RacePredictionClient(_StubGarminClient):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.get_race_predictions_calls = 0
+
+        def get_race_predictions(self, startdate, enddate, _type):
+            self.get_race_predictions_calls += 1
+            return raw
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_RacePredictionClient)
+
+    provider.fetch("race_predictor_5k", date(2026, 1, 1), date(2026, 1, 7))
+    provider.fetch("race_predictor_10k", date(2026, 1, 1), date(2026, 1, 7))
+
+    assert provider._client.get_race_predictions_calls == 1

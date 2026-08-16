@@ -56,6 +56,8 @@ class GarminProvider:
                 "token."
             )
 
+        self._race_predictor_cache: dict[tuple[date, date], list[MetricReading]] = {}
+
         self._registry: dict[str, Callable[[date, date], list[MetricReading]]] = {
             "resting_hr": self._fetch_resting_hr,
             "hrv": self._fetch_hrv,
@@ -68,6 +70,12 @@ class GarminProvider:
             "respiration": self._fetch_respiration,
             "spo2": self._fetch_spo2,
             "training_load": self._fetch_training_load,
+            "race_predictor_5k": lambda s, e: self._fetch_race_predictor("race_predictor_5k", s, e),
+            "race_predictor_10k": lambda s, e: self._fetch_race_predictor("race_predictor_10k", s, e),
+            "race_predictor_half_marathon": lambda s, e: self._fetch_race_predictor(
+                "race_predictor_half_marathon", s, e
+            ),
+            "race_predictor_marathon": lambda s, e: self._fetch_race_predictor("race_predictor_marathon", s, e),
         }
 
     def _fetch_single_day_metric(
@@ -348,6 +356,48 @@ class GarminProvider:
 
     def _fetch_training_load(self, start: date, end: date) -> list[MetricReading]:
         return self._fetch_single_day_metric(self._client.get_training_status, self._parse_training_load, start, end)
+
+    @staticmethod
+    def _parse_race_predictions(raw: dict) -> list[MetricReading]:
+        """Map get_race_predictions(..., _type="daily")'s response to
+        MetricReading list: 4 metric types (5K/10K/half/marathon) per
+        calendar day present in the response."""
+        entries = raw.get("dailyPredictions") or []
+        distance_to_metric_type = {
+            "time5K": "race_predictor_5k",
+            "time10K": "race_predictor_10k",
+            "timeHalfMarathon": "race_predictor_half_marathon",
+            "timeMarathon": "race_predictor_marathon",
+        }
+        readings = []
+        for entry in entries:
+            calendar_date = entry.get("calendarDate")
+            if calendar_date is None:
+                continue
+            timestamp = datetime.combine(date.fromisoformat(calendar_date), time.min)
+            for raw_key, metric_type in distance_to_metric_type.items():
+                seconds = entry.get(raw_key)
+                if seconds is None:
+                    continue
+                readings.append(
+                    MetricReading(
+                        source="garmin",
+                        metric_type=metric_type,
+                        timestamp=timestamp,
+                        value=float(seconds),
+                        unit="seconds",
+                    )
+                )
+        return readings
+
+    def _fetch_race_predictor(self, metric_type: str, start: date, end: date) -> list[MetricReading]:
+        cache_key = (start, end)
+        if cache_key not in self._race_predictor_cache:
+            raw = self._call(
+                self._client.get_race_predictions, start.isoformat(), end.isoformat(), "daily"
+            )
+            self._race_predictor_cache[cache_key] = self._parse_race_predictions(raw)
+        return [r for r in self._race_predictor_cache[cache_key] if r.metric_type == metric_type]
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())
