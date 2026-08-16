@@ -1,0 +1,21 @@
+{
+  "userProfilePk": 1234567,
+  "generic": [
+    {
+      "calendarDate": "2026-01-01",
+      "vo2MaxValue": 48.5
+    },
+    {
+      "calendarDate": "2026-01-02",
+      "vo2MaxValue": 48.5
+    },
+    {
+      "calendarDate": "2026-01-03",
+      "vo2MaxValue": 49.0
+    },
+    {
+      "calendarDate": "2026-01-04",
+      "vo2MaxValue": null
+    }
+  ]
+}

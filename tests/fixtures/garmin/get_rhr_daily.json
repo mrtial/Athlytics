@@ -1,0 +1,22 @@
+[
+  {
+    "calendarDate": "2026-01-01",
+    "restingHeartRate": 56
+  },
+  {
+    "calendarDate": "2026-01-02",
+    "restingHeartRate": 58
+  },
+  {
+    "calendarDate": "2026-01-03",
+    "restingHeartRate": 55
+  },
+  {
+    "calendarDate": "2026-01-04",
+    "restingHeartRate": null
+  },
+  {
+    "calendarDate": "2026-01-05",
+    "restingHeartRate": 57
+  }
+]

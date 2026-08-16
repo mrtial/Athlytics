@@ -1,0 +1,33 @@
+{
+  "userProfilePk": 1234567,
+  "hrvSummaries": [
+    {
+      "calendarDate": "2026-01-01",
+      "weeklyAvg": 64,
+      "lastNightAvg": 68.0,
+      "lastNight5MinHigh": 85,
+      "status": "BALANCED"
+    },
+    {
+      "calendarDate": "2026-01-02",
+      "weeklyAvg": 65,
+      "lastNightAvg": 66.0,
+      "lastNight5MinHigh": 82,
+      "status": "BALANCED"
+    },
+    {
+      "calendarDate": "2026-01-03",
+      "weeklyAvg": 65,
+      "lastNightAvg": 71.0,
+      "lastNight5MinHigh": 90,
+      "status": "BALANCED"
+    },
+    {
+      "calendarDate": "2026-01-04",
+      "weeklyAvg": 65,
+      "lastNightAvg": null,
+      "lastNight5MinHigh": null,
+      "status": "UNBALANCED"
+    }
+  ]
+}

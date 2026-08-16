@@ -1,0 +1,11 @@
+{
+  "calendarDate": "2026-01-01",
+  "avgStressLevel": 28,
+  "maxStressLevel": 75,
+  "stressDuration": 14400,
+  "restStressDuration": 28800,
+  "activityStressDuration": 7200,
+  "lowStressDuration": 8000,
+  "mediumStressDuration": 4000,
+  "highStressDuration": 2400
+}

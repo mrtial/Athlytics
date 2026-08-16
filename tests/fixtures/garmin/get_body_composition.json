@@ -1,0 +1,30 @@
+{
+  "startDate": "2026-01-01",
+  "endDate": "2026-01-05",
+  "dateWeightList": [
+    {
+      "calendarDate": "2026-01-01",
+      "weight": 72500.0,
+      "bmi": 22.5,
+      "bodyFat": 15.2
+    },
+    {
+      "calendarDate": "2026-01-02",
+      "weight": 72300.0,
+      "bmi": 22.4,
+      "bodyFat": 15.1
+    },
+    {
+      "calendarDate": "2026-01-03",
+      "weight": null,
+      "bmi": null,
+      "bodyFat": null
+    },
+    {
+      "calendarDate": "2026-01-04",
+      "weight": 72600.0,
+      "bmi": 22.5,
+      "bodyFat": 15.3
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[
+  {
+    "calendarDate": "2026-01-01",
+    "overallSleepScore": {
+      "value": 82
+    },
+    "totalSleepSeconds": 28800
+  },
+  {
+    "calendarDate": "2026-01-02",
+    "overallSleepScore": {
+      "value": 78
+    },
+    "totalSleepSeconds": 26400
+  },
+  {
+    "calendarDate": "2026-01-03",
+    "overallSleepScore": {
+      "value": 88
+    },
+    "totalSleepSeconds": 30600
+  },
+  {
+    "calendarDate": "2026-01-04",
+    "overallSleepScore": {
+      "value": null
+    },
+    "totalSleepSeconds": 0
+  }
+]
