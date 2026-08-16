@@ -11,4 +11,5 @@ def app(tmp_path):
 
 @pytest.fixture
 def client(app):
-    return TestClient(app)
+    with TestClient(app) as c:
+        yield c

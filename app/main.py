@@ -35,7 +35,12 @@ def create_app(data_dir: Path) -> FastAPI:
     credential_store = CredentialStore(secret_key, credentials_path)
 
     def sync_fn() -> None:
-        perform_sync_pass(db_path, credential_store, token_cache_dir)
+        perform_sync_pass(
+            db_path,
+            credential_store,
+            token_cache_dir,
+            garmin_client_factory=app.state.garmin_client_factory,
+        )
 
     scheduler = BackgroundSyncScheduler(sync_fn)
 
@@ -73,10 +78,9 @@ def create_app(data_dir: Path) -> FastAPI:
     app.include_router(dashboard_routes.router)
     app.include_router(settings_routes.router)
 
-    @app.get("/")
-    def root_placeholder():
-        # Replaced by the real onboarding-aware dispatcher in Task 11.
-        return RedirectResponse(url="/dashboard", status_code=303)
+    from app.routes import root as root_routes
+
+    app.include_router(root_routes.router)
 
     return app
 
