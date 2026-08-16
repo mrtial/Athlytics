@@ -418,11 +418,17 @@ class GarminProvider:
         return self._fetch_single_day_metric(self._client.get_training_status, self._parse_training_load, start, end)
 
     @staticmethod
-    def _parse_race_predictions(raw: dict) -> list[MetricReading]:
-        """Map get_race_predictions(..., _type="daily")'s response to
-        MetricReading list: 4 metric types (5K/10K/half/marathon) per
-        calendar day present in the response."""
-        entries = raw.get("dailyPredictions") or []
+    def _parse_race_predictions(raw: dict | list) -> list[MetricReading]:
+        """Map get_race_predictions response to MetricReading list:
+        4 metric types (5K/10K/half/marathon) per calendar day present in the response."""
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            entries = raw
+        elif isinstance(raw, dict):
+            entries = raw.get("dailyPredictions") or [raw]
+        else:
+            entries = []
         distance_to_metric_type = {
             "time5K": "race_predictor_5k",
             "time10K": "race_predictor_10k",
