@@ -64,3 +64,39 @@ class Report:
     created_at: datetime
     title: str
     content: str
+
+
+@dataclass(frozen=True)
+class Target:
+    id: str
+    metric_type: str
+    target_value: float
+    operator: str  # 'gte', 'lte', 'eq'
+    target_window: str  # 'daily', 'weekly_sum', 'weekly_avg', 'by_date'
+    start_date: date
+    end_date: date | None
+    status: str  # 'active', 'completed', 'abandoned'
+    notes: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class TrainingPlan:
+    id: str
+    title: str
+    goal_description: str | None
+    start_date: date
+    target_date: date
+    plan_json: str  # JSON-encoded string
+    status: str  # 'active', 'paused', 'completed', 'archived'
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class CoachNote:
+    id: str
+    date: date
+    category: str  # 'injury', 'nutrition', 'feeling', 'gear', 'milestone', 'general'
+    note: str
+    tags_json: str | None
+    created_at: datetime

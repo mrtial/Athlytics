@@ -24,6 +24,46 @@ CREATE TABLE IF NOT EXISTS report (
     title TEXT NOT NULL,
     content TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS target (
+    id TEXT PRIMARY KEY,
+    metric_type TEXT NOT NULL,
+    target_value REAL NOT NULL,
+    operator TEXT NOT NULL CHECK(operator IN ('gte', 'lte', 'eq')),
+    target_window TEXT NOT NULL CHECK(target_window IN ('daily', 'weekly_sum', 'weekly_avg', 'by_date')),
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    status TEXT NOT NULL CHECK(status IN ('active', 'completed', 'abandoned')),
+    notes TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_target_status ON target(status);
+CREATE INDEX IF NOT EXISTS idx_target_metric ON target(metric_type);
+
+CREATE TABLE IF NOT EXISTS training_plan (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    goal_description TEXT,
+    start_date TEXT NOT NULL,
+    target_date TEXT NOT NULL,
+    plan_json TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'completed', 'archived')),
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_status ON training_plan(status);
+
+CREATE TABLE IF NOT EXISTS coach_note (
+    id TEXT PRIMARY KEY,
+    date TEXT NOT NULL,
+    category TEXT NOT NULL CHECK(category IN ('injury', 'nutrition', 'feeling', 'gear', 'milestone', 'general')),
+    note TEXT NOT NULL,
+    tags_json TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_coach_note_date ON coach_note(date);
 """
 
 
