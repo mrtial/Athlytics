@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Settings — Athlytics{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+
+{% if persona_error %}<p class="error">{{ persona_error }}</p>{% endif %}
+<form method="post" action="/settings/persona">
+  <label>Persona
+    <select name="persona">
+      {% for p in personas %}
+      <option value="{{ p }}" {% if p == current_persona %}selected{% endif %}>{{ p.replace('_', ' ').title() }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Update persona</button>
+</form>
+
+{% if theme_error %}<p class="error">{{ theme_error }}</p>{% endif %}
+<form method="post" action="/settings/theme">
+  <label>Theme
+    <select name="theme">
+      {% for t in themes %}
+      <option value="{{ t }}" {% if t == current_theme %}selected{% endif %}>{{ t.title() }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit">Update theme</button>
+</form>
+
+<p>To view Garmin connection health or reconnect, see the <a href="/dashboard">dashboard</a>'s sync-status panel
+   or go directly to the <a href="/onboarding/connect">connect page</a>.</p>
+{% endblock %}

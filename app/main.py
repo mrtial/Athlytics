@@ -63,6 +63,7 @@ def create_app(data_dir: Path) -> FastAPI:
     from app.routes import dashboard as dashboard_routes
     from app.routes import data_sources as data_sources_routes
     from app.routes import onboarding as onboarding_routes
+    from app.routes import settings as settings_routes
     from app.routes import sync_status as sync_status_routes
 
     app.include_router(auth_routes.router)
@@ -70,6 +71,7 @@ def create_app(data_dir: Path) -> FastAPI:
     app.include_router(data_sources_routes.router)
     app.include_router(sync_status_routes.router)
     app.include_router(dashboard_routes.router)
+    app.include_router(settings_routes.router)
 
     @app.get("/")
     def root_placeholder():

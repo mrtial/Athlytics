@@ -137,3 +137,61 @@ def test_onboarding_theme_post_sets_theme_and_redirects_to_connect(app, client):
     conn = connect(app.state.db_path)
     ensure_app_schema(conn)
     assert get_theme(conn) == "dark"
+
+
+def test_settings_get_requires_admin_login(client):
+    response = client.get("/settings", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_settings_get_shows_current_persona_and_theme(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "strength_general_fitness"})
+    client.post("/onboarding/theme", data={"theme": "dark"})
+
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    assert "strength_general_fitness" in response.text
+    assert "dark" in response.text
+
+
+def test_settings_post_persona_updates_and_redirects(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.post(
+        "/settings/persona", data={"persona": "endurance_runner"}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings"
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    assert get_persona(conn) == "endurance_runner"
+
+
+def test_settings_post_theme_updates_and_redirects(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.post("/settings/theme", data={"theme": "dark"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    assert get_theme(conn) == "dark"
+
+
+def test_settings_post_persona_rejects_unknown_value(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.post("/settings/persona", data={"persona": "not_real"})
+
+    assert response.status_code == 400
