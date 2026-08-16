@@ -8,6 +8,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
+  <script>
+    (function() {
+      const serverTheme = "{{ theme|default('') }}";
+      if (serverTheme) {
+        document.documentElement.setAttribute("data-theme", serverTheme);
+        localStorage.setItem("athlytics_theme", serverTheme);
+      } else {
+        const localTheme = localStorage.getItem("athlytics_theme");
+        if (localTheme) document.documentElement.setAttribute("data-theme", localTheme);
+      }
+    })();
+  </script>
 </head>
 <body>
   <header class="app-header">

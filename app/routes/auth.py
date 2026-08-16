@@ -4,6 +4,7 @@ from fastapi.responses import RedirectResponse
 from app.auth import authenticate_admin
 from app.dependencies import get_conn
 from app.session import SESSION_COOKIE_NAME, SESSION_LIFETIME, create_session, delete_session
+from app.settings import DEFAULT_THEME, get_theme
 
 router = APIRouter()
 
@@ -24,9 +25,12 @@ def clear_session_cookie(response) -> None:
 
 
 @router.get("/login")
-def login_form(request: Request):
+def login_form(request: Request, conn=Depends(get_conn)):
     templates = request.app.state.templates
-    return templates.TemplateResponse(request=request, name="login.html", context={"error": None})
+    theme = get_theme(conn) or DEFAULT_THEME
+    return templates.TemplateResponse(
+        request=request, name="login.html", context={"error": None, "theme": theme}
+    )
 
 
 @router.post("/login")
@@ -37,11 +41,12 @@ def login_submit(
     conn=Depends(get_conn),
 ):
     templates = request.app.state.templates
+    theme = get_theme(conn) or DEFAULT_THEME
     if not authenticate_admin(conn, username, password):
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"error": "Invalid username or password."},
+            context={"error": "Invalid username or password.", "theme": theme},
             status_code=401,
         )
 

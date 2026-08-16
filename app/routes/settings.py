@@ -26,6 +26,7 @@ router = APIRouter()
 @router.get("/settings")
 def settings_page(request: Request, conn=Depends(require_admin_page)):
     templates = request.app.state.templates
+    theme = get_theme(conn) or DEFAULT_THEME
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
@@ -35,7 +36,8 @@ def settings_page(request: Request, conn=Depends(require_admin_page)):
             "themes": THEMES,
             "units": UNITS,
             "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-            "current_theme": get_theme(conn) or DEFAULT_THEME,
+            "current_theme": theme,
+            "theme": theme,
             "current_unit": get_unit(conn) or DEFAULT_UNIT,
             "athlete_name": get_athlete_name(conn),
             "athlete_age": get_athlete_age(conn),
@@ -68,6 +70,7 @@ def settings_update_unit(
     try:
         set_unit(conn, unit)
     except ValueError as exc:
+        theme = get_theme(conn) or DEFAULT_THEME
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
@@ -77,7 +80,8 @@ def settings_update_unit(
                 "themes": THEMES,
                 "units": UNITS,
                 "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-                "current_theme": get_theme(conn) or DEFAULT_THEME,
+                "current_theme": theme,
+                "theme": theme,
                 "current_unit": get_unit(conn) or DEFAULT_UNIT,
                 "athlete_name": get_athlete_name(conn),
                 "athlete_age": get_athlete_age(conn),
@@ -97,6 +101,7 @@ def settings_update_persona(request: Request, persona: str = Form(...), conn=Dep
     try:
         set_persona(conn, persona)
     except ValueError as exc:
+        theme = get_theme(conn) or DEFAULT_THEME
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
@@ -106,7 +111,8 @@ def settings_update_persona(request: Request, persona: str = Form(...), conn=Dep
                 "themes": THEMES,
                 "units": UNITS,
                 "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-                "current_theme": get_theme(conn) or DEFAULT_THEME,
+                "current_theme": theme,
+                "theme": theme,
                 "current_unit": get_unit(conn) or DEFAULT_UNIT,
                 "athlete_name": get_athlete_name(conn),
                 "athlete_age": get_athlete_age(conn),
@@ -126,6 +132,7 @@ def settings_update_theme(request: Request, theme: str = Form(...), conn=Depends
     try:
         set_theme(conn, theme)
     except ValueError as exc:
+        current_theme = get_theme(conn) or DEFAULT_THEME
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
@@ -135,7 +142,8 @@ def settings_update_theme(request: Request, theme: str = Form(...), conn=Depends
                 "themes": THEMES,
                 "units": UNITS,
                 "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-                "current_theme": get_theme(conn) or DEFAULT_THEME,
+                "current_theme": current_theme,
+                "theme": current_theme,
                 "current_unit": get_unit(conn) or DEFAULT_UNIT,
                 "athlete_name": get_athlete_name(conn),
                 "athlete_age": get_athlete_age(conn),

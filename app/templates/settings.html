@@ -8,99 +8,156 @@
   </div>
 </div>
 
-<!-- 1. Athlete Profile Card -->
-<div class="settings-card">
-  <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem;">
-    <div class="app-icon" style="width: 32px; height: 32px; font-size: 1rem; border-radius: var(--radius-sm);">👤</div>
-    <h2 class="section-title" style="margin: 0;">Athlete Profile</h2>
-  </div>
-  {% if profile_error %}<div class="error-banner">{{ profile_error }}</div>{% endif %}
-  <form method="post" action="/settings/profile">
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; max-width: 600px;">
-      <div class="form-group">
-        <label class="form-label" for="athlete-name">Athlete Full Name</label>
-        <input class="form-input" type="text" id="athlete-name" name="athlete_name" value="{{ athlete_name }}" placeholder="Charlie Yang" required>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="athlete-age">Age</label>
-        <input class="form-input" type="number" id="athlete-age" name="athlete_age" value="{{ athlete_age }}" placeholder="28" min="1" max="120">
+<div class="settings-grid">
+  <!-- Card 1: Athlete Profile -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">👤</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Athlete Profile</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Display name &amp; age on header</span>
       </div>
     </div>
-    <button type="submit" class="btn-primary" style="width: auto; margin-top: 0.5rem; padding: 0.65rem 1.25rem;">Save Profile</button>
-  </form>
-</div>
-
-<!-- 2. Unit Preferences Card -->
-<div class="settings-card">
-  <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem;">
-    <div class="app-icon" style="width: 32px; height: 32px; font-size: 1rem; border-radius: var(--radius-sm);">📏</div>
-    <h2 class="section-title" style="margin: 0;">Distance &amp; Units</h2>
+    {% if profile_error %}<div class="error-banner">{{ profile_error }}</div>{% endif %}
+    <form method="post" action="/settings/profile" style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+      <div>
+        <div class="form-group">
+          <label class="form-label" for="athlete-name">Full Name</label>
+          <input class="form-input" type="text" id="athlete-name" name="athlete_name" value="{{ athlete_name }}" placeholder="Charlie Yang" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="athlete-age">Age</label>
+          <input class="form-input" type="number" id="athlete-age" name="athlete_age" value="{{ athlete_age }}" placeholder="28" min="1" max="120">
+        </div>
+      </div>
+      <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.65rem 1rem;">Save Profile</button>
+    </form>
   </div>
-  {% if unit_error %}<div class="error-banner">{{ unit_error }}</div>{% endif %}
-  <form method="post" action="/settings/unit">
-    <div class="form-group" style="max-width: 440px;">
-      <label class="form-label" for="unit-select">Preferred Distance Unit</label>
-      <select class="form-input" id="unit-select" name="unit">
-        <option value="km" {% if current_unit == "km" %}selected{% endif %}>Kilometers (km) — Metric</option>
-        <option value="mi" {% if current_unit == "mi" %}selected{% endif %}>Miles (mi) — Imperial</option>
-      </select>
+
+  <!-- Card 2: Distance & Units -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">📏</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Distance &amp; Units</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Preferred measurement system</span>
+      </div>
     </div>
-    <button type="submit" class="btn-primary" style="width: auto; margin-top: 0.5rem; padding: 0.65rem 1.25rem;">Update Units</button>
-  </form>
-</div>
-
-<!-- 3. Persona Card -->
-<div class="settings-card">
-  <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem;">
-    <div class="app-icon" style="width: 32px; height: 32px; font-size: 1rem; border-radius: var(--radius-sm);">🏃</div>
-    <h2 class="section-title" style="margin: 0;">Athlete Persona</h2>
+    {% if unit_error %}<div class="error-banner">{{ unit_error }}</div>{% endif %}
+    <form method="post" action="/settings/unit" style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+      <div>
+        <div class="form-group">
+          <label class="form-label" for="unit-select">Distance Unit</label>
+          <select class="form-input" id="unit-select" name="unit">
+            <option value="km" {% if current_unit == "km" %}selected{% endif %}>Kilometers (km) — Metric</option>
+            <option value="mi" {% if current_unit == "mi" %}selected{% endif %}>Miles (mi) — Imperial</option>
+          </select>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--fg-muted); margin-top: 0.5rem; line-height: 1.4;">
+          Converts all workout volume and distances across your dashboard to your chosen unit.
+        </p>
+      </div>
+      <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.65rem 1rem;">Update Units</button>
+    </form>
   </div>
-  {% if persona_error %}<div class="error-banner">{{ persona_error }}</div>{% endif %}
-  <form method="post" action="/settings/persona">
-    <div class="form-group" style="max-width: 440px;">
-      <label class="form-label" for="persona-select">Active Dashboard Persona</label>
-      <select class="form-input" id="persona-select" name="persona">
-        {% for p in personas %}
-        <option value="{{ p }}" {% if p == current_persona %}selected{% endif %}>{{ p.replace('_', ' ').title() }}</option>
-        {% endfor %}
-      </select>
+
+  <!-- Card 3: Appearance & Theme -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🎨</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Appearance</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Light or dark visual theme</span>
+      </div>
     </div>
-    <button type="submit" class="btn-primary" style="width: auto; margin-top: 0.5rem; padding: 0.65rem 1.25rem;">Update Persona</button>
-  </form>
-</div>
-
-<!-- 4. Theme Card -->
-<div class="settings-card">
-  <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.25rem;">
-    <div class="app-icon" style="width: 32px; height: 32px; font-size: 1rem; border-radius: var(--radius-sm);">🎨</div>
-    <h2 class="section-title" style="margin: 0;">Appearance &amp; Theme</h2>
+    {% if theme_error %}<div class="error-banner">{{ theme_error }}</div>{% endif %}
+    <form method="post" action="/settings/theme" style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+      <div>
+        <div class="form-group">
+          <label class="form-label" for="theme-select">Interface Theme</label>
+          <select class="form-input" id="theme-select" name="theme">
+            {% for t in themes %}
+            <option value="{{ t }}" {% if t == current_theme %}selected{% endif %}>{{ t.title() }} Mode</option>
+            {% endfor %}
+          </select>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--fg-muted); margin-top: 0.5rem; line-height: 1.4;">
+          Applies globally across all dashboard, settings, and authentication views.
+        </p>
+      </div>
+      <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.65rem 1rem;">Update Theme</button>
+    </form>
   </div>
-  {% if theme_error %}<div class="error-banner">{{ theme_error }}</div>{% endif %}
-  <form method="post" action="/settings/theme">
-    <div class="form-group" style="max-width: 440px;">
-      <label class="form-label" for="theme-select">Interface Theme</label>
-      <select class="form-input" id="theme-select" name="theme">
-        {% for t in themes %}
-        <option value="{{ t }}" {% if t == current_theme %}selected{% endif %}>{{ t.title() }} Mode</option>
-        {% endfor %}
-      </select>
+
+  <!-- Card 4: Athlete Persona -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🏃</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Dashboard Persona</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Focus area &amp; default widgets</span>
+      </div>
     </div>
-    <button type="submit" class="btn-primary" style="width: auto; margin-top: 0.5rem; padding: 0.65rem 1.25rem;">Update Theme</button>
-  </form>
-</div>
-
-<!-- 5. Garmin Connection Card -->
-<div class="settings-card">
-  <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem;">
-    <div class="app-icon" style="width: 32px; height: 32px; font-size: 1rem; border-radius: var(--radius-sm);">🔗</div>
-    <h2 class="section-title" style="margin: 0;">Garmin Data Integration</h2>
+    {% if persona_error %}<div class="error-banner">{{ persona_error }}</div>{% endif %}
+    <form method="post" action="/settings/persona" style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+      <div>
+        <div class="form-group">
+          <label class="form-label" for="persona-select">Active Persona</label>
+          <select class="form-input" id="persona-select" name="persona">
+            {% for p in personas %}
+            <option value="{{ p }}" {% if p == current_persona %}selected{% endif %}>{{ p.replace('_', ' ').title() }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--fg-muted); margin-top: 0.5rem; line-height: 1.4;">
+          Configures primary telemetry metrics shown on the 7-day dashboard overview.
+        </p>
+      </div>
+      <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.65rem 1rem;">Update Persona</button>
+    </form>
   </div>
-  <p style="color: var(--fg-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">
-    To monitor background synchronization, review metrics, or reconnect with updated credentials:
-  </p>
-  <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-    <a href="/dashboard" class="btn-primary" style="width: auto; margin: 0; text-decoration: none; padding: 0.65rem 1.25rem;">View Dashboard Sync Panel</a>
-    <a href="/onboarding/connect" class="btn-logout" style="text-decoration: none; padding: 0.65rem 1.25rem; font-size: 0.95rem;">Reconnect Garmin Account</a>
+
+  <!-- Card 5: Garmin Integration -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🔗</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Garmin Integration</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Data connection &amp; auth</span>
+      </div>
+    </div>
+    <div style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+      <div>
+        <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.45;">
+          Monitor real-time background synchronization health, check metric checkpoints, or reconnect with updated credentials.
+        </p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+        <a href="/dashboard" class="btn-primary" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; margin: 0;">View Dashboard Sync</a>
+        <a href="/onboarding/connect" class="btn-logout" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; font-size: 0.85rem;">Reconnect Garmin Account</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Card 6: Privacy & Data Security -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🔒</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Data &amp; Security</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Privacy-first storage architecture</span>
+      </div>
+    </div>
+    <div style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+      <div>
+        <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
+          All health records are stored strictly on your local machine in SQLite. Credentials are AES-128-CBC / HMAC encrypted at rest.
+        </p>
+      </div>
+      <div style="padding: 0.65rem 0.85rem; background: var(--surface-secondary); border-radius: var(--radius-md); border: 1px solid var(--border); font-size: 0.75rem; color: var(--fg-muted); line-height: 1.4;">
+        <span style="color: var(--success); font-weight: 700;">●</span> <strong>Self-Hosted:</strong> Zero telemetry or external cloud sync.
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}

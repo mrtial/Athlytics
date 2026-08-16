@@ -878,16 +878,39 @@ html[data-theme="dark"] select:focus {
 }
 
 /* ==========================================================================
-   Settings Views
+   Settings Views (3 Cards Per Row Grid)
    ========================================================================== */
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1.5rem;
+  align-items: stretch;
+  margin-bottom: 3rem;
+}
 
 .settings-card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 2rem;
+  padding: 1.5rem;
   box-shadow: var(--shadow-sm);
-  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+}
+
+.settings-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-md);
+}
+
+.settings-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
 .settings-row {
@@ -897,6 +920,12 @@ html[data-theme="dark"] select:focus {
 /* ==========================================================================
    Responsive Breakpoints
    ========================================================================== */
+
+@media (max-width: 1024px) {
+  .settings-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 
 @media (max-width: 768px) {
   .app-header {
@@ -914,5 +943,8 @@ html[data-theme="dark"] select:focus {
   .top-bar-row {
     flex-direction: column;
     align-items: flex-start;
+  }
+  .settings-grid {
+    grid-template-columns: 1fr;
   }
 }
