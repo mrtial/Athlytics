@@ -75,9 +75,14 @@ def main() -> None:
     print("\nConnecting to Garmin Connect SSO...")
     print("If an MFA code is sent to your email or phone, enter it when prompted below.\n")
 
+    def prompt_mfa_callback() -> str:
+        print("\n📩 Garmin MFA Challenge Triggered!")
+        code = input("Enter the verification code sent to your email/phone: ").strip()
+        return code
+
     try:
-        # return_on_mfa=False enables interactive terminal prompt for MFA code
-        client = Garmin(email, password, return_on_mfa=False)
+        # prompt_mfa provides the interactive input callable for entering the MFA code
+        client = Garmin(email, password, prompt_mfa=prompt_mfa_callback)
         client.login(str(token_cache_dir))
 
         # Save credentials to credential store if not already saved
