@@ -63,3 +63,10 @@ def test_sync_status_route_surfaces_auth_error(app, client):
     response = client.get("/api/sync-status")
 
     assert response.json()["auth_error"] == "Garmin requires an MFA code to complete login"
+
+
+def test_sync_trigger_route_triggers_background_scheduler(client):
+    _login(client)
+    response = client.post("/api/sync/trigger")
+    assert response.status_code == 200
+    assert response.json() == {"status": "triggered"}

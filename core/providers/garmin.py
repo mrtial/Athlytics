@@ -102,12 +102,24 @@ class GarminProvider:
         return readings
 
     @staticmethod
-    def _parse_resting_hr(raw: list[dict]) -> list[MetricReading]:
-        """Map get_rhr_daily()'s response to MetricReading list."""
+    def _parse_resting_hr(raw: list[dict] | dict) -> list[MetricReading]:
+        """Map get_rhr_daily() or get_rhr_day() response to MetricReading list."""
+        if isinstance(raw, dict):
+            metric_list = (
+                raw.get("allMetrics", {}).get("metricsMap", {}).get("WELLNESS_RESTING_HEART_RATE")
+                or raw.get("allMetrics", {}).get("metricsMap", {}).get("RESTING_HEART_RATE")
+                or []
+            )
+            if not metric_list and raw.get("restingHeartRate") is not None:
+                cdate = raw.get("calendarDate") or raw.get("statisticsStartDate")
+                if cdate:
+                    metric_list = [{"calendarDate": cdate, "value": raw.get("restingHeartRate")}]
+            raw = metric_list
+
         readings = []
         for entry in raw:
             calendar_date = entry.get("calendarDate")
-            rhr_value = entry.get("restingHeartRate")
+            rhr_value = entry.get("restingHeartRate") or entry.get("value")
             if calendar_date is None or rhr_value is None:
                 continue
             readings.append(
@@ -122,16 +134,24 @@ class GarminProvider:
         return readings
 
     def _fetch_resting_hr(self, start: date, end: date) -> list[MetricReading]:
-        raw = self._call(self._client.get_rhr_daily, start.isoformat(), end.isoformat())
-        return self._parse_resting_hr(raw)
+        if hasattr(self._client, "get_rhr_daily"):
+            raw = self._call(self._client.get_rhr_daily, start.isoformat(), end.isoformat())
+            return self._parse_resting_hr(raw)
+        return self._fetch_single_day_metric(
+            self._client.get_rhr_day, lambda r, d: self._parse_resting_hr(r), start, end
+        )
 
     @staticmethod
     def _parse_hrv(raw: dict | None) -> list[MetricReading]:
-        """Map get_hrv_data_range()'s response to MetricReading list.
-        Returns [] if raw is None (no HRV data in the requested range)."""
-        if raw is None:
+        """Map get_hrv_data_range() or get_hrv_data() response to MetricReading list."""
+        if raw is None or not isinstance(raw, dict):
             return []
-        entries = raw.get("hrvSummaries") or []
+        entries = raw.get("hrvSummaries")
+        if entries is None and "hrvSummary" in raw:
+            entries = [raw["hrvSummary"]] if raw["hrvSummary"] else []
+        elif entries is None:
+            entries = []
+
         readings = []
         for entry in entries:
             calendar_date = entry.get("calendarDate")
@@ -150,17 +170,26 @@ class GarminProvider:
         return readings
 
     def _fetch_hrv(self, start: date, end: date) -> list[MetricReading]:
-        raw = self._call(self._client.get_hrv_data_range, start.isoformat(), end.isoformat())
-        return self._parse_hrv(raw)
+        if hasattr(self._client, "get_hrv_data_range"):
+            raw = self._call(self._client.get_hrv_data_range, start.isoformat(), end.isoformat())
+            return self._parse_hrv(raw)
+        return self._fetch_single_day_metric(
+            self._client.get_hrv_data, lambda r, d: self._parse_hrv(r), start, end
+        )
 
     @staticmethod
-    def _parse_vo2max(raw: dict) -> list[MetricReading]:
-        """Map get_max_metrics_range()'s response to MetricReading list."""
-        entries = raw.get("generic") or []
+    def _parse_vo2max(raw: dict | list) -> list[MetricReading]:
+        """Map get_max_metrics_range() or get_max_metrics() response to MetricReading list."""
+        if not raw:
+            return []
+        if isinstance(raw, dict):
+            entries = raw.get("generic") or [raw]
+        else:
+            entries = raw
         readings = []
         for entry in entries:
             calendar_date = entry.get("calendarDate")
-            vo2max_value = entry.get("vo2MaxValue")
+            vo2max_value = entry.get("vo2MaxValue") or entry.get("vo2MaxPreciseValue")
             if calendar_date is None or vo2max_value is None:
                 continue
             readings.append(
@@ -175,8 +204,12 @@ class GarminProvider:
         return readings
 
     def _fetch_vo2max(self, start: date, end: date) -> list[MetricReading]:
-        raw = self._call(self._client.get_max_metrics_range, start.isoformat(), end.isoformat())
-        return self._parse_vo2max(raw)
+        if hasattr(self._client, "get_max_metrics_range"):
+            raw = self._call(self._client.get_max_metrics_range, start.isoformat(), end.isoformat())
+            return self._parse_vo2max(raw)
+        return self._fetch_single_day_metric(
+            self._client.get_max_metrics, lambda r, d: self._parse_vo2max(r), start, end
+        )
 
     @staticmethod
     def _parse_body_battery(raw: list[dict]) -> list[MetricReading]:
@@ -237,12 +270,21 @@ class GarminProvider:
         return self._parse_weight(raw)
 
     @staticmethod
-    def _parse_sleep(raw: list[dict]) -> list[MetricReading]:
-        """Map get_sleep_daily()'s response to MetricReading list."""
+    def _parse_sleep(raw: list[dict] | dict) -> list[MetricReading]:
+        """Map get_sleep_daily() or get_sleep_data() response to MetricReading list."""
+        if not raw:
+            return []
+        if isinstance(raw, dict):
+            dto = raw.get("dailySleepDTO") or raw
+            raw = [dto]
         readings = []
         for entry in raw:
             calendar_date = entry.get("calendarDate")
-            overall_score_obj = entry.get("overallSleepScore")
+            overall_score_obj = (
+                entry.get("overallSleepScore")
+                or entry.get("sleepScores", {}).get("overall")
+                or entry.get("sleepScore")
+            )
             if isinstance(overall_score_obj, dict):
                 sleep_score = overall_score_obj.get("value")
             else:
@@ -261,8 +303,12 @@ class GarminProvider:
         return readings
 
     def _fetch_sleep(self, start: date, end: date) -> list[MetricReading]:
-        raw = self._call(self._client.get_sleep_daily, start.isoformat(), end.isoformat())
-        return self._parse_sleep(raw)
+        if hasattr(self._client, "get_sleep_daily"):
+            raw = self._call(self._client.get_sleep_daily, start.isoformat(), end.isoformat())
+            return self._parse_sleep(raw)
+        return self._fetch_single_day_metric(
+            self._client.get_sleep_data, lambda r, d: self._parse_sleep(r), start, end
+        )
 
     @staticmethod
     def _parse_steps(raw: list[dict], day: date) -> list[MetricReading]:
@@ -343,9 +389,19 @@ class GarminProvider:
     @staticmethod
     def _parse_training_load(raw: dict, day: date) -> list[MetricReading]:
         """Map get_training_status()'s response to MetricReading list."""
+        if not raw or not isinstance(raw, dict):
+            return []
         value = raw.get("trainingLoad")
         if value is None and isinstance(raw.get("mostRecentTrainingStatus"), dict):
-            value = raw["mostRecentTrainingStatus"].get("trainingLoad")
+            status_dict = raw["mostRecentTrainingStatus"]
+            value = status_dict.get("trainingLoad")
+            if value is None and isinstance(status_dict.get("latestTrainingStatusData"), dict):
+                for dev_data in status_dict["latestTrainingStatusData"].values():
+                    if isinstance(dev_data, dict):
+                        acute_dto = dev_data.get("acuteTrainingLoadDTO") or {}
+                        value = acute_dto.get("dailyTrainingLoadAcute") or dev_data.get("weeklyTrainingLoad")
+                        if value is not None:
+                            break
         if value is None:
             return []
         return [

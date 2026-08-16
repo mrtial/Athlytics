@@ -223,3 +223,15 @@ async def test_action_write_tools_contract(tmp_path, monkeypatch):
         )
         assert res_note.is_error is not True
         assert res_note.structured_content["category"] == "injury"
+
+
+@pytest.mark.anyio
+async def test_sync_garmin_data_tool_raises_when_credentials_not_found(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("sync_garmin_data", {"days": 7})
+
+    assert result.is_error is True

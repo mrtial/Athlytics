@@ -230,6 +230,34 @@ def log_coach_note(
         return repository.save_coach_note(conn, coach_note)
 
 
+@mcp.tool()
+def sync_garmin_data(days: int = 30) -> dict[str, str]:
+    """Trigger an immediate incremental sync from Garmin Connect to pull latest health and workout data into Athlytics."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "garmin_credentials.enc"
+    token_cache_dir = data_dir / "garmin_tokens"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Garmin credentials not found. Please connect your Garmin account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.garmin import GarminProvider
+    from core.scheduler.sync import sync_all_metrics
+    from datetime import date as dt_date, timedelta
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = GarminProvider(store, token_cache_dir)
+
+    end_date = dt_date.today()
+    start_date = end_date - timedelta(days=days)
+
+    with _connection() as conn:
+        return sync_all_metrics(conn, provider, backfill_start=start_date, end=end_date)
+
+
 # ---------------------------------------------------------------------------
 # Dynamic Context Resources
 # ---------------------------------------------------------------------------
