@@ -67,6 +67,7 @@ class GarminProvider:
             "stress": self._fetch_stress,
             "respiration": self._fetch_respiration,
             "spo2": self._fetch_spo2,
+            "training_load": self._fetch_training_load,
         }
 
     def _fetch_single_day_metric(
@@ -326,6 +327,27 @@ class GarminProvider:
 
     def _fetch_spo2(self, start: date, end: date) -> list[MetricReading]:
         return self._fetch_single_day_metric(self._client.get_spo2_data, self._parse_spo2, start, end)
+
+    @staticmethod
+    def _parse_training_load(raw: dict, day: date) -> list[MetricReading]:
+        """Map get_training_status()'s response to MetricReading list."""
+        value = raw.get("trainingLoad")
+        if value is None and isinstance(raw.get("mostRecentTrainingStatus"), dict):
+            value = raw["mostRecentTrainingStatus"].get("trainingLoad")
+        if value is None:
+            return []
+        return [
+            MetricReading(
+                source="garmin",
+                metric_type="training_load",
+                timestamp=datetime.combine(day, time.min),
+                value=float(value),
+                unit="load",
+            )
+        ]
+
+    def _fetch_training_load(self, start: date, end: date) -> list[MetricReading]:
+        return self._fetch_single_day_metric(self._client.get_training_status, self._parse_training_load, start, end)
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())

@@ -276,3 +276,12 @@ def test_parse_spo2_produces_one_daily_percent_reading():
     assert len(readings) == 1
     _assert_valid_reading(readings[0], "spo2", "percent")
     assert 0.0 <= readings[0].value <= 100.0
+
+
+def test_parse_training_load_produces_one_daily_reading():
+    raw = _load_fixture("get_training_status")
+
+    readings = GarminProvider._parse_training_load(raw, date(2026, 1, 1))
+
+    assert len(readings) == 1
+    _assert_valid_reading(readings[0], "training_load", "load")
