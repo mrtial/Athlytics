@@ -362,3 +362,31 @@ def test_fetch_activity_metric_caches_one_call_across_all_three_metric_types(tmp
     provider.fetch("activity_calories", date(2026, 1, 1), date(2026, 1, 7))
 
     assert provider._client.get_activities_by_date_calls == 1
+
+
+def test_supported_metric_types_covers_all_v1_metrics(tmp_path):
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
+
+    assert sorted(provider.supported_metric_types()) == sorted(
+        [
+            "resting_hr",
+            "hrv",
+            "vo2max",
+            "body_battery",
+            "weight",
+            "sleep_score",
+            "steps",
+            "stress",
+            "respiration",
+            "spo2",
+            "training_load",
+            "race_predictor_5k",
+            "race_predictor_10k",
+            "race_predictor_half_marathon",
+            "race_predictor_marathon",
+            "activity_duration",
+            "activity_distance",
+            "activity_calories",
+        ]
+    )
