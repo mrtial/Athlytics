@@ -326,3 +326,39 @@ def test_fetch_race_predictor_caches_one_call_across_all_four_metric_types(tmp_p
     provider.fetch("race_predictor_10k", date(2026, 1, 1), date(2026, 1, 7))
 
     assert provider._client.get_race_predictions_calls == 1
+
+
+def test_parse_activities_produces_three_metric_types_per_activity():
+    raw = _load_fixture("get_activities_by_date")
+
+    readings = GarminProvider._parse_activities(raw)
+
+    assert len(readings) > 0
+    metric_types = {r.metric_type for r in readings}
+    assert metric_types == {"activity_duration", "activity_distance", "activity_calories"}
+    for reading in readings:
+        assert reading.source == "garmin"
+        assert reading.timestamp.tzinfo is None
+        assert isinstance(reading.value, float)
+
+
+def test_fetch_activity_metric_caches_one_call_across_all_three_metric_types(tmp_path):
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    raw = _load_fixture("get_activities_by_date")
+
+    class _ActivitiesClient(_StubGarminClient):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self.get_activities_by_date_calls = 0
+
+        def get_activities_by_date(self, startdate, enddate):
+            self.get_activities_by_date_calls += 1
+            return raw
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_ActivitiesClient)
+
+    provider.fetch("activity_duration", date(2026, 1, 1), date(2026, 1, 7))
+    provider.fetch("activity_distance", date(2026, 1, 1), date(2026, 1, 7))
+    provider.fetch("activity_calories", date(2026, 1, 1), date(2026, 1, 7))
+
+    assert provider._client.get_activities_by_date_calls == 1

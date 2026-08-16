@@ -57,6 +57,7 @@ class GarminProvider:
             )
 
         self._race_predictor_cache: dict[tuple[date, date], list[MetricReading]] = {}
+        self._activities_cache: dict[tuple[date, date], list[MetricReading]] = {}
 
         self._registry: dict[str, Callable[[date, date], list[MetricReading]]] = {
             "resting_hr": self._fetch_resting_hr,
@@ -76,6 +77,9 @@ class GarminProvider:
                 "race_predictor_half_marathon", s, e
             ),
             "race_predictor_marathon": lambda s, e: self._fetch_race_predictor("race_predictor_marathon", s, e),
+            "activity_duration": lambda s, e: self._fetch_activity_metric("activity_duration", s, e),
+            "activity_distance": lambda s, e: self._fetch_activity_metric("activity_distance", s, e),
+            "activity_calories": lambda s, e: self._fetch_activity_metric("activity_calories", s, e),
         }
 
     def _fetch_single_day_metric(
@@ -398,6 +402,51 @@ class GarminProvider:
             )
             self._race_predictor_cache[cache_key] = self._parse_race_predictions(raw)
         return [r for r in self._race_predictor_cache[cache_key] if r.metric_type == metric_type]
+
+    @staticmethod
+    def _parse_activities(raw: list[dict]) -> list[MetricReading]:
+        """Map get_activities_by_date()'s response to MetricReading list:
+        3 metric types (duration/distance/calories) per activity."""
+        readings = []
+        for activity in raw:
+            raw_start = activity.get("startTimeGMT") or activity.get("startTimeLocal")
+            if raw_start is None:
+                continue
+            if isinstance(raw_start, str):
+                ts = datetime.fromisoformat(raw_start)
+                if ts.tzinfo is not None:
+                    ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                ts = raw_start
+
+            duration_raw = activity.get("duration")
+            distance_raw = activity.get("distance")
+            calories_raw = activity.get("calories")
+
+            if duration_raw is not None:
+                readings.append(
+                    MetricReading(
+                        "garmin", "activity_duration", ts, float(duration_raw) / 60.0, "minutes"
+                    )
+                )
+            if distance_raw is not None:
+                readings.append(
+                    MetricReading(
+                        "garmin", "activity_distance", ts, float(distance_raw) / 1000.0, "km"
+                    )
+                )
+            if calories_raw is not None:
+                readings.append(
+                    MetricReading("garmin", "activity_calories", ts, float(calories_raw), "kcal")
+                )
+        return readings
+
+    def _fetch_activity_metric(self, metric_type: str, start: date, end: date) -> list[MetricReading]:
+        cache_key = (start, end)
+        if cache_key not in self._activities_cache:
+            raw = self._call(self._client.get_activities_by_date, start.isoformat(), end.isoformat())
+            self._activities_cache[cache_key] = self._parse_activities(raw)
+        return [r for r in self._activities_cache[cache_key] if r.metric_type == metric_type]
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())
