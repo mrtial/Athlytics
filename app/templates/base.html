@@ -29,7 +29,9 @@
     </a>
     {% if authenticated %}
     <nav class="header-nav">
-      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/dashboard" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
+      <a href="/coach" class="nav-link{% if active_page == 'coach' %} active{% endif %}">Coach</a>
+      <a href="/training-plans" class="nav-link{% if active_page == 'training_plans' %} active{% endif %}">Training Plans</a>
 
       <!-- Athlete User Chip Dropdown Menu -->
       <div class="user-chip-dropdown-wrapper">
@@ -46,7 +48,6 @@
 
         <div class="user-dropdown-menu" id="user-dropdown-menu">
           <a href="/settings" class="dropdown-item">{{ feather_icon('settings') }}<span>Settings</span></a>
-          <a href="/dashboard" class="dropdown-item">{{ feather_icon('grid') }}<span>Dashboard</span></a>
           <div class="dropdown-divider"></div>
           <form method="post" action="/logout" class="dropdown-form">
             <button type="submit" class="dropdown-item logout-item">{{ feather_icon('log-out') }}<span>Log out</span></button>

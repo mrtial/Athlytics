@@ -49,5 +49,6 @@ def dashboard_page(request: Request, conn=Depends(require_admin_page)):
             "athlete_age": athlete_age,
             "today_formatted": today_formatted,
             "authenticated": True,
+            "active_page": "dashboard",
         },
     )

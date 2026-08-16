@@ -1338,6 +1338,389 @@ html[data-theme="dark"] select:focus {
 }
 
 /* ==========================================================================
+   Coach & Training Plans
+   ========================================================================== */
+
+.coach-notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.coach-note-card {
+  padding: 1.25rem 1.35rem;
+}
+
+.coach-note-text {
+  color: var(--fg);
+  font-size: 0.88rem;
+  line-height: 1.6;
+  margin: 0.75rem 0 0;
+}
+
+.plan-card {
+  margin-bottom: 1.5rem;
+}
+
+.plan-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.plan-goal-desc {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  line-height: 1.55;
+  margin: 0.6rem 0 1rem;
+}
+
+.plan-subsection-title {
+  margin: 1.75rem 0 0.85rem;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+
+/* Stat row */
+
+.plan-stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.plan-stat {
+  background: var(--surface);
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.plan-stat-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.plan-stat-value {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.plan-stat-value.accent {
+  color: var(--accent-lime-hover);
+}
+
+/* Weekly rhythm */
+
+.plan-rhythm {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.5rem;
+}
+
+.plan-rhythm-day {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 0.65rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 72px;
+}
+
+.plan-rhythm-day.rest {
+  background: var(--surface-secondary);
+  border-style: dashed;
+}
+
+.plan-rhythm-day.long {
+  border-color: var(--accent-lime-hover);
+  box-shadow: inset 0 0 0 1px var(--accent-lime-hover);
+}
+
+.plan-rhythm-dname {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.plan-rhythm-drole {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.plan-rhythm-day.rest .plan-rhythm-drole {
+  color: var(--fg-muted);
+  font-weight: 500;
+}
+
+/* Phase timeline */
+
+.plan-timeline-bar {
+  display: flex;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.plan-timeline-seg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  min-height: 46px;
+  padding: 0.3rem 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--fg-muted);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.plan-timeline-seg:last-child {
+  border-right: none;
+}
+
+.plan-timeline-seg.phase-1 {
+  background: var(--accent-lime-soft);
+  color: var(--fg);
+}
+
+.plan-timeline-seg.phase-2 {
+  background: var(--accent-blue-soft);
+  color: var(--accent-blue);
+}
+
+.plan-timeline-seg.taper {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.plan-timeline-weeks {
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.plan-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+.plan-legend-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  background: var(--accent-lime-soft);
+}
+
+.plan-legend-dot.phase-2 {
+  background: var(--accent-blue-soft);
+}
+
+.plan-legend-dot.taper {
+  background: var(--warning-soft);
+}
+
+/* Week-by-week table */
+
+.plan-week-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.plan-week-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  min-width: 760px;
+}
+
+.plan-week-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.plan-week-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg);
+  vertical-align: top;
+}
+
+.plan-week-table tbody tr:hover td {
+  background: var(--surface-secondary);
+}
+
+.plan-phase-row td {
+  background: var(--surface-secondary);
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  padding: 0.5rem 0.75rem;
+}
+
+.plan-phase-dates {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 0.35rem;
+}
+
+.plan-week-num {
+  font-weight: 800;
+  color: var(--fg-muted);
+}
+
+.plan-week-dates {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.plan-day-cell {
+  display: table-cell;
+}
+
+.plan-day-mi {
+  display: block;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+
+.plan-day-note {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+  white-space: normal;
+}
+
+.plan-total-cell .plan-day-mi {
+  color: var(--fg);
+  font-size: 0.88rem;
+}
+
+.plan-race-row td {
+  background: var(--accent-lime-soft);
+}
+
+.plan-race-cell .plan-day-mi {
+  color: var(--accent-lime-hover);
+  font-size: 0.95rem;
+}
+
+.plan-flag {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.plan-flag.cutback {
+  background: var(--accent-blue-soft);
+  color: var(--accent-blue);
+}
+
+.plan-flag.key {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.plan-flag.taper {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.plan-flag.race,
+.plan-flag.transition {
+  background: var(--accent-lime-soft);
+  color: var(--fg);
+}
+
+.plan-flag.on-track {
+  background: var(--surface-secondary);
+  color: var(--fg-muted);
+}
+
+.plan-flag.ahead {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.plan-flag.behind {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.plan-flag.caution {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.plan-current-row td {
+  background: var(--accent-blue-soft);
+}
+
+.plan-target-value {
+  font-size: 1.7rem;
+}
+
+.plan-target-notes {
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 0.5rem 0 0.75rem;
+}
+
+/* ==========================================================================
    Responsive Breakpoints
    ========================================================================== */
 

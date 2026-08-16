@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+{% block title %}Training Plans — Athlytics{% endblock %}
+{% block content %}
+
+<div class="dashboard-hero">
+  <div>
+    <h1 class="dashboard-hero-title">Training Plans</h1>
+  </div>
+</div>
+
+<section>
+  <div class="section-header">
+    <h2 class="section-title">
+      <span>Plans</span>
+    </h2>
+  </div>
+
+  {% if plans_view %}
+  {% for item in plans_view %}
+  <div class="widget-card plan-card">
+    <div class="card-top">
+      <h3 class="plan-title">{{ item.plan.title }}</h3>
+      <span class="delta-badge {% if item.plan.status == 'active' %}delta-positive{% else %}delta-neutral{% endif %}">{{ item.plan.status.title() }}</span>
+    </div>
+    <p class="plan-goal-desc">{{ item.plan.goal_description }}</p>
+
+    {% if item.stats %}
+    <div class="plan-stat-row">
+      {% for stat in item.stats %}
+      <div class="plan-stat">
+        <span class="plan-stat-label">{{ stat.label }}</span>
+        <span class="plan-stat-value{% if stat.accent %} accent{% endif %}">{{ stat.value }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="card-bottom">
+      <span class="sample-count">{{ item.start_label }} &rarr; {{ item.target_label }}</span>
+    </div>
+    {% endif %}
+
+    {% if item.rhythm %}
+    <h4 class="plan-subsection-title">The Weekly Rhythm</h4>
+    <div class="plan-rhythm">
+      {% for day in item.rhythm %}
+      <div class="plan-rhythm-day{% if day.is_rest %} rest{% endif %}{% if day.is_long %} long{% endif %}">
+        <span class="plan-rhythm-dname">{{ day.day }}</span>
+        <span class="plan-rhythm-drole">{{ day.role }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if item.timeline %}
+    <h4 class="plan-subsection-title">Phase Overview</h4>
+    <div class="plan-timeline-bar">
+      {% for seg in item.timeline.segments %}
+      <div class="plan-timeline-seg {{ seg.color_class }}" style="flex:{{ seg.week_count }};" title="{{ seg.name }} (Weeks {{ seg.weeks_label }})">
+        <span>{{ seg.name }}</span>
+        <span class="plan-timeline-weeks">Wk {{ seg.weeks_label }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="plan-timeline-legend">
+      {% for entry in item.timeline.legend %}
+      <span><span class="plan-legend-dot {{ entry.color_class }}"></span>{{ entry.label }} &mdash; {{ entry.date_range_label }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if item.week_table %}
+    <h4 class="plan-subsection-title">Week by Week</h4>
+    <div class="plan-week-table-wrap">
+      <table class="plan-week-table">
+        <thead>
+          <tr>
+            <th>Wk</th>
+            <th>Dates</th>
+            {% for day in item.week_table.training_days %}
+            <th>{{ day }}</th>
+            {% endfor %}
+            <th>Total</th>
+            <th>Flag</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in item.week_table.rows %}
+          {% if row.kind == 'divider' %}
+          <tr class="plan-phase-row">
+            <td colspan="{{ item.week_table.training_days|length + 4 }}">
+              {{ row.phase_name }}
+              {% if row.date_range_label %}<span class="plan-phase-dates">&middot; {{ row.date_range_label }}</span>{% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr class="{% if row.is_race_week %}plan-race-row{% endif %}{% if row.is_current %} plan-current-row{% endif %}">
+            <td class="plan-week-num">
+              {{ row.week }}
+              {% if row.is_current %}<span class="plan-day-note">This week</span>{% endif %}
+            </td>
+            <td class="plan-week-dates">{{ row.dates_label }}</td>
+            {% for cell in row.cells %}
+            <td class="plan-day-cell{% if row.is_race_week and cell.day == 'Sun' %} plan-race-cell{% endif %}">
+              {% if cell.value is not none %}
+              <span class="plan-day-mi">{{ cell.value }}</span>
+              {% if cell.note %}<span class="plan-day-note">{{ cell.note }}</span>{% endif %}
+              {% else %}&mdash;{% endif %}
+            </td>
+            {% endfor %}
+            <td class="plan-day-cell plan-total-cell">
+              <span class="plan-day-mi">{{ row.total if row.total is not none else "—" }}</span>
+              {% if row.total_extra_label %}<span class="plan-day-note">{{ row.total_extra_label }}</span>{% endif %}
+              {% if row.actual_total is not none %}
+              <span class="plan-day-note">Actual: {{ row.actual_total }} mi</span>
+              {% endif %}
+              {% if row.actual_note %}<span class="plan-day-note">{{ row.actual_note }}</span>{% endif %}
+            </td>
+            <td>
+              {% if row.flag_label %}<span class="plan-flag {{ row.flag }}">{{ row.flag_label }}</span>{% endif %}
+              {% if row.verdict_label %}<span class="plan-flag {{ row.verdict_class }}">{{ row.verdict_label }}</span>{% endif %}
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="widget-card">
+    <p class="no-data-msg">No training plans yet.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

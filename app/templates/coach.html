@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Coach — Athlytics{% endblock %}
+{% block content %}
+
+<div class="dashboard-hero">
+  <div>
+    <h1 class="dashboard-hero-title">Coach</h1>
+  </div>
+</div>
+
+<section>
+  <div class="section-header">
+    <h2 class="section-title">
+      <span>Session Notes</span>
+    </h2>
+  </div>
+
+  {% if notes_view %}
+  <div class="coach-notes-list">
+    {% for item in notes_view %}
+    <div class="widget-card coach-note-card">
+      <div class="card-top">
+        <span class="section-tag">{{ item.note.category.replace('_', ' ').title() }}</span>
+        <span class="sample-count">{{ item.date_label }}</span>
+      </div>
+      <p class="coach-note-text">{{ item.note.note }}</p>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="widget-card">
+    <p class="no-data-msg">No coach sessions logged yet.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
