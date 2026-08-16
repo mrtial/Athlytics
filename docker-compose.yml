@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    image: athlytics:latest
+    container_name: athlytics
+    restart: unless-stopped
+    ports:
+      - "${ATHLYTICS_PORT:-8000}:8000"
+    volumes:
+      - athlytics_data:/data
+    environment:
+      ATHLYTICS_DATA_DIR: /data
+      ATHLYTICS_DB_PATH: /data/athlytics.db
+      ATHLYTICS_SECURE_COOKIES: "${ATHLYTICS_SECURE_COOKIES:-false}"
+
+volumes:
+  athlytics_data:
