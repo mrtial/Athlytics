@@ -5,3 +5,6 @@ __pycache__/
 *.db
 .env
 .claude
+*.enc
+.garmin_tokens/
+.pytest_cache/
