@@ -79,6 +79,7 @@ def create_app(data_dir: Path) -> FastAPI:
     app.state.token_cache_dir = token_cache_dir
     app.state.templates = TEMPLATES
     app.state.sync_scheduler = scheduler
+    app.state.pending_garmin_mfa = None
     from garminconnect import Garmin
 
     app.state.garmin_client_factory = Garmin

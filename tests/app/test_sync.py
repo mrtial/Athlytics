@@ -148,6 +148,30 @@ def test_perform_sync_pass_calls_sync_all_metrics_and_records_results(tmp_path, 
     assert metrics == {"resting_hr": "complete"}
 
 
+def test_perform_sync_pass_forwards_force_full_backfill_to_sync_all_metrics(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+    credential_store = CredentialStore(Fernet.generate_key(), tmp_path / "creds.enc")
+    credential_store.save({"email": "a@example.com", "password": "x"})
+
+    captured = {}
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, chunk_days=30, pace_seconds=0.0, **kwargs):
+        captured.update(kwargs)
+        return {"resting_hr": "complete"}
+
+    monkeypatch.setattr("app.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    perform_sync_pass(
+        db_path, credential_store, tmp_path / "tokens",
+        garmin_client_factory=_OneMetricClient, force_full_backfill=True,
+    )
+
+    assert captured.get("force_full_backfill") is True
+
+
 def test_background_sync_scheduler_trigger_runs_sync_fn_promptly():
     ran = threading.Event()
 

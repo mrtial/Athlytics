@@ -30,6 +30,27 @@ class GarminAuthError(Exception):
     """
 
 
+class GarminMfaRequired(GarminAuthError):
+    """Raised when Garmin's login stops for an MFA/2FA code.
+
+    Carries the live, partially-authenticated `Garmin` client and the
+    `client_state` its `resume_login(client_state, mfa_code)` needs to
+    finish -- that session state lives only on this in-memory object and
+    can't be reconstructed from credentials alone, so the caller (an HTTP
+    route) must keep it alive server-side between the request that
+    triggers this and the follow-up request carrying the user's code (see
+    complete_garmin_mfa).
+    """
+
+    def __init__(self, client, client_state):
+        super().__init__(
+            "Garmin requires an MFA/2FA code to complete login; enter the "
+            "code sent to your phone to finish connecting."
+        )
+        self.client = client
+        self.client_state = client_state
+
+
 class GarminProvider:
     name = "garmin"
 
@@ -47,17 +68,12 @@ class GarminProvider:
             credentials["email"], credentials["password"], return_on_mfa=True
         )
         try:
-            needs_mfa, _ = self._client.login(str(token_cache_dir))
+            needs_mfa, client_state = self._client.login(str(token_cache_dir))
         except GarminConnectAuthenticationError as exc:
             raise GarminAuthError(f"Garmin authentication failed: {exc}") from exc
 
         if needs_mfa:
-            raise GarminAuthError(
-                "Garmin requires an MFA code to complete login; headless sync "
-                "cannot prompt interactively. Reconnect the data source "
-                "interactively to complete MFA and refresh the cached session "
-                "token."
-            )
+            raise GarminMfaRequired(self._client, client_state)
 
         self._race_predictor_cache: dict[tuple[date, date], list[MetricReading]] = {}
         self._activities_cache: dict[tuple[date, date], list[MetricReading]] = {}
@@ -587,3 +603,18 @@ class GarminProvider:
             raise RateLimitError(str(exc)) from exc
         except GarminConnectAuthenticationError as exc:
             raise GarminAuthError(f"Garmin session was rejected: {exc}") from exc
+
+
+def complete_garmin_mfa(client: Garmin, client_state: object, mfa_code: str, token_cache_dir: Path) -> None:
+    """Finish a login that stopped for GarminMfaRequired, using the code the
+    user just entered. On success, persists the resulting session to
+    token_cache_dir so a fresh GarminProvider(...) construction right after
+    this (and every sync after that) picks it up from the token cache
+    instead of needing MFA again -- resume_login() itself doesn't write the
+    token cache, only a normal from-scratch login does.
+    """
+    try:
+        client.resume_login(client_state, mfa_code)
+    except GarminConnectAuthenticationError as exc:
+        raise GarminAuthError(f"Invalid or expired MFA code: {exc}") from exc
+    client.client.dump(str(token_cache_dir))

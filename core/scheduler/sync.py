@@ -20,15 +20,29 @@ def sync_all_metrics(
     pace_seconds: float = 0.0,
     max_retries: int = 3,
     sleep_fn: Callable[[float], None] = time.sleep,
+    force_full_backfill: bool = False,
 ) -> dict[str, str]:
+    """Sync every metric_type the provider supports from its checkpoint (or
+    backfill_start, if none yet) through end.
+
+    force_full_backfill=True ignores any existing checkpoint and starts
+    every metric_type back at backfill_start instead -- a deliberate,
+    manually-triggered "resync all history" action (Settings page / MCP
+    tool), distinct from the normal incremental sync that only ever moves
+    forward. Refetching already-synced days is safe: upsert_readings is
+    idempotent on (source, metric_type, timestamp).
+    """
     if chunk_days < 1:
         raise ValueError(f"chunk_days must be >= 1, got {chunk_days}")
 
     results: dict[str, str] = {}
 
     for metric_type in provider.supported_metric_types():
-        checkpoint = repository.get_checkpoint(conn, provider.name, metric_type)
-        cursor = checkpoint + timedelta(days=1) if checkpoint else backfill_start
+        if force_full_backfill:
+            cursor = backfill_start
+        else:
+            checkpoint = repository.get_checkpoint(conn, provider.name, metric_type)
+            cursor = checkpoint + timedelta(days=1) if checkpoint else backfill_start
 
         if cursor > end:
             results[metric_type] = "up_to_date"

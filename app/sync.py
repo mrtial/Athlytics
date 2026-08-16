@@ -63,6 +63,7 @@ def perform_sync_pass(
     credential_store: CredentialStore,
     token_cache_dir: Path,
     garmin_client_factory: Callable[..., Garmin] = Garmin,
+    force_full_backfill: bool = False,
 ) -> None:
     if credential_store.load() is None:
         return
@@ -83,6 +84,7 @@ def perform_sync_pass(
             date.today(),
             chunk_days=SYNC_CHUNK_DAYS,
             pace_seconds=SYNC_PACE_SECONDS,
+            force_full_backfill=force_full_backfill,
         )
         record_sync_run(conn, auth_error=None)
         record_metric_statuses(conn, results)

@@ -235,3 +235,39 @@ async def test_sync_garmin_data_tool_raises_when_credentials_not_found(tmp_path,
         result = await client.call_tool("sync_garmin_data", {"days": 7})
 
     assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_sync_garmin_data_tool_forwards_force_full_history(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+
+    secret_key_path = tmp_path / ".env"
+    credentials_path = tmp_path / "garmin_credentials.enc"
+    secret_key = get_or_create_secret_key(secret_key_path)
+    CredentialStore(secret_key, credentials_path).save({"email": "a@example.com", "password": "x"})
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+    captured = {}
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
+        captured.update(kwargs)
+        return {"resting_hr": "complete"}
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("sync_garmin_data", {"days": 7, "force_full_history": True})
+
+    assert result.is_error is not True
+    assert captured.get("force_full_backfill") is True

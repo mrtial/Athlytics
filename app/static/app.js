@@ -151,6 +151,44 @@ async function triggerManualSync(evt) {
   }
 }
 
+// Settings page: one-off, manually-triggered resync of a metric's entire
+// history (ignores checkpoints -- see /api/sync/full-history), distinct
+// from the routine "Sync Now" action which only ever fetches new data.
+// The server runs it in a background thread and responds immediately, so
+// this just confirms it started; actual progress shows up in the
+// Dashboard's sync status over the next several minutes.
+async function triggerFullHistorySync(evt) {
+  if (evt) evt.preventDefault();
+  const btn = document.getElementById("btn-full-history-sync");
+  const statusEl = document.getElementById("full-history-sync-status");
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `${ICONS.loader} Starting…`;
+  }
+
+  try {
+    const res = await fetch("/api/sync/full-history", { method: "POST" });
+    if (statusEl) {
+      statusEl.style.display = "block";
+      statusEl.textContent = res.ok
+        ? "Full history sync started -- this can take several minutes. Check the Dashboard's sync status for progress."
+        : "Couldn't start full history sync. Try again in a moment.";
+    }
+  } catch (err) {
+    console.error("Failed to trigger full history sync:", err);
+    if (statusEl) {
+      statusEl.style.display = "block";
+      statusEl.textContent = "Couldn't start full history sync. Try again in a moment.";
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Full History Sync";
+    }
+  }
+}
+
 function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = value;

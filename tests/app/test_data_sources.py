@@ -140,3 +140,105 @@ def test_connect_route_returns_400_with_message_on_bad_credentials(app, client):
 
     assert response.status_code == 400
     assert "authentication failed" in response.json()["detail"].lower()
+
+
+class _RouteMfaRequiredClient:
+    def __init__(self, email, password, return_on_mfa=False):
+        self.resume_login_calls = []
+        self.client = _RouteFakeInnerClient()
+
+    def login(self, tokenstore=None):
+        return (True, {"pending": "state"})
+
+    def resume_login(self, client_state, mfa_code):
+        self.resume_login_calls.append((client_state, mfa_code))
+        return (None, None)
+
+
+class _RouteFakeInnerClient:
+    def __init__(self):
+        self.dump_calls = []
+
+    def dump(self, path):
+        self.dump_calls.append(path)
+
+
+class _RouteMfaWrongCodeClient(_RouteMfaRequiredClient):
+    def resume_login(self, client_state, mfa_code):
+        from garminconnect import GarminConnectAuthenticationError
+
+        raise GarminConnectAuthenticationError("invalid MFA code")
+
+
+def test_connect_route_redirects_to_mfa_form_when_mfa_required(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    app.state.garmin_client_factory = _RouteMfaRequiredClient
+
+    response = client.post(
+        "/api/data-sources/garmin/connect",
+        data={"email": "athlete@example.com", "password": "hunter2"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/connect/mfa"
+    assert app.state.pending_garmin_mfa is not None
+    assert app.state.pending_garmin_mfa["client_state"] == {"pending": "state"}
+
+
+def test_mfa_form_get_redirects_to_connect_when_no_pending_challenge(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/onboarding/connect/mfa", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/connect"
+
+
+def test_mfa_form_get_renders_when_challenge_pending(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    app.state.pending_garmin_mfa = {"client": _RouteMfaRequiredClient("a", "b"), "client_state": {}}
+
+    response = client.get("/onboarding/connect/mfa")
+
+    assert response.status_code == 200
+    assert "code" in response.text.lower()
+
+
+def test_mfa_submit_completes_login_and_redirects_to_dashboard(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    stub_client = _RouteMfaRequiredClient("a", "b")
+    app.state.pending_garmin_mfa = {"client": stub_client, "client_state": {"pending": "state"}}
+    triggered = []
+    app.state.sync_scheduler.trigger = lambda: triggered.append(True)
+
+    response = client.post(
+        "/api/data-sources/garmin/mfa", data={"mfa_code": "123456"}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard"
+    assert stub_client.resume_login_calls == [({"pending": "state"}, "123456")]
+    assert stub_client.client.dump_calls == [str(app.state.token_cache_dir)]
+    assert app.state.pending_garmin_mfa is None
+    assert triggered == [True]
+
+
+def test_mfa_submit_with_no_pending_challenge_returns_400(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post("/api/data-sources/garmin/mfa", data={"mfa_code": "123456"})
+
+    assert response.status_code == 400
+
+
+def test_mfa_submit_with_wrong_code_returns_400_and_keeps_pending_state(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    stub_client = _RouteMfaWrongCodeClient("a", "b")
+    app.state.pending_garmin_mfa = {"client": stub_client, "client_state": {"pending": "state"}}
+
+    response = client.post("/api/data-sources/garmin/mfa", data={"mfa_code": "000000"})
+
+    assert response.status_code == 400
+    assert "mfa code" in response.json()["detail"].lower()
+    assert app.state.pending_garmin_mfa is not None

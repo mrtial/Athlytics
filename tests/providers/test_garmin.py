@@ -4,9 +4,20 @@ import pytest
 from cryptography.fernet import Fernet
 
 from core.providers.base import RateLimitError
-from core.providers.garmin import GarminAuthError, GarminProvider
+from core.providers.garmin import GarminAuthError, GarminMfaRequired, GarminProvider, complete_garmin_mfa
 from core.security.credentials import CredentialStore
 from core.storage.models import MetricReading
+
+
+class _FakeInnerClient:
+    """Stands in for Garmin.client (the garth-style session client), whose
+    .dump() persists the resumed session's tokens to token_cache_dir."""
+
+    def __init__(self):
+        self.dump_calls = []
+
+    def dump(self, path):
+        self.dump_calls.append(path)
 
 
 class _StubGarminClient:
@@ -15,17 +26,32 @@ class _StubGarminClient:
         self.password = password
         self.return_on_mfa = return_on_mfa
         self.login_calls = []
+        self.resume_login_calls = []
         self._needs_mfa = False
+        self._client_state = None
+        self.client = _FakeInnerClient()
 
     def login(self, tokenstore=None):
         self.login_calls.append(tokenstore)
-        return (self._needs_mfa, None)
+        return (self._needs_mfa, self._client_state)
+
+    def resume_login(self, client_state, mfa_code):
+        self.resume_login_calls.append((client_state, mfa_code))
+        return (None, None)
 
 
 class _MfaRequiredClient(_StubGarminClient):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self._needs_mfa = True
+        self._client_state = {"pending": "state"}
+
+
+class _MfaWrongCodeClient(_MfaRequiredClient):
+    def resume_login(self, client_state, mfa_code):
+        from garminconnect import GarminConnectAuthenticationError
+
+        raise GarminConnectAuthenticationError("invalid MFA code")
 
 
 class _LoginFailsClient(_StubGarminClient):
@@ -82,11 +108,35 @@ def test_init_raises_garmin_auth_error_when_login_fails(tmp_path):
         GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_LoginFailsClient)
 
 
-def test_init_raises_garmin_auth_error_when_mfa_required(tmp_path):
+def test_init_raises_garmin_mfa_required_carrying_client_and_state(tmp_path):
     store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
 
-    with pytest.raises(GarminAuthError, match="MFA"):
+    with pytest.raises(GarminMfaRequired, match="MFA") as exc_info:
         GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_MfaRequiredClient)
+
+    exc = exc_info.value
+    assert isinstance(exc, GarminAuthError)  # still catchable as the general auth-error case
+    assert isinstance(exc.client, _MfaRequiredClient)
+    assert exc.client_state == {"pending": "state"}
+
+
+def test_complete_garmin_mfa_resumes_login_and_persists_token_cache(tmp_path):
+    client = _MfaRequiredClient("a@example.com", "x", return_on_mfa=True)
+    token_dir = tmp_path / "tokens"
+
+    complete_garmin_mfa(client, {"pending": "state"}, "123456", token_dir)
+
+    assert client.resume_login_calls == [({"pending": "state"}, "123456")]
+    assert client.client.dump_calls == [str(token_dir)]
+
+
+def test_complete_garmin_mfa_raises_garmin_auth_error_on_invalid_code(tmp_path):
+    client = _MfaWrongCodeClient("a@example.com", "x", return_on_mfa=True)
+
+    with pytest.raises(GarminAuthError, match="Invalid or expired MFA code"):
+        complete_garmin_mfa(client, {"pending": "state"}, "000000", tmp_path / "tokens")
+
+    assert client.client.dump_calls == []
 
 
 def test_supported_metric_types_reflects_registered_parsers(tmp_path):

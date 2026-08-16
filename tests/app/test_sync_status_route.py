@@ -70,3 +70,24 @@ def test_sync_trigger_route_triggers_background_scheduler(client):
     response = client.post("/api/sync/trigger")
     assert response.status_code == 200
     assert response.json() == {"status": "triggered"}
+
+
+def test_full_history_sync_route_runs_perform_sync_pass_with_force_full_backfill(client, monkeypatch):
+    import threading
+
+    _login(client)
+    ran = threading.Event()
+    captured = {}
+
+    def fake_perform_sync_pass(*args, **kwargs):
+        captured.update(kwargs)
+        ran.set()
+
+    monkeypatch.setattr("app.routes.sync_status.perform_sync_pass", fake_perform_sync_pass)
+
+    response = client.post("/api/sync/full-history")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "started"}
+    assert ran.wait(timeout=2), "route should run perform_sync_pass in a background thread"
+    assert captured.get("force_full_backfill") is True

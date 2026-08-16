@@ -115,6 +115,37 @@ def test_backfill_paces_between_chunks_but_not_after_the_last_one(tmp_path):
     assert sleep_calls == [0.5]
 
 
+def test_force_full_backfill_refetches_from_backfill_start_ignoring_checkpoint(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 11)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+
+    sync_all_metrics(conn, provider, date(2026, 1, 6), date(2026, 1, 10))
+    provider.fetch_calls.clear()
+
+    results = sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 10), force_full_backfill=True
+    )
+
+    assert results == {"steps": "complete"}
+    assert provider.fetch_calls == [("steps", date(2026, 1, 1), date(2026, 1, 10))]
+    assert repository.get_readings(conn, "steps", date(2026, 1, 1), date(2026, 1, 10)) == readings
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 10)
+
+
+def test_normal_sync_after_forced_backfill_resumes_from_new_checkpoint(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 11)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 10), force_full_backfill=True)
+    provider.fetch_calls.clear()
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 10), force_full_backfill=False)
+
+    assert provider.fetch_calls == []
+
+
 def test_chunk_days_less_than_one_raises_value_error(tmp_path):
     conn = connect(tmp_path / "test.db")
     provider = FakeProvider(readings_by_metric={"steps": []})

@@ -111,3 +111,14 @@ def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
     return templates.TemplateResponse(
         request=request, name="onboarding_connect.html", context={"error": None, "theme": theme}
     )
+
+
+@router.get("/onboarding/connect/mfa")
+def onboarding_connect_mfa_form(request: Request, conn=Depends(require_admin_page)):
+    if not request.app.state.pending_garmin_mfa:
+        return RedirectResponse(url="/onboarding/connect", status_code=303)
+    templates = request.app.state.templates
+    theme = get_theme(conn) or DEFAULT_THEME
+    return templates.TemplateResponse(
+        request=request, name="onboarding_mfa.html", context={"error": None, "theme": theme}
+    )

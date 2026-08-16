@@ -129,12 +129,14 @@
     <div style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
       <div>
         <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.45;">
-          Monitor real-time background synchronization health, check metric checkpoints, or reconnect with updated credentials.
+          Monitor real-time background synchronization health, check metric checkpoints, or reconnect with updated credentials. Regular syncs only fetch new data since your last sync -- use Full History Sync to re-pull each metric's entire history (can take several minutes).
         </p>
       </div>
       <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-        <a href="/dashboard" class="btn-primary" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; margin: 0;">View Dashboard Sync</a>
+        <button type="button" class="btn-toggle-sync" id="btn-full-history-sync" onclick="triggerFullHistorySync(event)" style="width: 100%; justify-content: center; padding: 0.65rem 1rem; font-size: 0.85rem;">Full History Sync</button>
+        <p id="full-history-sync-status" style="font-size: 0.72rem; color: var(--fg-muted); margin: 0; line-height: 1.4; display: none;"></p>
         <a href="/onboarding/connect" class="btn-logout" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; font-size: 0.85rem;">Reconnect Garmin Account</a>
+        <a href="/dashboard" class="btn-primary" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; margin: 0;">View Dashboard Sync</a>
       </div>
     </div>
   </div>
