@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "athlytics": {
+      "command": "docker",
+      "args": ["exec", "-i", "athlytics", "python", "-m", "mcp_server.server"]
+    }
+  }
+}
