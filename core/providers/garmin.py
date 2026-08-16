@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Callable
 
@@ -56,7 +56,62 @@ class GarminProvider:
                 "token."
             )
 
-        self._registry: dict[str, Callable[[date, date], list[MetricReading]]] = {}
+        self._registry: dict[str, Callable[[date, date], list[MetricReading]]] = {
+            "resting_hr": self._fetch_resting_hr,
+            "hrv": self._fetch_hrv,
+        }
+
+    @staticmethod
+    def _parse_resting_hr(raw: list[dict]) -> list[MetricReading]:
+        """Map get_rhr_daily()'s response to MetricReading list."""
+        readings = []
+        for entry in raw:
+            calendar_date = entry.get("calendarDate")
+            rhr_value = entry.get("restingHeartRate")
+            if calendar_date is None or rhr_value is None:
+                continue
+            readings.append(
+                MetricReading(
+                    source="garmin",
+                    metric_type="resting_hr",
+                    timestamp=datetime.combine(date.fromisoformat(calendar_date), time.min),
+                    value=float(rhr_value),
+                    unit="bpm",
+                )
+            )
+        return readings
+
+    def _fetch_resting_hr(self, start: date, end: date) -> list[MetricReading]:
+        raw = self._call(self._client.get_rhr_daily, start.isoformat(), end.isoformat())
+        return self._parse_resting_hr(raw)
+
+    @staticmethod
+    def _parse_hrv(raw: dict | None) -> list[MetricReading]:
+        """Map get_hrv_data_range()'s response to MetricReading list.
+        Returns [] if raw is None (no HRV data in the requested range)."""
+        if raw is None:
+            return []
+        entries = raw.get("hrvSummaries") or []
+        readings = []
+        for entry in entries:
+            calendar_date = entry.get("calendarDate")
+            hrv_value = entry.get("lastNightAvg")
+            if calendar_date is None or hrv_value is None:
+                continue
+            readings.append(
+                MetricReading(
+                    source="garmin",
+                    metric_type="hrv",
+                    timestamp=datetime.combine(date.fromisoformat(calendar_date), time.min),
+                    value=float(hrv_value),
+                    unit="ms",
+                )
+            )
+        return readings
+
+    def _fetch_hrv(self, start: date, end: date) -> list[MetricReading]:
+        raw = self._call(self._client.get_hrv_data_range, start.isoformat(), end.isoformat())
+        return self._parse_hrv(raw)
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())

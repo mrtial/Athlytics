@@ -88,11 +88,11 @@ def test_init_raises_garmin_auth_error_when_mfa_required(tmp_path):
         GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_MfaRequiredClient)
 
 
-def test_supported_metric_types_starts_empty_before_any_parser_registered(tmp_path):
+def test_supported_metric_types_reflects_registered_parsers(tmp_path):
     store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
     provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
 
-    assert provider.supported_metric_types() == []
+    assert provider.supported_metric_types() == list(provider._registry.keys())
 
 
 def test_fetch_raises_value_error_for_unsupported_metric_type(tmp_path):
@@ -129,3 +129,45 @@ def test_call_maps_authentication_error_to_garmin_auth_error(tmp_path):
 
     with pytest.raises(GarminAuthError, match="session was rejected"):
         provider._call(provider._client.some_method)
+
+
+import json
+from pathlib import Path
+
+FIXTURE_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "garmin"
+
+
+def _load_fixture(name: str):
+    return json.loads((FIXTURE_DIR / f"{name}.json").read_text())
+
+
+def _assert_valid_reading(reading, metric_type, unit):
+    assert reading.source == "garmin"
+    assert reading.metric_type == metric_type
+    assert reading.unit == unit
+    assert reading.timestamp.tzinfo is None
+    assert isinstance(reading.value, float)
+
+
+def test_parse_resting_hr_produces_naive_utc_bpm_readings():
+    raw = _load_fixture("get_rhr_daily")
+
+    readings = GarminProvider._parse_resting_hr(raw)
+
+    assert len(readings) > 0
+    for reading in readings:
+        _assert_valid_reading(reading, "resting_hr", "bpm")
+
+
+def test_parse_hrv_produces_naive_utc_ms_readings():
+    raw = _load_fixture("get_hrv_data_range")
+
+    readings = GarminProvider._parse_hrv(raw)
+
+    assert len(readings) > 0
+    for reading in readings:
+        _assert_valid_reading(reading, "hrv", "ms")
+
+
+def test_parse_hrv_returns_empty_list_when_raw_is_none():
+    assert GarminProvider._parse_hrv(None) == []
