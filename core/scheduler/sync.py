@@ -1,16 +1,18 @@
 import logging
+import sqlite3
 import time
 from datetime import date, timedelta
 from typing import Callable
 
 from core.providers.base import Provider, RateLimitError
 from core.storage import repository
+from core.storage.models import MetricReading
 
 logger = logging.getLogger(__name__)
 
 
 def sync_all_metrics(
-    conn,
+    conn: sqlite3.Connection,
     provider: Provider,
     backfill_start: date,
     end: date,
@@ -19,6 +21,9 @@ def sync_all_metrics(
     max_retries: int = 3,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> dict[str, str]:
+    if chunk_days < 1:
+        raise ValueError(f"chunk_days must be >= 1, got {chunk_days}")
+
     results: dict[str, str] = {}
 
     for metric_type in provider.supported_metric_types():
@@ -53,7 +58,7 @@ def _fetch_with_backoff(
     end: date,
     max_retries: int,
     sleep_fn: Callable[[float], None],
-):
+) -> list[MetricReading]:
     attempt = 0
     delay = 1.0
     while True:

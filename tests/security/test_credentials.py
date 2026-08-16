@@ -37,3 +37,12 @@ def test_wrong_key_cannot_decrypt(tmp_path):
 
     with pytest.raises(InvalidToken):
         wrong_store.load()
+
+
+def test_saved_credential_file_has_restrictive_permissions(tmp_path):
+    path = tmp_path / "garmin_credentials.enc"
+    store = CredentialStore(Fernet.generate_key(), path)
+
+    store.save({"email": "a@example.com", "password": "x"})
+
+    assert oct(path.stat().st_mode)[-3:] == "600"

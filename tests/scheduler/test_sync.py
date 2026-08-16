@@ -1,5 +1,7 @@
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from core.providers.fake import FakeProvider
 from core.scheduler.sync import sync_all_metrics
 from core.storage import repository
@@ -111,3 +113,11 @@ def test_backfill_paces_between_chunks_but_not_after_the_last_one(tmp_path):
     )
 
     assert sleep_calls == [0.5]
+
+
+def test_chunk_days_less_than_one_raises_value_error(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = FakeProvider(readings_by_metric={"steps": []})
+
+    with pytest.raises(ValueError, match="chunk_days must be >= 1"):
+        sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5), chunk_days=0)

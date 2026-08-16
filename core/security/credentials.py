@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -12,6 +13,7 @@ class CredentialStore:
     def save(self, credentials: dict[str, str]) -> None:
         token = self._fernet.encrypt(json.dumps(credentials).encode("utf-8"))
         self._storage_path.write_bytes(token)
+        os.chmod(self._storage_path, 0o600)
 
     def load(self) -> dict[str, str] | None:
         if not self._storage_path.exists():
