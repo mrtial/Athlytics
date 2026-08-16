@@ -1,11 +1,13 @@
 import os
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 
 from app.db import ensure_app_schema
 from core.config import get_or_create_secret_key
@@ -15,7 +17,27 @@ from core.storage.db import connect
 from app.sync import BackgroundSyncScheduler, perform_sync_pass
 
 BASE_DIR = Path(__file__).resolve().parent
+FEATHER_ICON_DIR = BASE_DIR / "static" / "assets" / "feather"
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+
+@lru_cache(maxsize=None)
+def _feather_svg_source(name: str) -> str:
+    return (FEATHER_ICON_DIR / f"{name}.svg").read_text()
+
+
+def feather_icon(name: str, cls: str = "") -> Markup:
+    """Inline a Feather icon's SVG markup so its `stroke="currentColor"`
+    picks up the caller's CSS `color` (theming, hover, dark mode) -- an
+    `<img src=...>` reference can't do that, since image content isn't
+    styled by the page's CSS.
+    """
+    svg = _feather_svg_source(name)
+    css_class = f"icon icon-{name} {cls}".strip()
+    return Markup(svg.replace(f'class="feather feather-{name}"', f'class="{css_class}"'))
+
+
+TEMPLATES.env.globals["feather_icon"] = feather_icon
 
 
 def create_app(data_dir: Path) -> FastAPI:
@@ -67,6 +89,7 @@ def create_app(data_dir: Path) -> FastAPI:
     from app.routes import auth as auth_routes
     from app.routes import dashboard as dashboard_routes
     from app.routes import data_sources as data_sources_routes
+    from app.routes import metric_detail as metric_detail_routes
     from app.routes import onboarding as onboarding_routes
     from app.routes import settings as settings_routes
     from app.routes import sync_status as sync_status_routes
@@ -75,6 +98,7 @@ def create_app(data_dir: Path) -> FastAPI:
     app.include_router(onboarding_routes.router)
     app.include_router(data_sources_routes.router)
     app.include_router(sync_status_routes.router)
+    app.include_router(metric_detail_routes.router)
     app.include_router(dashboard_routes.router)
     app.include_router(settings_routes.router)
 

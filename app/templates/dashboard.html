@@ -5,46 +5,65 @@
 <div class="dashboard-hero">
   <div>
     <h1 class="dashboard-hero-title">Health Records &amp; Analytics</h1>
-    <div class="dashboard-hero-subtitle">
-      <span>Active Focus:</span>
-      <span class="persona-badge">{{ persona.replace('_', ' ').title() }}</span>
-      <span>&bull;</span>
-      <span style="font-size: 0.85rem; color: var(--fg-muted);">Unit: {{ unit|upper }}</span>
+  </div>
+
+  <!-- Combined Garmin Connect Live + Date Chip (Right Aligned) -->
+  <div id="sync-status" class="sync-header-wrapper" data-today="{{ today_formatted }}">
+    <div class="sync-status-pill">
+      <span class="pulse-dot"></span>
+      <div class="sync-pill-text">
+        <strong>Garmin Live</strong>
+        <span class="sync-pill-time">{{ feather_icon('bell') }}{{ today_formatted }}</span>
+      </div>
     </div>
   </div>
-  <div class="date-pill">
-    <span>🔔</span>
-    <span>{{ today_formatted }}</span>
-  </div>
 </div>
-
-{% include "_sync_status.html" %}
 
 <section>
   <div class="section-header">
     <h2 class="section-title">
       <span>Trends (7-day rolling average)</span>
     </h2>
-    <span class="section-tag">Rolling 7D Baseline</span>
   </div>
-  <div class="metrics-grid">
+  <div class="metrics-grid" id="metrics-grid">
+    <div class="widget-card metric-detail-panel" id="metric-detail-panel">
+      <div class="metric-detail-panel-header">
+        <div class="metric-pill" id="metric-detail-panel-icon"></div>
+        <h3 class="metric-label" id="metric-detail-panel-label">Select a metric</h3>
+        <div class="range-toggle" id="metric-detail-range-toggle">
+          <button type="button" class="range-btn is-active" data-days="7">7D</button>
+          <button type="button" class="range-btn" data-days="30">30D</button>
+          <button type="button" class="range-btn" data-days="90">90D</button>
+          <button type="button" class="range-btn" data-days="365">1Y</button>
+        </div>
+      </div>
+      <div class="metric-card-detail" id="metric-detail-panel-body">
+        <div class="chart-empty-state">Loading…</div>
+      </div>
+    </div>
     {% for metric_type, trend in widgets.trends.items() %}
-    <div class="widget-card">
+    <div class="widget-card metric-card"
+         data-metric-type="{{ metric_type }}"
+         data-metric-label="{{ metric_type.replace('_', ' ').title() }}"
+         tabindex="0" role="button" aria-pressed="false">
       <div class="card-top">
         <h3 class="metric-label">{{ metric_type.replace('_', ' ').title() }}</h3>
         <div class="metric-pill">
-          {% if 'hr' in metric_type or 'pulse' in metric_type %}❤️
-          {% elif 'sleep' in metric_type %}🌙
-          {% elif 'step' in metric_type or 'distance' in metric_type %}👟
-          {% elif 'load' in metric_type or 'vo2' in metric_type %}⚡
-          {% elif 'stress' in metric_type or 'hrv' in metric_type %}🧠
-          {% elif 'respiration' in metric_type %}🫁
-          {% elif 'calorie' in metric_type %}🔥
-          {% elif 'weight' in metric_type %}⚖️
-          {% else %}📊{% endif %}
+          {% if 'race_predictor' in metric_type %}{{ feather_icon('flag') }}
+          {% elif 'hr' in metric_type or 'pulse' in metric_type %}{{ feather_icon('heart') }}
+          {% elif 'sleep' in metric_type %}{{ feather_icon('moon') }}
+          {% elif 'step' in metric_type or 'distance' in metric_type %}{{ feather_icon('navigation') }}
+          {% elif 'load' in metric_type or 'vo2' in metric_type %}{{ feather_icon('zap') }}
+          {% elif 'stress' in metric_type or 'hrv' in metric_type %}{{ feather_icon('activity') }}
+          {% elif 'respiration' in metric_type %}{{ feather_icon('wind') }}
+          {% elif 'calorie' in metric_type %}{{ feather_icon('trending-up') }}
+          {% elif 'weight' in metric_type %}{{ feather_icon('disc') }}
+          {% elif 'battery' in metric_type %}{{ feather_icon('battery-charging') }}
+          {% elif 'spo2' in metric_type %}{{ feather_icon('droplet') }}
+          {% else %}{{ feather_icon('bar-chart-2') }}{% endif %}
         </div>
       </div>
-      
+
       <div class="metric-val-container">
         {% if trend.current.average is not none %}
         <div class="metric-value">
@@ -99,35 +118,5 @@
     </div>
     {% endfor %}
   </div>
-</section>
-
-<section>
-  <div class="section-header">
-    <h2 class="section-title">
-      <span>Statistical Anomalies</span>
-    </h2>
-    <span class="section-tag">&gt; 2.0σ Deviation</span>
-  </div>
-  {% if widgets.anomalies %}
-  <ul class="anomalies-list">
-    {% for anomaly in widgets.anomalies %}
-    <li class="anomaly-card">
-      <div class="anomaly-icon-badge">⚠️</div>
-      <div class="anomaly-content">
-        <h4 class="anomaly-title">{{ anomaly.metric_type.replace('_', ' ').title() }}</h4>
-        <p class="anomaly-desc">
-          <span class="anomaly-zscore">{{ "%.1f"|format(anomaly.z_score|abs) }}σ {{ anomaly.direction }}</span>
-          the {{ anomaly.baseline_window_days }}-day baseline on {{ anomaly.timestamp.date() }}
-          (recorded: <strong>{{ "%.1f"|format(anomaly.value) }}</strong>).
-        </p>
-      </div>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <div class="widget-card">
-    <p class="no-data-msg" style="margin: 0.5rem 0;">✨ All metrics are currently within normal baseline physiological parameters.</p>
-  </div>
-  {% endif %}
 </section>
 {% endblock %}

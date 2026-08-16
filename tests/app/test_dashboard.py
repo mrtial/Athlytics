@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from app.db import ensure_app_schema
-from app.widgets import build_dashboard_widgets
+from app.widgets import build_dashboard_widgets, build_metric_detail
 from core.storage import repository
 from core.storage.db import connect
 from core.storage.models import MetricReading
@@ -37,6 +37,42 @@ def test_build_dashboard_widgets_handles_metric_type_with_no_data(conn):
     widgets = build_dashboard_widgets(conn, ["hrv"], as_of=date(2026, 1, 7))
 
     assert widgets["trends"]["hrv"].current.average is None
+
+
+def test_build_metric_detail_returns_one_point_per_day_in_window(conn):
+    readings = [_reading("resting_hr", d, 50.0 + d, "bpm") for d in (1, 3, 7)]
+    repository.upsert_readings(conn, readings)
+
+    detail = build_metric_detail(conn, "resting_hr", days=7, as_of=date(2026, 1, 7))
+
+    assert detail["metric_type"] == "resting_hr"
+    assert detail["unit"] == "bpm"
+    assert [p["date"] for p in detail["points"]] == [
+        "2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04",
+        "2026-01-05", "2026-01-06", "2026-01-07",
+    ]
+    assert detail["points"][0]["value"] == 51.0
+    assert detail["points"][1]["value"] is None
+    assert detail["points"][2]["value"] == 53.0
+
+
+def test_build_metric_detail_averages_multiple_readings_on_same_day(conn):
+    same_day = [
+        MetricReading("garmin", "steps", datetime(2026, 1, 7, 8, 0), 100.0, "steps"),
+        MetricReading("garmin", "steps", datetime(2026, 1, 7, 20, 0), 200.0, "steps"),
+    ]
+    repository.upsert_readings(conn, same_day)
+
+    detail = build_metric_detail(conn, "steps", days=1, as_of=date(2026, 1, 7))
+
+    assert detail["points"] == [{"date": "2026-01-07", "value": 150.0}]
+
+
+def test_build_metric_detail_has_no_unit_when_no_readings_in_window(conn):
+    detail = build_metric_detail(conn, "hrv", days=7, as_of=date(2026, 1, 7))
+
+    assert detail["unit"] is None
+    assert all(p["value"] is None for p in detail["points"])
 
 
 def test_build_dashboard_widgets_includes_anomalies_across_requested_metric_types(conn):
