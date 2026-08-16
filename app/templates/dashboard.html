@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Athlytics{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+<p>Persona: {{ persona.replace('_', ' ').title() }}</p>
+
+{% include "_sync_status.html" %}
+
+<section>
+  <h2>Trends (7-day rolling average)</h2>
+  {% for metric_type, trend in widgets.trends.items() %}
+  <div class="widget-card">
+    <h3>{{ metric_type.replace('_', ' ').title() }}</h3>
+    {% if trend.current.average is not none %}
+    <p>Current average: {{ "%.1f"|format(trend.current.average) }} ({{ trend.current.sample_count }} readings)</p>
+    {% if trend.delta.percent_change is not none %}
+    <p>Change vs. previous period: {{ "%.1f"|format(trend.delta.percent_change) }}%</p>
+    {% endif %}
+    {% else %}
+    <p>No data yet for this metric.</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+<section>
+  <h2>Anomalies</h2>
+  {% if widgets.anomalies %}
+  <ul>
+    {% for anomaly in widgets.anomalies %}
+    <li>{{ anomaly.metric_type.replace('_', ' ').title() }} is {{ "%.1f"|format(anomaly.z_score|abs) }}
+      std devs {{ anomaly.direction }} your {{ anomaly.baseline_window_days }}-day baseline
+      ({{ anomaly.timestamp.date() }}: {{ "%.1f"|format(anomaly.value) }})</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>No anomalies detected.</p>
+  {% endif %}
+</section>
+{% endblock %}
