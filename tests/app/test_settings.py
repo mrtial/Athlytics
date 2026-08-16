@@ -195,3 +195,44 @@ def test_settings_post_persona_rejects_unknown_value(client):
     response = client.post("/settings/persona", data={"persona": "not_real"})
 
     assert response.status_code == 400
+
+
+def test_unit_settings_roundtrips(conn):
+    from app.settings import get_unit, set_unit
+    assert get_unit(conn) == "km"
+    set_unit(conn, "mi")
+    assert get_unit(conn) == "mi"
+
+
+def test_athlete_profile_settings_roundtrips(conn):
+    from app.settings import get_athlete_age, get_athlete_name, set_athlete_profile
+    set_athlete_profile(conn, "Charlie Yang", "28")
+    assert get_athlete_name(conn) == "Charlie Yang"
+    assert get_athlete_age(conn) == "28"
+
+
+def test_settings_post_unit_updates_and_redirects(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.post("/settings/unit", data={"unit": "mi"}, follow_redirects=False)
+    assert response.status_code == 303
+    from app.settings import get_unit
+    conn = connect(app.state.db_path)
+    assert get_unit(conn) == "mi"
+
+
+def test_settings_post_profile_updates_and_redirects(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.post(
+        "/settings/profile", data={"athlete_name": "Charlie Yang", "athlete_age": "28"}, follow_redirects=False
+    )
+    assert response.status_code == 303
+    from app.settings import get_athlete_age, get_athlete_name
+    conn = connect(app.state.db_path)
+    assert get_athlete_name(conn) == "Charlie Yang"
+    assert get_athlete_age(conn) == "28"

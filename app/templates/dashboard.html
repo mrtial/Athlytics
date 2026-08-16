@@ -1,12 +1,51 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Athlytics{% endblock %}
 {% block content %}
+
+<!-- Top Header Row Inspired by Mock (Athlete Profile Chip + Greeting + Date Pill) -->
+<div class="top-bar-row">
+  <!-- 1. Athlete Profile Pill -->
+  <div class="athlete-profile-chip">
+    <div class="athlete-avatar">
+      {{ athlete_name[:2].upper() if athlete_name else 'CY' }}
+    </div>
+    <div class="athlete-meta">
+      <span class="athlete-name">{{ athlete_name|default('Charlie Yang') }}</span>
+      <span class="athlete-sub">
+        {% if athlete_age %}Age {{ athlete_age }} &bull; {% endif %}{{ persona.replace('_', ' ').title() }}
+      </span>
+    </div>
+    <div class="athlete-badges">
+      <span>❤️</span>
+      <span>🏋️</span>
+      <span>✨</span>
+    </div>
+  </div>
+
+  <!-- 2. Personalized Welcome Header -->
+  <div class="welcome-group">
+    <span class="welcome-brand-mark">✳</span>
+    <div>
+      <h2 class="welcome-title">Hi {{ athlete_first_name|default('Athlete') }},</h2>
+      <p class="welcome-sub">Welcome to Athlytics</p>
+    </div>
+  </div>
+
+  <!-- 3. Date / Status Pill -->
+  <div class="date-pill">
+    <span>🔔</span>
+    <span>{{ today_formatted }}</span>
+  </div>
+</div>
+
 <div class="dashboard-hero">
   <div>
     <h1 class="dashboard-hero-title">Health Records &amp; Analytics</h1>
     <div class="dashboard-hero-subtitle">
-      <span>Athlete Persona:</span>
+      <span>Active Focus:</span>
       <span class="persona-badge">{{ persona.replace('_', ' ').title() }}</span>
+      <span>&bull;</span>
+      <span style="font-size: 0.85rem; color: var(--fg-muted);">Unit: {{ unit|upper }}</span>
     </div>
   </div>
 </div>
@@ -41,22 +80,38 @@
       <div class="metric-val-container">
         {% if trend.current.average is not none %}
         <div class="metric-value">
-          {{ "%.1f"|format(trend.current.average) }}
-          <span class="metric-unit">
-            {% if 'hr' in metric_type %}bpm
-            {% elif 'hrv' in metric_type %}ms
-            {% elif 'vo2' in metric_type %}ml/kg/min
-            {% elif 'battery' in metric_type or 'spo2' in metric_type %}%
-            {% elif 'distance' in metric_type %}km
-            {% elif 'duration' in metric_type %}min
-            {% elif 'calorie' in metric_type %}kcal
-            {% elif 'weight' in metric_type %}kg
-            {% elif 'respiration' in metric_type %}br/m
-            {% elif 'step' in metric_type %}steps
-            {% elif 'load' in metric_type %}load
-            {% elif 'score' in metric_type or 'stress' in metric_type %}score
-            {% else %}{% endif %}
-          </span>
+          {% if metric_type == 'activity_distance' and unit == 'mi' %}
+            {{ "%.2f"|format(trend.current.average * 0.621371) }}
+            <span class="metric-unit">mi</span>
+          {% elif 'race_predictor' in metric_type %}
+            {% set total_seconds = trend.current.average|int %}
+            {% set hours = total_seconds // 3600 %}
+            {% set minutes = (total_seconds % 3600) // 60 %}
+            {% set seconds = total_seconds % 60 %}
+            {% if hours > 0 %}
+              {{ "%d:%02d:%02d"|format(hours, minutes, seconds) }}
+            {% else %}
+              {{ "%d:%02d"|format(minutes, seconds) }}
+            {% endif %}
+            <span class="metric-unit">time</span>
+          {% else %}
+            {{ "%.1f"|format(trend.current.average) }}
+            <span class="metric-unit">
+              {% if 'hr' in metric_type %}bpm
+              {% elif 'hrv' in metric_type %}ms
+              {% elif 'vo2' in metric_type %}ml/kg/min
+              {% elif 'battery' in metric_type or 'spo2' in metric_type %}%
+              {% elif 'distance' in metric_type %}km
+              {% elif 'duration' in metric_type %}min
+              {% elif 'calorie' in metric_type %}kcal
+              {% elif 'weight' in metric_type %}kg
+              {% elif 'respiration' in metric_type %}br/m
+              {% elif 'step' in metric_type %}steps
+              {% elif 'load' in metric_type %}load
+              {% elif 'score' in metric_type or 'stress' in metric_type %}score
+              {% else %}{% endif %}
+            </span>
+          {% endif %}
         </div>
         {% else %}
         <p class="no-data-msg">No data yet for this metric.</p>

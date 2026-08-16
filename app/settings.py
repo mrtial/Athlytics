@@ -105,3 +105,32 @@ def set_theme(conn: sqlite3.Connection, theme: str) -> None:
     if theme not in THEMES:
         raise ValueError(f"unknown theme: {theme!r}")
     set_setting(conn, "theme", theme)
+
+
+UNITS: list[str] = ["km", "mi"]
+DEFAULT_UNIT = "km"
+DEFAULT_ATHLETE_NAME = "Charlie Yang"
+DEFAULT_ATHLETE_AGE = "28"
+
+
+def get_unit(conn: sqlite3.Connection) -> str:
+    return get_setting(conn, "unit") or DEFAULT_UNIT
+
+
+def set_unit(conn: sqlite3.Connection, unit: str) -> None:
+    if unit not in UNITS:
+        raise ValueError(f"unknown unit: {unit!r}")
+    set_setting(conn, "unit", unit)
+
+
+def get_athlete_name(conn: sqlite3.Connection) -> str:
+    return get_setting(conn, "athlete_name") or DEFAULT_ATHLETE_NAME
+
+
+def get_athlete_age(conn: sqlite3.Connection) -> str:
+    return get_setting(conn, "athlete_age") or DEFAULT_ATHLETE_AGE
+
+
+def set_athlete_profile(conn: sqlite3.Connection, name: str, age: str) -> None:
+    set_setting(conn, "athlete_name", name.strip() or DEFAULT_ATHLETE_NAME)
+    set_setting(conn, "athlete_age", age.strip())
