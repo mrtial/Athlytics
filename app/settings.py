@@ -1,12 +1,107 @@
-# app/settings.py -- minimal stub, replaced by Task 5
 import sqlite3
+
+PERSONAS: list[str] = [
+    "endurance_runner",
+    "strength_general_fitness",
+    "sleep_recovery_focus",
+    "full_overview",
+]
+
+THEMES: list[str] = ["light", "dark"]
+
+DEFAULT_PERSONA = "full_overview"
+DEFAULT_THEME = "light"
+
+# Every metric_type string below is one of GarminProvider's 18 registered
+# canonical types (core/providers/garmin.py's _registry, verified directly
+# against the merged Plan 2 code) -- analytics/dashboard widgets operate on
+# these generic metric_type strings, never Garmin-specific shapes.
+PERSONA_METRIC_TYPES: dict[str, list[str]] = {
+    "endurance_runner": [
+        "vo2max",
+        "resting_hr",
+        "hrv",
+        "training_load",
+        "race_predictor_5k",
+        "race_predictor_10k",
+        "race_predictor_half_marathon",
+        "race_predictor_marathon",
+    ],
+    "strength_general_fitness": [
+        "weight",
+        "steps",
+        "activity_calories",
+        "activity_duration",
+        "training_load",
+        "resting_hr",
+    ],
+    "sleep_recovery_focus": [
+        "sleep_score",
+        "hrv",
+        "body_battery",
+        "stress",
+        "resting_hr",
+        "respiration",
+    ],
+    "full_overview": [
+        "resting_hr",
+        "hrv",
+        "vo2max",
+        "body_battery",
+        "weight",
+        "sleep_score",
+        "steps",
+        "stress",
+        "respiration",
+        "spo2",
+        "training_load",
+        "race_predictor_5k",
+        "race_predictor_10k",
+        "race_predictor_half_marathon",
+        "race_predictor_marathon",
+        "activity_duration",
+        "activity_distance",
+        "activity_calories",
+    ],
+}
+
+
+def get_setting(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM app_setting WHERE key = ?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO app_setting (key, value) VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        (key, value),
+    )
+    conn.commit()
 
 
 def get_persona(conn: sqlite3.Connection) -> str | None:
-    row = conn.execute("SELECT value FROM app_setting WHERE key = 'persona'").fetchone()
-    return row[0] if row else None
+    """None until explicitly set -- app.dependencies.onboarding_status relies
+    on this to detect the persona onboarding step is still incomplete.
+    Does NOT fall back to DEFAULT_PERSONA (that default is only used to
+    pre-fill the settings form, Task 10)."""
+    return get_setting(conn, "persona")
 
 
 def get_theme(conn: sqlite3.Connection) -> str | None:
-    row = conn.execute("SELECT value FROM app_setting WHERE key = 'theme'").fetchone()
-    return row[0] if row else None
+    """Same contract as get_persona: None until explicitly set."""
+    return get_setting(conn, "theme")
+
+
+def set_persona(conn: sqlite3.Connection, persona: str) -> None:
+    if persona not in PERSONAS:
+        raise ValueError(f"unknown persona: {persona!r}")
+    set_setting(conn, "persona", persona)
+
+
+def set_theme(conn: sqlite3.Connection, theme: str) -> None:
+    if theme not in THEMES:
+        raise ValueError(f"unknown theme: {theme!r}")
+    set_setting(conn, "theme", theme)

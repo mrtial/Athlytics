@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Choose a Persona — Athlytics{% endblock %}
+{% block content %}
+<h1>Choose a persona</h1>
+<p>Controls which dashboard widgets are shown by default. Changeable later from Settings.</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/onboarding/persona">
+  <label><input type="radio" name="persona" value="endurance_runner" required> Endurance Runner</label><br>
+  <label><input type="radio" name="persona" value="strength_general_fitness"> Strength &amp; General Fitness</label><br>
+  <label><input type="radio" name="persona" value="sleep_recovery_focus"> Sleep &amp; Recovery Focus</label><br>
+  <label><input type="radio" name="persona" value="full_overview"> Full Overview</label><br>
+  <button type="submit">Continue</button>
+</form>
+{% endblock %}
