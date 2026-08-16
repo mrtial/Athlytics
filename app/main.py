@@ -12,23 +12,10 @@ from core.config import get_or_create_secret_key
 from core.security.credentials import CredentialStore
 from core.storage.db import connect
 
+from app.sync import BackgroundSyncScheduler, perform_sync_pass
+
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
-
-
-class _NullScheduler:
-    """Placeholder used until Task 6 replaces app.state.sync_scheduler with
-    the real BackgroundSyncScheduler. Keeps create_app() fully functional
-    (and its state shape stable) before Task 6 exists."""
-
-    def start(self) -> None:
-        pass
-
-    def trigger(self) -> None:
-        pass
-
-    def stop(self, timeout: float = 5.0) -> None:
-        pass
 
 
 def create_app(data_dir: Path) -> FastAPI:
@@ -46,7 +33,11 @@ def create_app(data_dir: Path) -> FastAPI:
 
     secret_key = get_or_create_secret_key(env_path)
     credential_store = CredentialStore(secret_key, credentials_path)
-    scheduler = _NullScheduler()
+
+    def sync_fn() -> None:
+        perform_sync_pass(db_path, credential_store, token_cache_dir)
+
+    scheduler = BackgroundSyncScheduler(sync_fn)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
