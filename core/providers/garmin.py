@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -13,6 +14,8 @@ from garminconnect import (
 from core.providers.base import RateLimitError
 from core.security.credentials import CredentialStore
 from core.storage.models import MetricReading
+
+logger = logging.getLogger(__name__)
 
 
 class GarminAuthError(Exception):
@@ -96,8 +99,14 @@ class GarminProvider:
         readings: list[MetricReading] = []
         day = start
         while day <= end:
-            raw = self._call(garmin_method, day.isoformat())
-            readings.extend(parse_fn(raw, day))
+            try:
+                raw = self._call(garmin_method, day.isoformat())
+                if raw:
+                    readings.extend(parse_fn(raw, day))
+            except (RateLimitError, GarminAuthError):
+                raise
+            except Exception as exc:
+                logger.debug("Skipping unrecorded/error day %s for %s: %s", day, getattr(garmin_method, "__name__", str(garmin_method)), exc)
             day += timedelta(days=1)
         return readings
 
@@ -234,10 +243,15 @@ class GarminProvider:
         )
 
     @staticmethod
-    def _parse_body_battery(raw: list[dict]) -> list[MetricReading]:
+    def _parse_body_battery(raw: list[dict] | dict) -> list[MetricReading]:
         """Map get_body_battery()'s response to MetricReading list."""
+        if not raw:
+            return []
+        if isinstance(raw, dict):
+            raw = [raw]
         readings = []
         for day_entry in raw:
+            # Legacy format: bodyBatteryValues
             intraday = day_entry.get("bodyBatteryValues") or []
             for point in intraday:
                 raw_timestamp = point.get("timestamp")
@@ -259,6 +273,23 @@ class GarminProvider:
                         unit="percent",
                     )
                 )
+
+            # Modern format: bodyBatteryValuesArray: [[epoch_ms, level], ...]
+            arr = day_entry.get("bodyBatteryValuesArray") or []
+            for item in arr:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    ts_ms, val = item[0], item[1]
+                    if val is not None and ts_ms is not None:
+                        ts = datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+                        readings.append(
+                            MetricReading(
+                                source="garmin",
+                                metric_type="body_battery",
+                                timestamp=ts,
+                                value=float(val),
+                                unit="percent",
+                            )
+                        )
         return readings
 
     def _fetch_body_battery(self, start: date, end: date) -> list[MetricReading]:
@@ -392,7 +423,14 @@ class GarminProvider:
     @staticmethod
     def _parse_spo2(raw: dict, day: date) -> list[MetricReading]:
         """Map get_spo2_data()'s response to MetricReading list."""
-        value = raw.get("averageSpO2") or raw.get("lastSevenDaysAvgSpO2")
+        if not raw or not isinstance(raw, dict):
+            return []
+        value = (
+            raw.get("averageSpO2")
+            or raw.get("avgSleepSpO2")
+            or raw.get("latestSpO2")
+            or raw.get("lastSevenDaysAvgSpO2")
+        )
         if value is None:
             return []
         return [
