@@ -1,49 +1,100 @@
 # Athlytics
 
-A self-hosted personal health and fitness analytics platform. It pulls data from
-wearable/health providers (Garmin Connect first), stores it permanently in a local
-database, computes trends and anomalies, and — eventually — exposes it through a web
-dashboard and an MCP server so you can ask an AI assistant natural-language questions
-about your own data.
+A self-hosted personal health and fitness analytics platform and actionable AI Coach. Athlytics pulls health, recovery, and workout data directly from wearable providers (Garmin Connect first), stores it permanently in a local SQLite database, calculates sports-science trends and statistical anomalies, and exposes both a responsive web dashboard and a bidirectional Model Context Protocol (MCP) server for AI assistants (Claude, Google Gemini).
 
-The core motivation: spot trends, track training progress, and catch abnormal
-patterns (recovery, sleep, HR, etc.) that aren't easily visible in the stock Garmin
-Connect app — without handing your Garmin credentials to a hosted third party.
+Athlytics gives you complete data ownership, local encrypted credential storage, and an evidence-based AI coach capable of reading recovery state and writing structured training plans and targets directly to your dashboard.
 
-Full design doc: [`docs/superpowers/specs/2026-08-16-athlytics-design.md`](docs/superpowers/specs/2026-08-16-athlytics-design.md)
+---
 
-## Status
+## Features
 
-This project is under active, incremental development. What exists today:
+- **Privacy-First & Self-Hosted**: All data is stored in a local SQLite database. Credentials are encrypted at rest with AES-128-CBC / HMAC-SHA256 (Fernet) keys generated on first run. Zero telemetry or third-party cloud dependence.
+- **Comprehensive Garmin Connect Ingestion**: Headless, resumable, rate-limit-aware synchronization across 18 canonical metric types:
+  - *Recovery & Wellness*: Resting Heart Rate, HRV, Sleep Score, Body Battery, Stress, Respiration, SpO2, Weight.
+  - *Training & Performance*: VO2 Max, Training Load, Race Predictions (5K, 10K, Half Marathon, Marathon).
+  - *Activities & Volume*: Steps, Activity Distance, Duration, Active Calories.
+- **Sports-Science Analytics**:
+  - Trailing rolling averages (7-day, 14-day, 30-day).
+  - Period-over-period delta and percentage change calculations.
+  - Statistical anomaly detection using 30-day rolling Gaussian baselines ($|z| \ge 2.0$).
+- **Responsive Web Dashboard (`app/`)**:
+  - Clean, modern UI with Dark, Light, and System themes.
+  - Athlete personas (`endurance_runner`, `cyclist`, `triathlete`, `general_fitness`).
+  - Live sync status panel with real-time polling and authentication error alerts.
+  - Interactive onboarding flow for admin creation, persona configuration, and data source connection.
+- **Actionable AI Coach & MCP Server (`mcp_server/`)**:
+  - **Living Context Resources**: `athlytics://athlete/snapshot`, `athlytics://training/current-state`, `athlytics://coach/context`.
+  - **8 Read Tools**: Query metric series, rolling trends, statistical anomalies, athlete targets, training plans, reports, and coaching logs.
+  - **5 Action / Write Tools**: `set_target`, `delete_target`, `save_training_plan`, `update_plan_status`, `log_coach_note`.
+  - **3 Workflow Prompts**: Readiness check-in (recovery-gated intensity), weekly review retrospective, and periodized training plan builder (10% volume progression rule & deloads).
+  - **Bundled Playbooks**: Pre-configured skills and system instructions for Claude Desktop, Claude Code, and Google Gemini.
 
-- ✅ **Core storage** — a canonical, provider-agnostic SQLite schema for metric
-  readings (`core/storage/`).
-- ✅ **Provider interface** — a pull-based `Provider` protocol any data source
-  implements (`core/providers/base.py`), plus a real **Garmin Connect adapter**
-  (`core/providers/garmin.py`) covering resting HR, HRV, sleep, VO2 max, body
-  battery, weight, steps, stress, respiration, SpO2, training load, race
-  predictions (5K/10K/half/marathon), and activity duration/distance/calories.
-- ✅ **Encrypted credential storage** — Garmin credentials are encrypted at rest
-  with a key generated on first run (`core/security/`, `core/config.py`).
-- ✅ **Sync orchestrator** — resumable, rate-limit-aware, per-metric-isolated
-  backfill and incremental sync (`core/scheduler/sync.py`).
-- ✅ **Analytics Engine** — rolling averages, deltas, and z-score anomaly detection (`core/analytics/`).
-- ✅ **Dashboard & API** — FastAPI web dashboard with onboarding, widgets, and background sync (`app/`).
-- ✅ **AI Coach & MCP Server** — actionable stdio MCP server with read/write tools, dynamic resources, and workflow prompts (`mcp_server/`).
-- ✅ **Docker Deployment** — single `docker compose up` deployment packaging the dashboard, scheduler, and on-demand MCP entrypoint (`Dockerfile`, `docker-compose.yml`).
+---
 
-Running the finished application is a single `docker compose up` -- see
-[`DEPLOYMENT.md`](DEPLOYMENT.md) for the full first-run runbook (secret
-provisioning, where your data lives, and how to point an AI client at the MCP
-server).
+## Quickstart with Docker
 
-## Requirements
+The fastest way to deploy Athlytics is using Docker Compose:
 
-- Python 3.11+
-- A Garmin Connect account (only needed if you want to sync real data — all tests
-  run against fakes/fixtures and need no credentials)
+```bash
+docker compose up -d --build
+```
 
-## Setup
+1. Open `http://localhost:8000` in your browser.
+2. Complete the initial onboarding: create your admin account, choose your persona/theme, and connect your Garmin credentials.
+3. The background sync worker starts immediately, pulling your historical data into local storage.
+
+See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the complete production runbook, data backup guides, and container configuration.
+
+---
+
+## Connecting Your AI Coach (MCP)
+
+Athlytics includes a Model Context Protocol (MCP) server running over `stdio`. Point your preferred AI client at your running container or local Python environment:
+
+### Claude Desktop
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "athlytics": {
+      "command": "docker",
+      "args": ["exec", "-i", "athlytics", "python", "-m", "mcp_server.server"]
+    }
+  }
+}
+```
+
+### Claude Code
+Run from the terminal:
+
+```bash
+claude mcp add athlytics -- docker exec -i athlytics python -m mcp_server.server
+```
+
+### Google Gemini CLI & Antigravity
+Add to your client's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "athlytics": {
+      "command": "docker",
+      "args": ["exec", "-i", "athlytics", "python", "-m", "mcp_server.server"]
+    }
+  }
+}
+```
+
+*For local (non-Docker) setup, bundled playbooks, and Gemini system instructions, see [`docs/coach/client-setup.md`](docs/coach/client-setup.md) and [`docs/coach/gemini-system-instructions.md`](docs/coach/gemini-system-instructions.md).*
+
+---
+
+## Local Development Setup
+
+### 1. Environment & Dependencies
+
+Requires Python 3.11+.
 
 ```bash
 python3 -m venv .venv
@@ -51,29 +102,31 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-## Running the tests
+### 2. Running the Web Application
 
 ```bash
-pytest
+uvicorn app.main:create_production_app --factory --reload --port 8000
 ```
 
-All storage, provider, security, and scheduler logic is tested against a real
-SQLite database and either a `FakeProvider` test double or fixture files captured
-from a real Garmin account (`tests/fixtures/garmin/`) — no network calls happen
-during the test run.
+### 3. Running the MCP Server
 
-## Configuration
+```bash
+python -m mcp_server.server
+```
 
-Copy `.env.example` to `.env` if you want to control where the encryption secret
-lives; otherwise one is generated automatically the first time
-`core.config.get_or_create_secret_key()` runs. The generated `.env` and any saved
-credential file are both written with `0600` permissions.
+### 4. Running the Test Suite
 
-## Usage
+```bash
+pytest -v
+```
 
-There's no CLI yet, so you drive the sync pipeline directly from Python. A minimal
-end-to-end example — connect a Garmin account, back-fill a date range, then read
-the data back out:
+The test suite covers unit tests, SQLite storage contracts, mock provider sync, Garmin response parsing, analytics algorithms, FastAPI route flows, and full MCP JSON-RPC protocol simulations (212+ tests, 100% offline).
+
+---
+
+## Python API Usage
+
+You can also use Athlytics directly as a Python library:
 
 ```python
 from datetime import date
@@ -85,72 +138,63 @@ from core.scheduler.sync import sync_all_metrics
 from core.security.credentials import CredentialStore
 from core.storage import repository
 from core.storage.db import connect
+from core.analytics import get_trend, detect_anomalies
 
-# 1. Set up encrypted credential storage and save your Garmin login once.
+# 1. Initialize encrypted credentials and connect to database
 secret_key = get_or_create_secret_key(Path(".env"))
 credential_store = CredentialStore(secret_key, Path("garmin_credentials.enc"))
-credential_store.save({"email": "you@example.com", "password": "your-garmin-password"})
-
-# 2. Connect to local storage.
 conn = connect(Path("athlytics.db"))
 
-# 3. Build the Garmin provider (logs in, caches the session token).
+# 2. Build provider & run sync
 provider = GarminProvider(credential_store, token_cache_dir=Path(".garmin_tokens"))
+results = sync_all_metrics(conn, provider, backfill_start=date(2026, 1, 1), end=date.today())
 
-# 4. Sync — resumable, paced, and isolated per metric type. Safe to re-run daily;
-#    it only fetches what's changed since the last run.
-results = sync_all_metrics(
-    conn,
-    provider,
-    backfill_start=date(2026, 1, 1),
-    end=date.today(),
-)
-print(results)  # e.g. {"resting_hr": "complete", "hrv": "complete", ...}
+# 3. Analyze rolling trends and recovery anomalies
+rhr_trend = get_trend(conn, "resting_hr", window_days=7)
+print(f"7-day Resting HR: {rhr_trend.current.average:.1f} bpm (delta: {rhr_trend.delta.absolute_change:+.1f})")
 
-# 5. Read the data back out.
-readings = repository.get_readings(conn, "resting_hr", date(2026, 1, 1), date.today())
-for r in readings:
-    print(r.timestamp.date(), r.value, r.unit)
+anomalies = detect_anomalies(conn, "resting_hr", baseline_window_days=30)
+for a in anomalies:
+    print(f"Flagged {a.timestamp.date()}: {a.value} bpm (z-score: {a.z_score:+.2f})")
 ```
 
-If your Garmin account has MFA enabled, `GarminProvider`'s construction will raise
-`GarminAuthError` asking you to complete an interactive login once (via the
-`garminconnect` library directly) to populate the cached session token before
-retrying headlessly.
+---
 
-### Capturing Garmin API fixtures (for development)
-
-If you're extending the Garmin adapter with a new metric, capture a real API
-response as a test fixture rather than guessing its shape:
-
-```bash
-python scripts/capture_garmin_fixtures.py --email you@example.com
-```
-
-You'll be prompted for your password interactively. This writes pretty-printed
-JSON into `tests/fixtures/garmin/`, safe to commit — it's your own health data on
-your own self-hosted instance, never your credentials.
-
-## Project layout
+## Project Structure
 
 ```
-core/
-  storage/      canonical metric_reading schema, repository, sync checkpoints
-  providers/    Provider protocol, FakeProvider (tests), GarminProvider (real)
-  security/     Fernet-encrypted credential storage
-  scheduler/    resumable/paced/per-metric-isolated sync orchestrator
-  config.py     encryption secret bootstrap
-scripts/
-  capture_garmin_fixtures.py   one-off script to capture real API responses
-tests/
-  fixtures/garmin/             captured real Garmin API responses
-docs/
-  superpowers/specs/           design doc
-  superpowers/plans/           implementation plans, one per subsystem
+athlytics/
+├── core/
+│   ├── storage/          # SQLite schema, models (readings, targets, plans, notes), repo
+│   ├── providers/        # Provider interface, Garmin Connect adapter, FakeProvider
+│   ├── analytics/        # Rolling baselines, deltas, z-score anomaly detection
+│   ├── security/         # Fernet encrypted credential storage
+│   └── scheduler/        # Resumable, paced multi-metric sync orchestrator
+├── app/                  # FastAPI web dashboard, auth, onboarding, widget builder
+│   ├── routes/           # Root, auth, onboarding, dashboard, settings, sync APIs
+│   ├── static/           # Vanilla CSS design system and JavaScript live poller
+│   └── templates/        # Semantic HTML / Jinja2 templates
+├── mcp_server/           # Actionable Model Context Protocol server over stdio
+│   ├── server.py         # MCP server instance with 8 read and 5 write tools
+│   ├── resources.py      # Living context generators (athlytics:// snapshot & plans)
+│   └── prompts.py        # Workflow prompts (readiness, weekly review, plan builder)
+├── .claude/              # Claude Code and Desktop coaching skills
+├── docs/
+│   ├── superpowers/specs # System architecture & AI Coach design specifications
+│   ├── superpowers/plans # Implementation plans across all subsystems
+│   └── coach/            # Client setup guides & Gemini system instructions
+├── tests/                # 212+ unit, integration, and contract tests
+├── Dockerfile            # Single-stage container image
+├── docker-compose.yml    # One-click Compose deployment with persistent volume
+├── DEPLOYMENT.md         # Production deployment runbook
+└── pyproject.toml        # Package manifest and dependencies
 ```
 
-## Roadmap
+---
 
-See `docs/superpowers/plans/` for the implementation plans: analytics (rolling
-averages/deltas/anomaly baselines), dashboard & API (FastAPI, onboarding,
-persona/theme, sync status), actionable AI Coach MCP server, and Docker deployment.
+## Documentation
+
+- **Design Specification**: [`docs/superpowers/specs/2026-08-16-athlytics-design.md`](docs/superpowers/specs/2026-08-16-athlytics-design.md)
+- **AI Coach & MCP Architecture**: [`docs/superpowers/specs/2026-08-16-athlytics-ai-coach-design.md`](docs/superpowers/specs/2026-08-16-athlytics-ai-coach-design.md)
+- **Deployment Runbook**: [`DEPLOYMENT.md`](DEPLOYMENT.md)
+- **AI Client Setup Guide**: [`docs/coach/client-setup.md`](docs/coach/client-setup.md)
