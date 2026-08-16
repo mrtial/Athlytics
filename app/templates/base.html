@@ -30,13 +30,47 @@
     {% if authenticated %}
     <nav class="header-nav">
       <a href="/dashboard" class="nav-link">Dashboard</a>
-      <a href="/settings" class="nav-link">Settings</a>
       <button type="button" class="btn-nav-sync" onclick="triggerManualSync(event)">
         <span>⚡</span> Sync Data
       </button>
-      <form method="post" action="/logout" class="inline-form">
-        <button type="submit" class="btn-logout">Log out</button>
-      </form>
+
+      <!-- Athlete User Chip Dropdown Menu -->
+      <div class="user-chip-dropdown-wrapper">
+        <button type="button" class="athlete-nav-chip" onclick="toggleUserDropdown(event)" id="user-chip-btn" aria-haspopup="true" aria-expanded="false">
+          <div class="athlete-avatar-mini">
+            {{ (athlete_name[:2] if athlete_name else 'CY')|upper }}
+          </div>
+          <div class="athlete-nav-meta">
+            <span class="athlete-nav-name">{{ athlete_name|default('Charlie Yang') }}</span>
+            <span class="athlete-nav-sub">{% if athlete_age %}Age {{ athlete_age }} &bull; {% endif %}{{ (persona or current_persona or 'Athlete')|replace('_', ' ')|title }}</span>
+          </div>
+          <span class="athlete-badges-mini">❤️ 🏋️ ✨</span>
+          <span class="dropdown-chevron">▾</span>
+        </button>
+
+        <div class="user-dropdown-menu" id="user-dropdown-menu">
+          <div class="user-dropdown-header">
+            <span class="dropdown-user-name">{{ athlete_name|default('Charlie Yang') }}</span>
+            <span class="dropdown-user-sub">{% if athlete_age %}Age {{ athlete_age }} &bull; {% endif %}{{ (persona or current_persona or 'Athlete')|replace('_', ' ')|title }}</span>
+          </div>
+          <div class="dropdown-divider"></div>
+          <a href="/settings" class="dropdown-item">
+            <span class="dropdown-item-icon">⚙️</span>
+            <span>Settings</span>
+          </a>
+          <a href="/dashboard" class="dropdown-item">
+            <span class="dropdown-item-icon">📊</span>
+            <span>Dashboard</span>
+          </a>
+          <div class="dropdown-divider"></div>
+          <form method="post" action="/logout" class="dropdown-form">
+            <button type="submit" class="dropdown-item logout-item">
+              <span class="dropdown-item-icon">🚪</span>
+              <span>Log out</span>
+            </button>
+          </form>
+        </div>
+      </div>
     </nav>
     {% endif %}
   </header>

@@ -75,6 +75,37 @@ function toggleSyncDetails(evt) {
   }
 }
 
+function toggleUserDropdown(evt) {
+  if (evt) {
+    evt.preventDefault();
+    evt.stopPropagation();
+  }
+  const menu = document.getElementById("user-dropdown-menu");
+  const btn = document.getElementById("user-chip-btn");
+  if (!menu) return;
+
+  const isOpen = menu.classList.contains("show");
+  if (isOpen) {
+    menu.classList.remove("show");
+    if (btn) btn.setAttribute("aria-expanded", "false");
+  } else {
+    menu.classList.add("show");
+    if (btn) btn.setAttribute("aria-expanded", "true");
+  }
+}
+
+// Close user dropdown when clicking outside
+document.addEventListener("click", (evt) => {
+  const menu = document.getElementById("user-dropdown-menu");
+  const btn = document.getElementById("user-chip-btn");
+  if (menu && menu.classList.contains("show")) {
+    if (!menu.contains(evt.target) && (!btn || !btn.contains(evt.target))) {
+      menu.classList.remove("show");
+      if (btn) btn.setAttribute("aria-expanded", "false");
+    }
+  }
+});
+
 async function triggerManualSync(evt) {
   if (evt) {
     evt.preventDefault();

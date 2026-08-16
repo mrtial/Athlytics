@@ -2,36 +2,18 @@
 {% block title %}Dashboard — Athlytics{% endblock %}
 {% block content %}
 
-<!-- Top Header Row Inspired by Mock (Athlete Profile Chip + Greeting + Date Pill) -->
+<!-- Top Header Row (Left-Aligned Greeting + Right-Aligned Date Pill) -->
 <div class="top-bar-row">
-  <!-- 1. Athlete Profile Pill -->
-  <div class="athlete-profile-chip">
-    <div class="athlete-avatar">
-      {{ athlete_name[:2].upper() if athlete_name else 'CY' }}
-    </div>
-    <div class="athlete-meta">
-      <span class="athlete-name">{{ athlete_name|default('Charlie Yang') }}</span>
-      <span class="athlete-sub">
-        {% if athlete_age %}Age {{ athlete_age }} &bull; {% endif %}{{ persona.replace('_', ' ').title() }}
-      </span>
-    </div>
-    <div class="athlete-badges">
-      <span>❤️</span>
-      <span>🏋️</span>
-      <span>✨</span>
-    </div>
-  </div>
-
-  <!-- 2. Personalized Welcome Header -->
+  <!-- Left-aligned Personalized Welcome Header -->
   <div class="welcome-group">
     <span class="welcome-brand-mark">✳</span>
     <div>
-      <h2 class="welcome-title">Hi {{ athlete_first_name|default('Athlete') }},</h2>
+      <h2 class="welcome-title">Hi {{ athlete_first_name|default('Charlie') }},</h2>
       <p class="welcome-sub">Welcome to Athlytics</p>
     </div>
   </div>
 
-  <!-- 3. Date / Status Pill -->
+  <!-- Right-aligned Date Pill -->
   <div class="date-pill">
     <span>🔔</span>
     <span>{{ today_formatted }}</span>
