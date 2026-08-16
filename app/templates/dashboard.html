@@ -1,40 +1,110 @@
 {% extends "base.html" %}
 {% block title %}Dashboard — Athlytics{% endblock %}
 {% block content %}
-<h1>Dashboard</h1>
-<p>Persona: {{ persona.replace('_', ' ').title() }}</p>
+<div class="dashboard-hero">
+  <div>
+    <h1 class="dashboard-hero-title">Health Records &amp; Analytics</h1>
+    <div class="dashboard-hero-subtitle">
+      <span>Athlete Persona:</span>
+      <span class="persona-badge">{{ persona.replace('_', ' ').title() }}</span>
+    </div>
+  </div>
+</div>
 
 {% include "_sync_status.html" %}
 
 <section>
-  <h2>Trends (7-day rolling average)</h2>
-  {% for metric_type, trend in widgets.trends.items() %}
-  <div class="widget-card">
-    <h3>{{ metric_type.replace('_', ' ').title() }}</h3>
-    {% if trend.current.average is not none %}
-    <p>Current average: {{ "%.1f"|format(trend.current.average) }} ({{ trend.current.sample_count }} readings)</p>
-    {% if trend.delta.percent_change is not none %}
-    <p>Change vs. previous period: {{ "%.1f"|format(trend.delta.percent_change) }}%</p>
-    {% endif %}
-    {% else %}
-    <p>No data yet for this metric.</p>
-    {% endif %}
+  <div class="section-header">
+    <h2 class="section-title">
+      <span>Trends (7-day rolling average)</span>
+    </h2>
+    <span class="section-tag">Rolling 7D Baseline</span>
   </div>
-  {% endfor %}
+  <div class="metrics-grid">
+    {% for metric_type, trend in widgets.trends.items() %}
+    <div class="widget-card">
+      <div class="card-top">
+        <h3 class="metric-label">{{ metric_type.replace('_', ' ').title() }}</h3>
+        <div class="metric-pill">
+          {% if 'hr' in metric_type or 'pulse' in metric_type %}❤️
+          {% elif 'sleep' in metric_type %}🌙
+          {% elif 'step' in metric_type or 'distance' in metric_type %}👟
+          {% elif 'load' in metric_type or 'vo2' in metric_type %}⚡
+          {% elif 'stress' in metric_type or 'hrv' in metric_type %}🧠
+          {% elif 'respiration' in metric_type %}🫁
+          {% elif 'calorie' in metric_type %}🔥
+          {% elif 'weight' in metric_type %}⚖️
+          {% else %}📊{% endif %}
+        </div>
+      </div>
+      
+      <div class="metric-val-container">
+        {% if trend.current.average is not none %}
+        <div class="metric-value">
+          {{ "%.1f"|format(trend.current.average) }}
+          <span class="metric-unit">
+            {% if 'hr' in metric_type %}bpm
+            {% elif 'hrv' in metric_type %}ms
+            {% elif 'vo2' in metric_type %}ml/kg/min
+            {% elif 'battery' in metric_type or 'spo2' in metric_type %}%
+            {% elif 'distance' in metric_type %}km
+            {% elif 'duration' in metric_type %}min
+            {% elif 'calorie' in metric_type %}kcal
+            {% elif 'weight' in metric_type %}kg
+            {% elif 'respiration' in metric_type %}br/m
+            {% elif 'step' in metric_type %}steps
+            {% elif 'load' in metric_type %}load
+            {% elif 'score' in metric_type or 'stress' in metric_type %}score
+            {% else %}{% endif %}
+          </span>
+        </div>
+        {% else %}
+        <p class="no-data-msg">No data yet for this metric.</p>
+        {% endif %}
+      </div>
+
+      <div class="card-bottom">
+        {% if trend.current.average is not none and trend.delta and trend.delta.percent_change is not none %}
+        <span class="delta-badge {% if trend.delta.percent_change > 0 %}delta-positive{% elif trend.delta.percent_change < 0 %}delta-negative{% else %}delta-neutral{% endif %}">
+          {% if trend.delta.percent_change > 0 %}▲ +{% elif trend.delta.percent_change < 0 %}▼ {% endif %}{{ "%.1f"|format(trend.delta.percent_change) }}%
+        </span>
+        {% else %}
+        <span class="delta-badge delta-neutral">—</span>
+        {% endif %}
+        <span class="sample-count">{{ trend.current.sample_count }} readings</span>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 </section>
 
 <section>
-  <h2>Anomalies</h2>
+  <div class="section-header">
+    <h2 class="section-title">
+      <span>Statistical Anomalies</span>
+    </h2>
+    <span class="section-tag">&gt; 2.0σ Deviation</span>
+  </div>
   {% if widgets.anomalies %}
-  <ul>
+  <ul class="anomalies-list">
     {% for anomaly in widgets.anomalies %}
-    <li>{{ anomaly.metric_type.replace('_', ' ').title() }} is {{ "%.1f"|format(anomaly.z_score|abs) }}
-      std devs {{ anomaly.direction }} your {{ anomaly.baseline_window_days }}-day baseline
-      ({{ anomaly.timestamp.date() }}: {{ "%.1f"|format(anomaly.value) }})</li>
+    <li class="anomaly-card">
+      <div class="anomaly-icon-badge">⚠️</div>
+      <div class="anomaly-content">
+        <h4 class="anomaly-title">{{ anomaly.metric_type.replace('_', ' ').title() }}</h4>
+        <p class="anomaly-desc">
+          <span class="anomaly-zscore">{{ "%.1f"|format(anomaly.z_score|abs) }}σ {{ anomaly.direction }}</span>
+          the {{ anomaly.baseline_window_days }}-day baseline on {{ anomaly.timestamp.date() }}
+          (recorded: <strong>{{ "%.1f"|format(anomaly.value) }}</strong>).
+        </p>
+      </div>
+    </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p>No anomalies detected.</p>
+  <div class="widget-card">
+    <p class="no-data-msg" style="margin: 0.5rem 0;">✨ All metrics are currently within normal baseline physiological parameters.</p>
+  </div>
   {% endif %}
 </section>
 {% endblock %}

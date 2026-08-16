@@ -3,18 +3,27 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Athlytics{% endblock %}</title>
+  <title>{% block title %}Athlytics — AI Health &amp; Fitness Analytics{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="app-header">
-    <a href="/dashboard" class="app-title">Athlytics</a>
+    <a href="/dashboard" class="brand-container">
+      <div class="app-icon">✱</div>
+      <span class="app-title">Athlytics</span>
+    </a>
     {% if authenticated %}
-    <nav>
-      <a href="/dashboard">Dashboard</a>
-      <a href="/settings">Settings</a>
+    <nav class="header-nav">
+      <a href="/dashboard" class="nav-link">Dashboard</a>
+      <a href="/settings" class="nav-link">Settings</a>
+      <button type="button" class="btn-nav-sync" onclick="triggerManualSync(event)">
+        <span>⚡</span> Sync Data
+      </button>
       <form method="post" action="/logout" class="inline-form">
-        <button type="submit">Log out</button>
+        <button type="submit" class="btn-logout">Log out</button>
       </form>
     </nav>
     {% endif %}

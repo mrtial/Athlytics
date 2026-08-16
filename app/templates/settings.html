@@ -1,32 +1,53 @@
 {% extends "base.html" %}
 {% block title %}Settings — Athlytics{% endblock %}
 {% block content %}
-<h1>Settings</h1>
+<div class="dashboard-hero">
+  <div>
+    <h1 class="dashboard-hero-title">Platform Settings</h1>
+    <p class="dashboard-hero-subtitle">Manage athlete persona, visual themes, and data integrations</p>
+  </div>
+</div>
 
-{% if persona_error %}<p class="error">{{ persona_error }}</p>{% endif %}
-<form method="post" action="/settings/persona">
-  <label>Persona
-    <select name="persona">
-      {% for p in personas %}
-      <option value="{{ p }}" {% if p == current_persona %}selected{% endif %}>{{ p.replace('_', ' ').title() }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <button type="submit">Update persona</button>
-</form>
+<div class="settings-card">
+  <h2 class="section-title" style="margin-bottom: 1.5rem;">Athlete Persona</h2>
+  {% if persona_error %}<div class="error-banner">{{ persona_error }}</div>{% endif %}
+  <form method="post" action="/settings/persona">
+    <div class="form-group" style="max-width: 440px;">
+      <label class="form-label" for="persona-select">Active Dashboard Persona</label>
+      <select class="form-input" id="persona-select" name="persona">
+        {% for p in personas %}
+        <option value="{{ p }}" {% if p == current_persona %}selected{% endif %}>{{ p.replace('_', ' ').title() }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-primary" style="width: auto; margin-top: 0.75rem; padding: 0.65rem 1.25rem;">Update Persona</button>
+  </form>
+</div>
 
-{% if theme_error %}<p class="error">{{ theme_error }}</p>{% endif %}
-<form method="post" action="/settings/theme">
-  <label>Theme
-    <select name="theme">
-      {% for t in themes %}
-      <option value="{{ t }}" {% if t == current_theme %}selected{% endif %}>{{ t.title() }}</option>
-      {% endfor %}
-    </select>
-  </label>
-  <button type="submit">Update theme</button>
-</form>
+<div class="settings-card">
+  <h2 class="section-title" style="margin-bottom: 1.5rem;">Appearance &amp; Theme</h2>
+  {% if theme_error %}<div class="error-banner">{{ theme_error }}</div>{% endif %}
+  <form method="post" action="/settings/theme">
+    <div class="form-group" style="max-width: 440px;">
+      <label class="form-label" for="theme-select">Interface Theme</label>
+      <select class="form-input" id="theme-select" name="theme">
+        {% for t in themes %}
+        <option value="{{ t }}" {% if t == current_theme %}selected{% endif %}>{{ t.title() }} Mode</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-primary" style="width: auto; margin-top: 0.75rem; padding: 0.65rem 1.25rem;">Update Theme</button>
+  </form>
+</div>
 
-<p>To view Garmin connection health or reconnect, see the <a href="/dashboard">dashboard</a>'s sync-status panel
-   or go directly to the <a href="/onboarding/connect">connect page</a>.</p>
+<div class="settings-card">
+  <h2 class="section-title" style="margin-bottom: 0.75rem;">Garmin Data Source</h2>
+  <p style="color: var(--fg-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">
+    To monitor background synchronization, review metrics, or reconnect with updated credentials:
+  </p>
+  <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+    <a href="/dashboard" class="btn-primary" style="width: auto; margin: 0; text-decoration: none; padding: 0.65rem 1.25rem;">View Dashboard Sync Panel</a>
+    <a href="/onboarding/connect" class="btn-logout" style="text-decoration: none; padding: 0.65rem 1.25rem; font-size: 0.95rem;">Reconnect Garmin Account</a>
+  </div>
+</div>
 {% endblock %}

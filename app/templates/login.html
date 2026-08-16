@@ -1,11 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Log in — Athlytics{% endblock %}
 {% block content %}
-<h1>Log in</h1>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-<form method="post" action="/login">
-  <label>Username <input type="text" name="username" required></label>
-  <label>Password <input type="password" name="password" required></label>
-  <button type="submit">Log in</button>
-</form>
+<div class="auth-wrapper">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="app-icon">✱</div>
+      <h1 class="auth-title">Welcome Back</h1>
+      <p class="auth-subtitle">Sign in to your private health &amp; fitness dashboard</p>
+    </div>
+
+    {% if error %}
+    <div class="error-banner">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/login">
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-input" type="text" id="username" name="username" placeholder="athlete" required autofocus>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-input" type="password" id="password" name="password" placeholder="••••••••••••" required>
+      </div>
+
+      <button type="submit" class="btn-primary">
+        <span>Log in</span>
+        <span>→</span>
+      </button>
+    </form>
+  </div>
+</div>
 {% endblock %}

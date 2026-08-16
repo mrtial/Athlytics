@@ -1,13 +1,39 @@
 {% extends "base.html" %}
 {% block title %}Connect a Data Source — Athlytics{% endblock %}
 {% block content %}
-<h1>Connect a data source</h1>
-<p>Garmin Connect is the only supported data source in this version.</p>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-<form method="post" action="/api/data-sources/garmin/connect">
-  <label>Garmin email <input type="email" name="email" required></label>
-  <label>Garmin password <input type="password" name="password" required></label>
-  <button type="submit">Connect</button>
-</form>
-<p><small>Your credentials are encrypted at rest and never leave this server.</small></p>
+<div class="auth-wrapper">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="app-icon">🔗</div>
+      <h1 class="auth-title">Connect Garmin</h1>
+      <p class="auth-subtitle">Step 4 of 4 &bull; Synchronize your health and activity telemetry</p>
+    </div>
+
+    {% if error %}
+    <div class="error-banner">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/api/data-sources/garmin/connect">
+      <div class="form-group">
+        <label class="form-label" for="email">Garmin Account Email</label>
+        <input class="form-input" type="email" id="email" name="email" placeholder="you@example.com" required autofocus>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">Garmin Password</label>
+        <input class="form-input" type="password" id="password" name="password" placeholder="••••••••••••" required>
+      </div>
+
+      <button type="submit" class="btn-primary">
+        <span>Connect &amp; Begin Sync</span>
+        <span>⚡</span>
+      </button>
+    </form>
+
+    <div style="margin-top: 1.5rem; padding: 0.85rem 1rem; background: var(--surface-secondary); border-radius: var(--radius-md); border: 1px solid var(--border); font-size: 0.78rem; color: var(--fg-muted); display: flex; align-items: center; gap: 0.5rem;">
+      <span>🔒</span>
+      <span>Credentials are Fernet-encrypted at rest and never leave your local server.</span>
+    </div>
+  </div>
+</div>
 {% endblock %}

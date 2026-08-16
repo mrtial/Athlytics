@@ -1,12 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Create Admin Account — Athlytics{% endblock %}
 {% block content %}
-<h1>Create your admin account</h1>
-<p>First run: this is the only account Athlytics needs (single-tenant, self-hosted).</p>
-{% if error %}<p class="error">{{ error }}</p>{% endif %}
-<form method="post" action="/onboarding/admin">
-  <label>Username <input type="text" name="username" required></label>
-  <label>Password <input type="password" name="password" required minlength="8"></label>
-  <button type="submit">Create account</button>
-</form>
+<div class="auth-wrapper">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="app-icon">✱</div>
+      <h1 class="auth-title">Create Admin Account</h1>
+      <p class="auth-subtitle">Step 1 of 4 &bull; Single-tenant, self-hosted setup</p>
+    </div>
+
+    {% if error %}
+    <div class="error-banner">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/onboarding/admin">
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-input" type="text" id="username" name="username" placeholder="Choose a username" required autofocus>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="password">Password (min 8 chars)</label>
+        <input class="form-input" type="password" id="password" name="password" placeholder="Create a secure password" required minlength="8">
+      </div>
+
+      <button type="submit" class="btn-primary">
+        <span>Create Account</span>
+        <span>→</span>
+      </button>
+    </form>
+  </div>
+</div>
 {% endblock %}
