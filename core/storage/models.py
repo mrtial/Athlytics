@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass(frozen=True)
@@ -47,3 +47,20 @@ class MetricReading:
                 "Convert to UTC and strip tzinfo before constructing MetricReading "
                 "(see the class docstring's timezone contract)."
             )
+
+
+@dataclass(frozen=True)
+class MetricSummary:
+    metric_type: str
+    earliest_date: date
+    latest_date: date
+    reading_count: int
+    unit: str
+
+
+@dataclass(frozen=True)
+class Report:
+    id: int
+    created_at: datetime
+    title: str
+    content: str

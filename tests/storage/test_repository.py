@@ -68,3 +68,32 @@ def test_checkpoint_roundtrip_defaults_to_none(tmp_path):
 
     repository.set_checkpoint(conn, "garmin", "resting_hr", date(2026, 1, 20))
     assert repository.get_checkpoint(conn, "garmin", "resting_hr") == date(2026, 1, 20)
+
+
+def test_list_metric_summaries_returns_aggregates(tmp_path):
+    from core.storage.models import MetricSummary
+    conn = connect(tmp_path / "test.db")
+    readings = [
+        MetricReading("garmin", "resting_hr", datetime(2026, 1, 1), 52.0, "bpm"),
+        MetricReading("garmin", "resting_hr", datetime(2026, 1, 5), 54.0, "bpm"),
+        MetricReading("garmin", "steps", datetime(2026, 1, 3), 8000.0, "count"),
+    ]
+    repository.upsert_readings(conn, readings)
+
+    summaries = repository.list_metric_summaries(conn)
+
+    assert summaries == [
+        MetricSummary("resting_hr", date(2026, 1, 1), date(2026, 1, 5), 2, "bpm"),
+        MetricSummary("steps", date(2026, 1, 3), date(2026, 1, 3), 1, "count"),
+    ]
+
+
+def test_save_and_get_report_roundtrip(tmp_path):
+    from core.storage.models import Report
+    conn = connect(tmp_path / "test.db")
+    created = datetime(2026, 1, 15, 10, 0)
+    rep_id = repository.save_report(conn, "Week 2 Review", "Strong consistency.", created)
+
+    retrieved = repository.get_report(conn, rep_id)
+    assert retrieved == Report(rep_id, created, "Week 2 Review", "Strong consistency.")
+    assert repository.get_report(conn, 9999) is None

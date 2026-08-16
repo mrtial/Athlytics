@@ -17,6 +17,13 @@ CREATE TABLE IF NOT EXISTS sync_checkpoint (
     last_synced_date TEXT NOT NULL,
     PRIMARY KEY (source, metric_type)
 );
+
+CREATE TABLE IF NOT EXISTS report (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL
+);
 """
 
 
