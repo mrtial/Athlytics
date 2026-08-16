@@ -96,3 +96,11 @@ def onboarding_theme_submit(
             status_code=400,
         )
     return RedirectResponse(url="/onboarding/connect", status_code=303)
+
+
+@router.get("/onboarding/connect")
+def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request=request, name="onboarding_connect.html", context={"error": None}
+    )

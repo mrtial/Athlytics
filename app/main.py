@@ -60,10 +60,12 @@ def create_app(data_dir: Path) -> FastAPI:
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
     from app.routes import auth as auth_routes
+    from app.routes import data_sources as data_sources_routes
     from app.routes import onboarding as onboarding_routes
 
     app.include_router(auth_routes.router)
     app.include_router(onboarding_routes.router)
+    app.include_router(data_sources_routes.router)
 
     @app.get("/")
     def root_placeholder():

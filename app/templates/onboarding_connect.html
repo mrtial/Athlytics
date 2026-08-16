@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Connect a Data Source — Athlytics{% endblock %}
+{% block content %}
+<h1>Connect a data source</h1>
+<p>Garmin Connect is the only supported data source in this version.</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/api/data-sources/garmin/connect">
+  <label>Garmin email <input type="email" name="email" required></label>
+  <label>Garmin password <input type="password" name="password" required></label>
+  <button type="submit">Connect</button>
+</form>
+<p><small>Your credentials are encrypted at rest and never leave this server.</small></p>
+{% endblock %}
