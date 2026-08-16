@@ -19,37 +19,95 @@ Athlytics gives you complete data ownership, local encrypted credential storage,
   - Statistical anomaly detection using 30-day rolling Gaussian baselines ($|z| \ge 2.0$).
 - **Responsive Web Dashboard (`app/`)**:
   - Clean, modern UI with Dark, Light, and System themes.
-  - Athlete personas (`endurance_runner`, `cyclist`, `triathlete`, `general_fitness`).
-  - Live sync status panel with real-time polling and authentication error alerts.
+  - Athlete personas (`endurance_runner`, `strength_general_fitness`, `sleep_recovery_focus`, `full_overview`).
+  - Live sync status panel with real-time polling, one-click manual sync trigger, and authentication error alerts.
   - Interactive onboarding flow for admin creation, persona configuration, and data source connection.
 - **Actionable AI Coach & MCP Server (`mcp_server/`)**:
   - **Living Context Resources**: `athlytics://athlete/snapshot`, `athlytics://training/current-state`, `athlytics://coach/context`.
   - **8 Read Tools**: Query metric series, rolling trends, statistical anomalies, athlete targets, training plans, reports, and coaching logs.
   - **5 Action / Write Tools**: `set_target`, `delete_target`, `save_training_plan`, `update_plan_status`, `log_coach_note`.
+  - **On-Demand Sync Tool**: `sync_garmin_data(days=30)` to pull fresh provider data directly from your AI conversation.
   - **3 Workflow Prompts**: Readiness check-in (recovery-gated intensity), weekly review retrospective, and periodized training plan builder (10% volume progression rule & deloads).
   - **Bundled Playbooks**: Pre-configured skills and system instructions for Claude Desktop, Claude Code, and Google Gemini.
 
 ---
 
-## Quickstart with Docker
+## Deployment (Docker Compose)
 
-The fastest way to deploy Athlytics is using Docker Compose:
+The recommended way to run Athlytics is with Docker Compose.
+
+### Prerequisites
+
+- Docker Engine with the Compose plugin (`docker compose version`). Docker Desktop on macOS/Windows includes this; on Linux, install `docker-compose-plugin` alongside Docker Engine.
+
+### First Run
+
+From the project root:
 
 ```bash
 docker compose up -d --build
 ```
 
-1. Open `http://localhost:8000` in your browser.
-2. Complete the initial onboarding: create your admin account, choose your persona/theme, and connect your Garmin credentials.
-3. The background sync worker starts immediately, pulling your historical data into local storage.
+This builds the image from the local `Dockerfile`, starts one container named `athlytics`, and binds it to `http://localhost:8000`. 
 
-See [`DEPLOYMENT.md`](DEPLOYMENT.md) for the complete production runbook, data backup guides, and container configuration.
+- **Port Override**: Set `ATHLYTICS_PORT=8001 docker compose up -d --build`, or create a `.env` file containing `ATHLYTICS_PORT=8001`.
+- **First-Time Setup**: Open `http://localhost:8000` in your browser. Create your admin account, choose your persona and theme, then connect your Garmin account.
+- **MFA Challenge**: If your Garmin account requires an MFA verification code on first connection, run `docker exec -it athlytics python scripts/login_garmin.py` once to complete the prompt and save session tokens.
+- **Background Sync**: Once connected, full-history backfill starts automatically in the background.
+
+### Where Your Data Lives
+
+All application data persists in a single named Docker volume, `athlytics_data`, mounted at `/data` inside the container:
+
+- `/data/athlytics.db` — SQLite database (metric readings, sync checkpoints, admin account, sessions, targets, training plans, coach notes, sync status).
+- `/data/.env` — Generated Fernet encryption secret key.
+- `/data/garmin_credentials.enc` — Encrypted Garmin credentials.
+- `/data/garmin_tokens/` — Garmin cached OAuth/session tokens.
+
+Recreating the container (`docker compose up -d --build` or `docker compose restart`) preserves this volume.
+
+To back up the volume to a local archive:
+
+```bash
+docker run --rm -v athlytics_data:/data -v "$(pwd)":/backup alpine \
+  tar czf /backup/athlytics-backup.tar.gz -C /data .
+```
+
+### Encryption Secret Provisioning
+
+Secret provisioning is completely automatic. On first start, `core.config.get_or_create_secret_key` checks for `/data/.env` inside the mounted persistent volume and generates a cryptographically secure key with `0600` permissions if absent. No manual secret provisioning or Swarm setup is needed.
+
+### Updating
+
+```bash
+docker compose down          # stops container, preserves volume
+docker compose up -d --build # rebuilds image and starts fresh
+```
+
+### Clean Reset / Uninstalling
+
+```bash
+docker compose down -v       # stops container AND deletes data volume
+```
+
+*Warning: This permanently deletes your local database, encryption secret, and cached Garmin session.*
+
+### Advanced: Running without Compose
+
+```bash
+docker build -t athlytics:latest .
+docker run -d --name athlytics -p 8000:8000 \
+  -v athlytics_data:/data \
+  -e ATHLYTICS_DATA_DIR=/data \
+  -e ATHLYTICS_DB_PATH=/data/athlytics.db \
+  athlytics:latest
+```
 
 ---
 
 ## Connecting Your AI Coach (MCP)
 
-Athlytics includes a Model Context Protocol (MCP) server running over `stdio`. Point your preferred AI client at your running container or local Python environment:
+Athlytics includes an actionable Model Context Protocol (MCP) server running over `stdio`. The MCP server is launched on demand by your AI client via `docker exec` (or a one-off `docker run`), sharing the same database volume as the web app.
 
 ### Claude Desktop
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
@@ -73,7 +131,7 @@ claude mcp add athlytics -- docker exec -i athlytics python -m mcp_server.server
 ```
 
 ### Google Gemini CLI & Antigravity
-Add to your client's MCP configuration:
+Add to `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`:
 
 ```json
 {
@@ -86,11 +144,30 @@ Add to your client's MCP configuration:
 }
 ```
 
-*For local (non-Docker) setup, bundled playbooks, and Gemini system instructions, see [`docs/coach/client-setup.md`](docs/coach/client-setup.md) and [`docs/coach/gemini-system-instructions.md`](docs/coach/gemini-system-instructions.md).*
+### One-Off Run Fallback (If Container is Not Running Continuously)
+
+If you only run the MCP server intermittently without keeping the web server up, use `docker run` with `--rm`:
+
+```json
+{
+  "mcpServers": {
+    "athlytics": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "-v", "athlytics_data:/data",
+        "-e", "ATHLYTICS_DB_PATH=/data/athlytics.db",
+        "athlytics:latest",
+        "python", "-m", "mcp_server.server"
+      ]
+    }
+  }
+}
+```
 
 ---
 
-## Local Development Setup
+## Local Development (No Docker)
 
 ### 1. Environment & Dependencies
 
@@ -102,25 +179,31 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 ```
 
-### 2. Running the Web Application
+### 2. Interactive MFA Login Script
+
+```bash
+python scripts/login_garmin.py
+```
+
+### 3. Running the Web Application
 
 ```bash
 uvicorn app.main:create_production_app --factory --reload --port 8000
 ```
 
-### 3. Running the MCP Server
+### 4. Running the MCP Server
 
 ```bash
 python -m mcp_server.server
 ```
 
-### 4. Running the Test Suite
+### 5. Running the Test Suite
 
 ```bash
 pytest -v
 ```
 
-The test suite covers unit tests, SQLite storage contracts, mock provider sync, Garmin response parsing, analytics algorithms, FastAPI route flows, and full MCP JSON-RPC protocol simulations (212+ tests, 100% offline).
+The test suite covers unit tests, SQLite storage contracts, mock provider sync, Garmin response parsing, analytics algorithms, FastAPI route flows, and full MCP JSON-RPC protocol simulations (215+ tests, 100% offline).
 
 ---
 
@@ -175,18 +258,19 @@ athlytics/
 │   ├── static/           # Vanilla CSS design system and JavaScript live poller
 │   └── templates/        # Semantic HTML / Jinja2 templates
 ├── mcp_server/           # Actionable Model Context Protocol server over stdio
-│   ├── server.py         # MCP server instance with 8 read and 5 write tools
+│   ├── server.py         # MCP server instance with 8 read and 6 write/sync tools
 │   ├── resources.py      # Living context generators (athlytics:// snapshot & plans)
 │   └── prompts.py        # Workflow prompts (readiness, weekly review, plan builder)
+├── scripts/              # Helper scripts (interactive MFA login, fixture capture)
 ├── .claude/              # Claude Code and Desktop coaching skills
+├── .agents/              # Antigravity and Gemini MCP configurations
 ├── docs/
 │   ├── superpowers/specs # System architecture & AI Coach design specifications
 │   ├── superpowers/plans # Implementation plans across all subsystems
 │   └── coach/            # Client setup guides & Gemini system instructions
-├── tests/                # 212+ unit, integration, and contract tests
+├── tests/                # 215+ unit, integration, and contract tests
 ├── Dockerfile            # Single-stage container image
 ├── docker-compose.yml    # One-click Compose deployment with persistent volume
-├── DEPLOYMENT.md         # Production deployment runbook
 └── pyproject.toml        # Package manifest and dependencies
 ```
 
@@ -196,5 +280,5 @@ athlytics/
 
 - **Design Specification**: [`docs/superpowers/specs/2026-08-16-athlytics-design.md`](docs/superpowers/specs/2026-08-16-athlytics-design.md)
 - **AI Coach & MCP Architecture**: [`docs/superpowers/specs/2026-08-16-athlytics-ai-coach-design.md`](docs/superpowers/specs/2026-08-16-athlytics-ai-coach-design.md)
-- **Deployment Runbook**: [`DEPLOYMENT.md`](DEPLOYMENT.md)
 - **AI Client Setup Guide**: [`docs/coach/client-setup.md`](docs/coach/client-setup.md)
+- **Gemini Coaching Instructions**: [`docs/coach/gemini-system-instructions.md`](docs/coach/gemini-system-instructions.md)
