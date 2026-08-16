@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -63,7 +63,28 @@ class GarminProvider:
             "body_battery": self._fetch_body_battery,
             "weight": self._fetch_weight,
             "sleep_score": self._fetch_sleep,
+            "steps": self._fetch_steps,
+            "stress": self._fetch_stress,
         }
+
+    def _fetch_single_day_metric(
+        self,
+        garmin_method: Callable[[str], object],
+        parse_fn: Callable[[object, date], list[MetricReading]],
+        start: date,
+        end: date,
+    ) -> list[MetricReading]:
+        """Shared driver for Garmin endpoints that only accept one date at a
+        time (no start/end range parameter). Loops one calendar day at a
+        time across [start, end], calling garmin_method(day.isoformat())
+        and parse_fn(raw_response, day) for each, concatenating results."""
+        readings: list[MetricReading] = []
+        day = start
+        while day <= end:
+            raw = self._call(garmin_method, day.isoformat())
+            readings.extend(parse_fn(raw, day))
+            day += timedelta(days=1)
+        return readings
 
     @staticmethod
     def _parse_resting_hr(raw: list[dict]) -> list[MetricReading]:
@@ -227,6 +248,44 @@ class GarminProvider:
     def _fetch_sleep(self, start: date, end: date) -> list[MetricReading]:
         raw = self._call(self._client.get_sleep_daily, start.isoformat(), end.isoformat())
         return self._parse_sleep(raw)
+
+    @staticmethod
+    def _parse_steps(raw: list[dict], day: date) -> list[MetricReading]:
+        """Map one day's get_steps_data() response to a single daily-total
+        MetricReading, summing all intraday entries."""
+        total = sum(entry.get("steps") or 0 for entry in raw)
+        return [
+            MetricReading(
+                source="garmin",
+                metric_type="steps",
+                timestamp=datetime.combine(day, time.min),
+                value=float(total),
+                unit="count",
+            )
+        ]
+
+    def _fetch_steps(self, start: date, end: date) -> list[MetricReading]:
+        return self._fetch_single_day_metric(self._client.get_steps_data, self._parse_steps, start, end)
+
+    @staticmethod
+    def _parse_stress(raw: dict, day: date) -> list[MetricReading]:
+        """Map one day's get_stress_data() response to a single daily
+        summary-stress MetricReading."""
+        stress_value = raw.get("avgStressLevel")
+        if stress_value is None:
+            return []
+        return [
+            MetricReading(
+                source="garmin",
+                metric_type="stress",
+                timestamp=datetime.combine(day, time.min),
+                value=float(stress_value),
+                unit="score",
+            )
+        ]
+
+    def _fetch_stress(self, start: date, end: date) -> list[MetricReading]:
+        return self._fetch_single_day_metric(self._client.get_stress_data, self._parse_stress, start, end)
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())

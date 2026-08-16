@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, time
 
 import pytest
 from cryptography.fernet import Fernet
@@ -6,6 +6,7 @@ from cryptography.fernet import Fernet
 from core.providers.base import RateLimitError
 from core.providers.garmin import GarminAuthError, GarminProvider
 from core.security.credentials import CredentialStore
+from core.storage.models import MetricReading
 
 
 class _StubGarminClient:
@@ -213,3 +214,46 @@ def test_parse_sleep_produces_naive_utc_score_readings():
     assert len(readings) > 0
     for reading in readings:
         _assert_valid_reading(reading, "sleep_score", "score")
+
+
+def test_parse_steps_sums_intraday_entries_into_one_daily_reading():
+    raw = _load_fixture("get_steps_data")
+
+    readings = GarminProvider._parse_steps(raw, date(2026, 1, 1))
+
+    assert len(readings) == 1
+    _assert_valid_reading(readings[0], "steps", "count")
+    assert readings[0].timestamp == datetime(2026, 1, 1, 0, 0)
+    assert readings[0].value >= 0.0
+
+
+def test_parse_stress_produces_one_daily_score_reading():
+    raw = _load_fixture("get_stress_data")
+
+    readings = GarminProvider._parse_stress(raw, date(2026, 1, 1))
+
+    assert len(readings) == 1
+    _assert_valid_reading(readings[0], "stress", "score")
+    assert readings[0].timestamp == datetime(2026, 1, 1, 0, 0)
+
+
+def test_fetch_single_day_metric_calls_garmin_method_once_per_day_in_range(tmp_path):
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
+    calls = []
+
+    def fake_garmin_method(cdate):
+        calls.append(cdate)
+        return {"day": cdate}
+
+    def fake_parse_fn(raw, day):
+        return [
+            MetricReading("garmin", "stub_daily", datetime.combine(day, time.min), 1.0, "unit")
+        ]
+
+    readings = provider._fetch_single_day_metric(
+        fake_garmin_method, fake_parse_fn, date(2026, 1, 1), date(2026, 1, 3)
+    )
+
+    assert calls == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert len(readings) == 3
