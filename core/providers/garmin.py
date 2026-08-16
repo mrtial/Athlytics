@@ -62,6 +62,7 @@ class GarminProvider:
             "vo2max": self._fetch_vo2max,
             "body_battery": self._fetch_body_battery,
             "weight": self._fetch_weight,
+            "sleep_score": self._fetch_sleep,
         }
 
     @staticmethod
@@ -198,6 +199,34 @@ class GarminProvider:
     def _fetch_weight(self, start: date, end: date) -> list[MetricReading]:
         raw = self._call(self._client.get_body_composition, start.isoformat(), end.isoformat())
         return self._parse_weight(raw)
+
+    @staticmethod
+    def _parse_sleep(raw: list[dict]) -> list[MetricReading]:
+        """Map get_sleep_daily()'s response to MetricReading list."""
+        readings = []
+        for entry in raw:
+            calendar_date = entry.get("calendarDate")
+            overall_score_obj = entry.get("overallSleepScore")
+            if isinstance(overall_score_obj, dict):
+                sleep_score = overall_score_obj.get("value")
+            else:
+                sleep_score = overall_score_obj
+            if calendar_date is None or sleep_score is None:
+                continue
+            readings.append(
+                MetricReading(
+                    source="garmin",
+                    metric_type="sleep_score",
+                    timestamp=datetime.combine(date.fromisoformat(calendar_date), time.min),
+                    value=float(sleep_score),
+                    unit="score",
+                )
+            )
+        return readings
+
+    def _fetch_sleep(self, start: date, end: date) -> list[MetricReading]:
+        raw = self._call(self._client.get_sleep_daily, start.isoformat(), end.isoformat())
+        return self._parse_sleep(raw)
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())

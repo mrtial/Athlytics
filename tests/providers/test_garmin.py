@@ -203,3 +203,13 @@ def test_parse_weight_produces_naive_utc_kg_readings():
     for reading in readings:
         _assert_valid_reading(reading, "weight", "kg")
         assert 20.0 <= reading.value <= 300.0  # sane human-weight-in-kg sanity bound
+
+
+def test_parse_sleep_produces_naive_utc_score_readings():
+    raw = _load_fixture("get_sleep_daily")
+
+    readings = GarminProvider._parse_sleep(raw)
+
+    assert len(readings) > 0
+    for reading in readings:
+        _assert_valid_reading(reading, "sleep_score", "score")
