@@ -257,3 +257,22 @@ def test_fetch_single_day_metric_calls_garmin_method_once_per_day_in_range(tmp_p
 
     assert calls == ["2026-01-01", "2026-01-02", "2026-01-03"]
     assert len(readings) == 3
+
+
+def test_parse_respiration_produces_one_daily_reading():
+    raw = _load_fixture("get_respiration_data")
+
+    readings = GarminProvider._parse_respiration(raw, date(2026, 1, 1))
+
+    assert len(readings) == 1
+    _assert_valid_reading(readings[0], "respiration", "breaths_per_min")
+
+
+def test_parse_spo2_produces_one_daily_percent_reading():
+    raw = _load_fixture("get_spo2_data")
+
+    readings = GarminProvider._parse_spo2(raw, date(2026, 1, 1))
+
+    assert len(readings) == 1
+    _assert_valid_reading(readings[0], "spo2", "percent")
+    assert 0.0 <= readings[0].value <= 100.0

@@ -65,6 +65,8 @@ class GarminProvider:
             "sleep_score": self._fetch_sleep,
             "steps": self._fetch_steps,
             "stress": self._fetch_stress,
+            "respiration": self._fetch_respiration,
+            "spo2": self._fetch_spo2,
         }
 
     def _fetch_single_day_metric(
@@ -286,6 +288,44 @@ class GarminProvider:
 
     def _fetch_stress(self, start: date, end: date) -> list[MetricReading]:
         return self._fetch_single_day_metric(self._client.get_stress_data, self._parse_stress, start, end)
+
+    @staticmethod
+    def _parse_respiration(raw: dict, day: date) -> list[MetricReading]:
+        """Map get_respiration_data()'s response to MetricReading list."""
+        value = raw.get("avgWakingRespirationValue") or raw.get("avgRespiration") or raw.get("avgSleepRespirationValue")
+        if value is None:
+            return []
+        return [
+            MetricReading(
+                source="garmin",
+                metric_type="respiration",
+                timestamp=datetime.combine(day, time.min),
+                value=float(value),
+                unit="breaths_per_min",
+            )
+        ]
+
+    def _fetch_respiration(self, start: date, end: date) -> list[MetricReading]:
+        return self._fetch_single_day_metric(self._client.get_respiration_data, self._parse_respiration, start, end)
+
+    @staticmethod
+    def _parse_spo2(raw: dict, day: date) -> list[MetricReading]:
+        """Map get_spo2_data()'s response to MetricReading list."""
+        value = raw.get("averageSpO2") or raw.get("lastSevenDaysAvgSpO2")
+        if value is None:
+            return []
+        return [
+            MetricReading(
+                source="garmin",
+                metric_type="spo2",
+                timestamp=datetime.combine(day, time.min),
+                value=float(value),
+                unit="percent",
+            )
+        ]
+
+    def _fetch_spo2(self, start: date, end: date) -> list[MetricReading]:
+        return self._fetch_single_day_metric(self._client.get_spo2_data, self._parse_spo2, start, end)
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())
