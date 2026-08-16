@@ -2,24 +2,6 @@
 {% block title %}Dashboard — Athlytics{% endblock %}
 {% block content %}
 
-<!-- Top Header Row (Left-Aligned Greeting + Right-Aligned Date Pill) -->
-<div class="top-bar-row">
-  <!-- Left-aligned Personalized Welcome Header -->
-  <div class="welcome-group">
-    <span class="welcome-brand-mark">✳</span>
-    <div>
-      <h2 class="welcome-title">Hi {{ athlete_first_name|default('Charlie') }},</h2>
-      <p class="welcome-sub">Welcome to Athlytics</p>
-    </div>
-  </div>
-
-  <!-- Right-aligned Date Pill -->
-  <div class="date-pill">
-    <span>🔔</span>
-    <span>{{ today_formatted }}</span>
-  </div>
-</div>
-
 <div class="dashboard-hero">
   <div>
     <h1 class="dashboard-hero-title">Health Records &amp; Analytics</h1>
@@ -29,6 +11,10 @@
       <span>&bull;</span>
       <span style="font-size: 0.85rem; color: var(--fg-muted);">Unit: {{ unit|upper }}</span>
     </div>
+  </div>
+  <div class="date-pill">
+    <span>🔔</span>
+    <span>{{ today_formatted }}</span>
   </div>
 </div>
 
