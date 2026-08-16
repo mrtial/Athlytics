@@ -1,0 +1,60 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --accent: #2f6feb;
+  --border: #d9d9d9;
+  --danger: #c0392b;
+}
+
+html[data-theme="dark"] {
+  --bg: #14161a;
+  --fg: #e8e8e8;
+  --accent: #6fa8ff;
+  --border: #33363b;
+  --danger: #ff6b5e;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  margin: 0;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header nav a, .app-header nav button {
+  margin-left: 1rem;
+}
+
+.inline-form {
+  display: inline;
+}
+
+main {
+  padding: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.error {
+  color: var(--danger);
+}
+
+.widget-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+button, input, select {
+  font-size: 1rem;
+  padding: 0.4rem 0.6rem;
+}
