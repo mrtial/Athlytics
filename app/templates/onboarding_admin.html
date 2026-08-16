@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Create Admin Account — Athlytics{% endblock %}
+{% block content %}
+<h1>Create your admin account</h1>
+<p>First run: this is the only account Athlytics needs (single-tenant, self-hosted).</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/onboarding/admin">
+  <label>Username <input type="text" name="username" required></label>
+  <label>Password <input type="password" name="password" required minlength="8"></label>
+  <button type="submit">Create account</button>
+</form>
+{% endblock %}
