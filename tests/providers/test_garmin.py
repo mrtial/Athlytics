@@ -192,3 +192,14 @@ def test_parse_body_battery_produces_naive_utc_percent_readings():
     for reading in readings:
         _assert_valid_reading(reading, "body_battery", "percent")
         assert 0.0 <= reading.value <= 100.0
+
+
+def test_parse_weight_produces_naive_utc_kg_readings():
+    raw = _load_fixture("get_body_composition")
+
+    readings = GarminProvider._parse_weight(raw)
+
+    assert len(readings) > 0
+    for reading in readings:
+        _assert_valid_reading(reading, "weight", "kg")
+        assert 20.0 <= reading.value <= 300.0  # sane human-weight-in-kg sanity bound

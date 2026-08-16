@@ -61,6 +61,7 @@ class GarminProvider:
             "hrv": self._fetch_hrv,
             "vo2max": self._fetch_vo2max,
             "body_battery": self._fetch_body_battery,
+            "weight": self._fetch_weight,
         }
 
     @staticmethod
@@ -171,6 +172,32 @@ class GarminProvider:
     def _fetch_body_battery(self, start: date, end: date) -> list[MetricReading]:
         raw = self._call(self._client.get_body_battery, start.isoformat(), end.isoformat())
         return self._parse_body_battery(raw)
+
+    @staticmethod
+    def _parse_weight(raw: dict) -> list[MetricReading]:
+        """Map get_body_composition()'s response to MetricReading list."""
+        entries = raw.get("dateWeightList") or []
+        readings = []
+        for entry in entries:
+            calendar_date = entry.get("calendarDate")
+            weight_raw = entry.get("weight")
+            if calendar_date is None or weight_raw is None:
+                continue
+            weight_kg = float(weight_raw) / 1000.0
+            readings.append(
+                MetricReading(
+                    source="garmin",
+                    metric_type="weight",
+                    timestamp=datetime.combine(date.fromisoformat(calendar_date), time.min),
+                    value=weight_kg,
+                    unit="kg",
+                )
+            )
+        return readings
+
+    def _fetch_weight(self, start: date, end: date) -> list[MetricReading]:
+        raw = self._call(self._client.get_body_composition, start.isoformat(), end.isoformat())
+        return self._parse_weight(raw)
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())
