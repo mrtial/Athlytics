@@ -178,10 +178,26 @@ class GarminProvider:
         )
 
     @staticmethod
-    def _parse_vo2max(raw: dict | list) -> list[MetricReading]:
-        """Map get_max_metrics_range() or get_max_metrics() response to MetricReading list."""
+    def _parse_vo2max(raw: dict | list, day: date | None = None) -> list[MetricReading]:
+        """Map get_max_metrics_range(), get_max_metrics(), or get_training_status() response to MetricReading list."""
         if not raw:
             return []
+        if isinstance(raw, dict) and "mostRecentVO2Max" in raw:
+            generic = raw.get("mostRecentVO2Max", {}).get("generic") or {}
+            val = generic.get("vo2MaxPreciseValue") or generic.get("vo2MaxValue")
+            cdate_str = generic.get("calendarDate")
+            if val is not None:
+                ts_date = date.fromisoformat(cdate_str) if cdate_str else (day or date.today())
+                return [
+                    MetricReading(
+                        source="garmin",
+                        metric_type="vo2max",
+                        timestamp=datetime.combine(ts_date, time.min),
+                        value=float(val),
+                        unit="ml/kg/min",
+                    )
+                ]
+
         if isinstance(raw, dict):
             entries = raw.get("generic") or [raw]
         else:
@@ -206,9 +222,15 @@ class GarminProvider:
     def _fetch_vo2max(self, start: date, end: date) -> list[MetricReading]:
         if hasattr(self._client, "get_max_metrics_range"):
             raw = self._call(self._client.get_max_metrics_range, start.isoformat(), end.isoformat())
-            return self._parse_vo2max(raw)
+            res = self._parse_vo2max(raw)
+            if res:
+                return res
+        if hasattr(self._client, "get_training_status"):
+            return self._fetch_single_day_metric(
+                self._client.get_training_status, lambda r, d: self._parse_vo2max(r, d), start, end
+            )
         return self._fetch_single_day_metric(
-            self._client.get_max_metrics, lambda r, d: self._parse_vo2max(r), start, end
+            self._client.get_max_metrics, lambda r, d: self._parse_vo2max(r, d), start, end
         )
 
     @staticmethod
