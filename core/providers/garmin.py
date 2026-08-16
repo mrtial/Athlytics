@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -59,6 +59,8 @@ class GarminProvider:
         self._registry: dict[str, Callable[[date, date], list[MetricReading]]] = {
             "resting_hr": self._fetch_resting_hr,
             "hrv": self._fetch_hrv,
+            "vo2max": self._fetch_vo2max,
+            "body_battery": self._fetch_body_battery,
         }
 
     @staticmethod
@@ -112,6 +114,63 @@ class GarminProvider:
     def _fetch_hrv(self, start: date, end: date) -> list[MetricReading]:
         raw = self._call(self._client.get_hrv_data_range, start.isoformat(), end.isoformat())
         return self._parse_hrv(raw)
+
+    @staticmethod
+    def _parse_vo2max(raw: dict) -> list[MetricReading]:
+        """Map get_max_metrics_range()'s response to MetricReading list."""
+        entries = raw.get("generic") or []
+        readings = []
+        for entry in entries:
+            calendar_date = entry.get("calendarDate")
+            vo2max_value = entry.get("vo2MaxValue")
+            if calendar_date is None or vo2max_value is None:
+                continue
+            readings.append(
+                MetricReading(
+                    source="garmin",
+                    metric_type="vo2max",
+                    timestamp=datetime.combine(date.fromisoformat(calendar_date), time.min),
+                    value=float(vo2max_value),
+                    unit="ml/kg/min",
+                )
+            )
+        return readings
+
+    def _fetch_vo2max(self, start: date, end: date) -> list[MetricReading]:
+        raw = self._call(self._client.get_max_metrics_range, start.isoformat(), end.isoformat())
+        return self._parse_vo2max(raw)
+
+    @staticmethod
+    def _parse_body_battery(raw: list[dict]) -> list[MetricReading]:
+        """Map get_body_battery()'s response to MetricReading list."""
+        readings = []
+        for day_entry in raw:
+            intraday = day_entry.get("bodyBatteryValues") or []
+            for point in intraday:
+                raw_timestamp = point.get("timestamp")
+                value = point.get("value")
+                if raw_timestamp is None or value is None:
+                    continue
+                if isinstance(raw_timestamp, str):
+                    ts = datetime.fromisoformat(raw_timestamp)
+                    if ts.tzinfo is not None:
+                        ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+                else:
+                    ts = raw_timestamp
+                readings.append(
+                    MetricReading(
+                        source="garmin",
+                        metric_type="body_battery",
+                        timestamp=ts,
+                        value=float(value),
+                        unit="percent",
+                    )
+                )
+        return readings
+
+    def _fetch_body_battery(self, start: date, end: date) -> list[MetricReading]:
+        raw = self._call(self._client.get_body_battery, start.isoformat(), end.isoformat())
+        return self._parse_body_battery(raw)
 
     def supported_metric_types(self) -> list[str]:
         return list(self._registry.keys())

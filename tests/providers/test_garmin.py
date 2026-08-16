@@ -171,3 +171,24 @@ def test_parse_hrv_produces_naive_utc_ms_readings():
 
 def test_parse_hrv_returns_empty_list_when_raw_is_none():
     assert GarminProvider._parse_hrv(None) == []
+
+
+def test_parse_vo2max_produces_naive_utc_readings():
+    raw = _load_fixture("get_max_metrics_range")
+
+    readings = GarminProvider._parse_vo2max(raw)
+
+    assert len(readings) > 0
+    for reading in readings:
+        _assert_valid_reading(reading, "vo2max", "ml/kg/min")
+
+
+def test_parse_body_battery_produces_naive_utc_percent_readings():
+    raw = _load_fixture("get_body_battery")
+
+    readings = GarminProvider._parse_body_battery(raw)
+
+    assert len(readings) > 0
+    for reading in readings:
+        _assert_valid_reading(reading, "body_battery", "percent")
+        assert 0.0 <= reading.value <= 100.0
