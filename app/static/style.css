@@ -352,6 +352,22 @@ body {
   color: var(--fg-muted);
 }
 
+.nav-theme-toggle {
+  margin: 0 0.15rem;
+}
+
+.theme-toggle-btn {
+  padding: 0.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle-btn .icon {
+  width: 15px;
+  height: 15px;
+}
+
 .dropdown-divider {
   height: 1px;
   background: var(--border);
@@ -715,6 +731,7 @@ main {
   font-weight: 800;
   letter-spacing: -0.03em;
   margin: 0;
+  padding-bottom: 1rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -868,6 +885,16 @@ main {
   justify-content: center;
   font-size: 0.85rem;
   color: var(--fg);
+}
+
+/* The card's active-state lime-soft background washes out the pill's
+   default light fill (reads as a stray white circle) -- fill it solid
+   lime instead, same brand pairing as the app icon / sync button
+   (saturated lime fill + dark ink), so it pops against the pale
+   lime-soft card wash instead of blending into a plain white circle. */
+.widget-card.metric-card--active .metric-pill {
+  background: var(--accent-lime);
+  color: var(--accent-lime-fg);
 }
 
 .metric-val-container {

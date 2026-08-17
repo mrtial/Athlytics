@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
@@ -19,6 +20,16 @@ from app.sync import BackgroundSyncScheduler, perform_sync_pass
 BASE_DIR = Path(__file__).resolve().parent
 FEATHER_ICON_DIR = BASE_DIR / "static" / "assets" / "feather"
 TEMPLATES = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
+# Appended to /static/* URLs in base.html (?v=...) so a redeploy always
+# fetches fresh CSS/JS instead of silently reusing whatever the browser
+# cached from the previous version -- static files carry no Cache-Control
+# header of their own, so without this a stale tab (or even a fresh page
+# load, depending on the browser's caching heuristics) can keep running
+# old JS indefinitely after a rebuild. Sourced from process start time, so
+# every container restart gets a new value automatically.
+STATIC_VERSION = str(int(time.time()))
+TEMPLATES.env.globals["static_version"] = STATIC_VERSION
 
 
 @lru_cache(maxsize=None)

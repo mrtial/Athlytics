@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ static_version }}">
   <script>
     (function() {
       const serverTheme = "{{ theme|default('') }}";
@@ -33,6 +33,11 @@
       <a href="/coach" class="nav-link{% if active_page == 'coach' %} active{% endif %}">Coach</a>
       <a href="/training-plans" class="nav-link{% if active_page == 'training_plans' %} active{% endif %}">Training Plans</a>
 
+      <div class="range-toggle nav-theme-toggle" id="theme-toggle-group">
+        <button type="button" class="range-btn theme-toggle-btn{% if theme != 'dark' %} is-active{% endif %}" data-theme-value="light" aria-label="Light mode">{{ feather_icon('sun') }}</button>
+        <button type="button" class="range-btn theme-toggle-btn{% if theme == 'dark' %} is-active{% endif %}" data-theme-value="dark" aria-label="Dark mode">{{ feather_icon('moon') }}</button>
+      </div>
+
       <!-- Athlete User Chip Dropdown Menu -->
       <div class="user-chip-dropdown-wrapper">
         <button type="button" class="athlete-nav-chip" onclick="toggleUserDropdown(event)" id="user-chip-btn" aria-haspopup="true" aria-expanded="false">
@@ -47,10 +52,10 @@
         </button>
 
         <div class="user-dropdown-menu" id="user-dropdown-menu">
-          <a href="/settings" class="dropdown-item">{{ feather_icon('settings') }}<span>Settings</span></a>
+          <a href="/settings" class="dropdown-item">Settings</a>
           <div class="dropdown-divider"></div>
           <form method="post" action="/logout" class="dropdown-form">
-            <button type="submit" class="dropdown-item logout-item">{{ feather_icon('log-out') }}<span>Log out</span></button>
+            <button type="submit" class="dropdown-item logout-item">Log out</button>
           </form>
         </div>
       </div>
@@ -60,7 +65,7 @@
   <main>
     {% block content %}{% endblock %}
   </main>
-  <script src="/static/charts.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/charts.js?v={{ static_version }}"></script>
+  <script src="/static/app.js?v={{ static_version }}"></script>
 </body>
 </html>

@@ -311,10 +311,38 @@ function initMetricCards() {
   if (defaultCard) selectMetricCard(defaultCard);
 }
 
+// Theme toggle in the user dropdown: applies instantly (matching base.html's
+// own bootstrap logic) and persists server-side via the existing
+// /settings/theme route, fire-and-forget, so it stays in sync next login.
+function initThemeToggle() {
+  const group = document.getElementById("theme-toggle-group");
+  if (!group) return;
+
+  group.addEventListener("click", (evt) => {
+    const btn = evt.target.closest(".theme-toggle-btn");
+    if (!btn) return;
+    const value = btn.dataset.themeValue;
+    if (value === document.documentElement.getAttribute("data-theme")) return;
+
+    document.documentElement.setAttribute("data-theme", value);
+    localStorage.setItem("athlytics_theme", value);
+    group.querySelectorAll(".theme-toggle-btn").forEach((b) => {
+      b.classList.toggle("is-active", b === btn);
+    });
+
+    fetch("/settings/theme", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `theme=${encodeURIComponent(value)}`,
+    }).catch((err) => console.error("Failed to persist theme:", err));
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("sync-status")) {
     refreshSyncStatus();
     setInterval(refreshSyncStatus, 10000);
   }
   initMetricCards();
+  initThemeToggle();
 });
