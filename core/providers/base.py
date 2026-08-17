@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Protocol
+from typing import Iterator, Protocol
 
 from core.storage.models import MetricReading
 
@@ -19,4 +19,11 @@ class Provider(Protocol):
         ...
 
     def fetch(self, metric_type: str, start: date, end: date) -> list[MetricReading]:
+        ...
+
+
+class ImportProvider(Protocol):
+    name: str
+
+    def ingest(self, payload: bytes) -> Iterator[MetricReading]:
         ...
