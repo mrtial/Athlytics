@@ -336,6 +336,21 @@ def test_get_readings_reconciles_per_day_independently(tmp_path):
     result = repository.get_readings(conn, "resting_hr", date(2026, 1, 1), date(2026, 1, 2))
 
     assert result == [day1_garmin, day2_apple_only]
+
+
+def test_get_readings_keeps_multiple_same_source_readings_on_overlapping_day(tmp_path):
+    # Regression guard: reconciliation must only drop rows from a strictly
+    # lower-priority source, never collapse several same-source, same-day
+    # readings (e.g. intraday steps entries) down to one.
+    conn = connect(tmp_path / "test.db")
+    garmin_morning = MetricReading("garmin", "steps", datetime(2026, 1, 1, 8, 0), 100.0, "count")
+    garmin_evening = MetricReading("garmin", "steps", datetime(2026, 1, 1, 20, 0), 200.0, "count")
+    apple_reading = MetricReading("apple_health", "steps", datetime(2026, 1, 1, 12, 0), 9000.0, "count")
+    repository.upsert_readings(conn, [garmin_morning, garmin_evening, apple_reading])
+
+    result = repository.get_readings(conn, "steps", date(2026, 1, 1), date(2026, 1, 1))
+
+    assert result == [garmin_morning, garmin_evening]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -346,6 +361,8 @@ Expected: FAIL — current `get_readings()` returns both rows for the overlappin
 - [ ] **Step 3: Implement the reconciliation query**
 
 Replace `get_readings()` in `core/storage/repository.py` with:
+
+**Note on the SQL below (already corrected from an earlier draft that used `ROW_NUMBER() ... WHERE rn = 1`):** a plain `ROW_NUMBER()` assigns a *distinct* number even to multiple rows from the same source on the same day (e.g. several intraday steps entries), and filtering to `rn = 1` would silently drop all but one of them — breaking the pre-existing `test_build_metric_detail_averages_multiple_readings_on_same_day`. Use `MIN(rank) OVER (...)` instead and keep every row matching that best rank: this drops rows only from a strictly lower-priority source when a higher-priority source is also present that day, and leaves same-source multi-reading days untouched (they all share the same rank, so `rank = best_rank` keeps all of them).
 
 ```python
 DEFAULT_SOURCE_PRIORITY: list[str] = ["garmin", "apple_health"]
@@ -370,23 +387,24 @@ def get_readings(conn: sqlite3.Connection, metric_type: str, start: date, end: d
     )
     case_params = list(priority_order)
     fallback_rank = len(priority_order)
+    rank_expr = f"(CASE {case_clauses} ELSE {fallback_rank} END)"
 
     rows = conn.execute(
         f"""
         SELECT source, metric_type, timestamp, value, unit
         FROM (
             SELECT *,
-                ROW_NUMBER() OVER (
+                {rank_expr} AS rank,
+                MIN({rank_expr}) OVER (
                     PARTITION BY metric_type, date(timestamp)
-                    ORDER BY (CASE {case_clauses} ELSE {fallback_rank} END)
-                ) AS rn
+                ) AS best_rank
             FROM metric_reading
             WHERE metric_type = ? AND date(timestamp) BETWEEN date(?) AND date(?)
         )
-        WHERE rn = 1
+        WHERE rank = best_rank
         ORDER BY timestamp ASC
         """,
-        (*case_params, metric_type, start.isoformat(), end.isoformat()),
+        (*case_params, *case_params, metric_type, start.isoformat(), end.isoformat()),
     ).fetchall()
     return [
         MetricReading(
