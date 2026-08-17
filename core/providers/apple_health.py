@@ -7,7 +7,13 @@ canonical metric_type vocabulary. See docs/superpowers/specs/
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+import zipfile
+import xml.etree.ElementTree as ET
+from datetime import date, datetime, time, timezone
+from io import BytesIO
+from typing import Iterator
+
+from core.storage.models import MetricReading
 
 APPLE_HEALTH_TIMESTAMP_FMT = "%Y-%m-%d %H:%M:%S %z"
 
@@ -101,3 +107,97 @@ def aggregate_stand_hours(stand_records: list[tuple[str, datetime]]) -> dict[dat
         day = start.date()
         counts_by_day[day] = counts_by_day.get(day, 0.0) + 1
     return counts_by_day
+
+
+SLEEP_TYPE = "HKCategoryTypeIdentifierSleepAnalysis"
+MINDFUL_TYPE = "HKCategoryTypeIdentifierMindfulSession"
+STAND_HOUR_TYPE = "HKCategoryTypeIdentifierAppleStandHour"
+
+APPLE_HEALTH_METRIC_TYPES: list[str] = [
+    *[metric_type for metric_type, _, _ in HK_QUANTITY_MAP.values()],
+    "sleep_duration",  # distinct from Garmin's sleep_score -- see HK_QUANTITY_MAP's comment above
+    "mindful_minutes",
+    "stand_hours",
+]
+
+_SLEEP_UNIT = "hr"
+_MINDFUL_UNIT = "min"
+_STAND_HOUR_UNIT = "count"
+
+
+class AppleHealthProvider:
+    name = SOURCE
+
+    def ingest(self, payload: bytes) -> Iterator[MetricReading]:
+        xml_bytes = self._extract_export_xml(payload)
+
+        quantity_samples: dict[str, dict[date, list[float]]] = {}
+        sleep_stage_records: list[tuple[str, datetime, datetime]] = []
+        mindful_records: list[tuple[datetime, datetime]] = []
+        stand_records: list[tuple[str, datetime]] = []
+
+        for _, elem in ET.iterparse(BytesIO(xml_bytes), events=("end",)):
+            if elem.tag != "Record":
+                elem.clear()
+                continue
+
+            record_type = elem.get("type")
+
+            if record_type in HK_QUANTITY_MAP:
+                metric_type, _, _ = HK_QUANTITY_MAP[record_type]
+                start = parse_apple_health_timestamp(elem.get("startDate"))
+                value = float(elem.get("value"))
+                quantity_samples.setdefault(metric_type, {}).setdefault(start.date(), []).append(value)
+            elif record_type == SLEEP_TYPE:
+                start = parse_apple_health_timestamp(elem.get("startDate"))
+                end = parse_apple_health_timestamp(elem.get("endDate"))
+                sleep_stage_records.append((elem.get("value"), start, end))
+            elif record_type == MINDFUL_TYPE:
+                start = parse_apple_health_timestamp(elem.get("startDate"))
+                end = parse_apple_health_timestamp(elem.get("endDate"))
+                mindful_records.append((start, end))
+            elif record_type == STAND_HOUR_TYPE:
+                start = parse_apple_health_timestamp(elem.get("startDate"))
+                stand_records.append((elem.get("value"), start))
+            # else: unrecognized type -- skip silently, expected for a real export.
+
+            elem.clear()
+
+        for metric_type, samples_by_day in quantity_samples.items():
+            aggregation = next(agg for mt, _, agg in HK_QUANTITY_MAP.values() if mt == metric_type)
+            unit = next(u for mt, u, _ in HK_QUANTITY_MAP.values() if mt == metric_type)
+            daily_values = aggregate_daily(samples_by_day, aggregation)
+            for day, value in daily_values.items():
+                yield MetricReading(
+                    source=SOURCE,
+                    metric_type=metric_type,
+                    timestamp=datetime.combine(day, time.min),
+                    value=value,
+                    unit=unit,
+                )
+
+        for day, hours in aggregate_sleep_hours(sleep_stage_records).items():
+            yield MetricReading(
+                source=SOURCE, metric_type="sleep_duration", timestamp=datetime.combine(day, time.min),
+                value=hours, unit=_SLEEP_UNIT,
+            )
+
+        for day, minutes in aggregate_mindful_minutes(mindful_records).items():
+            yield MetricReading(
+                source=SOURCE, metric_type="mindful_minutes", timestamp=datetime.combine(day, time.min),
+                value=minutes, unit=_MINDFUL_UNIT,
+            )
+
+        for day, count in aggregate_stand_hours(stand_records).items():
+            yield MetricReading(
+                source=SOURCE, metric_type="stand_hours", timestamp=datetime.combine(day, time.min),
+                value=count, unit=_STAND_HOUR_UNIT,
+            )
+
+    @staticmethod
+    def _extract_export_xml(payload: bytes) -> bytes:
+        with zipfile.ZipFile(BytesIO(payload)) as zf:
+            for name in zf.namelist():
+                if name.endswith("export.xml"):
+                    return zf.read(name)
+        raise ValueError("uploaded zip does not contain an export.xml")

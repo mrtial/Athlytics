@@ -1,14 +1,28 @@
+import zipfile
 from datetime import date, datetime
+from io import BytesIO
+from pathlib import Path
 
 from core.providers.apple_health import (
+    APPLE_HEALTH_METRIC_TYPES,
     SLEEP_ASLEEP_VALUES,
     HK_QUANTITY_MAP,
+    AppleHealthProvider,
     aggregate_daily,
     aggregate_mindful_minutes,
     aggregate_sleep_hours,
     aggregate_stand_hours,
     parse_apple_health_timestamp,
 )
+
+FIXTURE_XML = (Path(__file__).parent.parent / "fixtures" / "apple_health_export.xml").read_bytes()
+
+
+def _zip_payload(xml_bytes: bytes) -> bytes:
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", xml_bytes)
+    return buf.getvalue()
 
 
 def test_parse_apple_health_timestamp_converts_offset_to_naive_utc():
@@ -96,3 +110,60 @@ def test_aggregate_stand_hours_counts_only_stood_hours():
     result = aggregate_stand_hours(stand_records)
 
     assert result == {date(2026, 1, 1): 2.0}
+
+
+def test_apple_health_metric_types_includes_shared_and_apple_only_types():
+    assert "resting_hr" in APPLE_HEALTH_METRIC_TYPES
+    assert "steps" in APPLE_HEALTH_METRIC_TYPES
+    assert "mindful_minutes" in APPLE_HEALTH_METRIC_TYPES
+    assert "sleep_duration" in APPLE_HEALTH_METRIC_TYPES
+    assert "stand_hours" in APPLE_HEALTH_METRIC_TYPES
+
+
+def test_ingest_yields_aggregated_daily_readings_from_zip():
+    provider = AppleHealthProvider()
+    readings = list(provider.ingest(_zip_payload(FIXTURE_XML)))
+
+    by_type = {r.metric_type: r for r in readings}
+
+    assert by_type["resting_hr"].value == 52.0  # mean of 50, 54
+    assert by_type["resting_hr"].source == "apple_health"
+    assert by_type["resting_hr"].unit == "bpm"
+
+    assert by_type["steps"].value == 2000.0  # sum of 1200, 800
+
+    assert by_type["mindful_minutes"].value == 10.0
+
+    assert by_type["sleep_duration"].value == 2.0  # 2 hours Core, Awake excluded
+    assert by_type["sleep_duration"].unit == "hr"
+
+    assert by_type["stand_hours"].value == 1.0
+
+
+def test_ingest_never_writes_sleep_data_under_garmins_sleep_score_type():
+    # Garmin's sleep_score is a 0-100 quality score; Apple Health's sleep data
+    # here is hours-asleep -- a different physical quantity that must never
+    # land under the same metric_type (see spec's Metric Mapping section).
+    provider = AppleHealthProvider()
+    readings = list(provider.ingest(_zip_payload(FIXTURE_XML)))
+
+    metric_types = {r.metric_type for r in readings}
+    assert "sleep_score" not in metric_types
+    assert "sleep_duration" in metric_types
+
+
+def test_ingest_skips_unrecognized_record_types_without_erroring():
+    provider = AppleHealthProvider()
+    readings = list(provider.ingest(_zip_payload(FIXTURE_XML)))
+
+    metric_types = {r.metric_type for r in readings}
+    assert "uv_exposure" not in metric_types  # HKQuantityTypeIdentifierUVExposure has no mapping
+
+
+def test_ingest_produces_naive_utc_midnight_timestamps():
+    provider = AppleHealthProvider()
+    readings = list(provider.ingest(_zip_payload(FIXTURE_XML)))
+
+    for r in readings:
+        assert r.timestamp.tzinfo is None
+        assert r.timestamp.hour == 0 and r.timestamp.minute == 0
