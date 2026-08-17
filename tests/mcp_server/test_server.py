@@ -7,7 +7,7 @@ from mcp.server import MCPServer
 
 from core.storage import repository
 from core.storage.db import connect
-from core.storage.models import CoachNote, MetricReading, Target, TrainingPlan
+from core.storage.models import Activity, CoachNote, MetricReading, Target, TrainingPlan
 from mcp_server.server import DB_PATH_ENV_VAR, _db_path, mcp
 
 
@@ -138,6 +138,30 @@ async def test_actionable_read_tools_contract(tmp_path, monkeypatch):
         conn,
         CoachNote("n-1", date(2026, 1, 1), "feeling", "Feeling strong.", None, now),
     )
+    repository.upsert_activities(
+        conn,
+        [
+            Activity(
+                "garmin:101",
+                "garmin",
+                "101",
+                "Morning 5K",
+                "running",
+                "running",
+                now,
+                1800.0,
+                5000.0,
+                350.0,
+                150.0,
+                165.0,
+                2.78,
+                3.2,
+                30.0,
+                30.0,
+                now,
+            )
+        ],
+    )
     conn.close()
 
     async with Client(mcp) as client:
@@ -159,6 +183,12 @@ async def test_actionable_read_tools_contract(tmp_path, monkeypatch):
         res_notes = await client.call_tool("get_coach_notes", {"limit": 5})
         assert len(res_notes.structured_content["result"]) == 1
         assert res_notes.structured_content["result"][0]["category"] == "feeling"
+
+        # get_activities
+        res_acts = await client.call_tool("get_activities", {"activity_type": "running"})
+        assert len(res_acts.structured_content["result"]) == 1
+        assert res_acts.structured_content["result"][0]["activity_name"] == "Morning 5K"
+
 
 
 @pytest.mark.anyio

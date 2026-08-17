@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import date, datetime, timezone
 
-from core.storage.models import CoachNote, MetricReading, MetricSummary, Report, Target, TrainingPlan
+from core.storage.models import Activity, CoachNote, MetricReading, MetricSummary, Report, Target, TrainingPlan
 
 
 def upsert_readings(conn: sqlite3.Connection, readings: list[MetricReading]) -> int:
@@ -370,3 +370,140 @@ def get_coach_notes(conn: sqlite3.Connection, limit: int = 10, category: str | N
         )
         for row in rows
     ]
+
+
+def upsert_activities(conn: sqlite3.Connection, activities: list[Activity]) -> int:
+    conn.executemany(
+        """
+        INSERT INTO activity (
+            id, source, activity_id, activity_name, activity_type, sport_type,
+            start_time, duration_seconds, distance_meters, calories,
+            avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            activity_name = excluded.activity_name,
+            activity_type = excluded.activity_type,
+            sport_type = excluded.sport_type,
+            start_time = excluded.start_time,
+            duration_seconds = excluded.duration_seconds,
+            distance_meters = excluded.distance_meters,
+            calories = excluded.calories,
+            avg_hr = excluded.avg_hr,
+            max_hr = excluded.max_hr,
+            avg_speed = excluded.avg_speed,
+            max_speed = excluded.max_speed,
+            elevation_gain = excluded.elevation_gain,
+            elevation_loss = excluded.elevation_loss
+        """,
+        [
+            (
+                a.id,
+                a.source,
+                a.activity_id,
+                a.activity_name,
+                a.activity_type,
+                a.sport_type,
+                a.start_time.isoformat(),
+                a.duration_seconds,
+                a.distance_meters,
+                a.calories,
+                a.avg_hr,
+                a.max_hr,
+                a.avg_speed,
+                a.max_speed,
+                a.elevation_gain,
+                a.elevation_loss,
+                a.created_at.isoformat(),
+            )
+            for a in activities
+        ],
+    )
+    conn.commit()
+    return len(activities)
+
+
+def get_activities(
+    conn: sqlite3.Connection,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    activity_type: str | None = None,
+    limit: int = 50,
+) -> list[Activity]:
+    query = """
+        SELECT id, source, activity_id, activity_name, activity_type, sport_type,
+               start_time, duration_seconds, distance_meters, calories,
+               avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
+        FROM activity
+        WHERE 1=1
+    """
+    params: list = []
+    if start_date is not None:
+        query += " AND date(start_time) >= date(?)"
+        params.append(start_date.isoformat())
+    if end_date is not None:
+        query += " AND date(start_time) <= date(?)"
+        params.append(end_date.isoformat())
+    if activity_type is not None:
+        query += " AND (activity_type = ? OR sport_type = ?)"
+        params.extend([activity_type, activity_type])
+    query += " ORDER BY start_time DESC LIMIT ?"
+    params.append(limit)
+
+    rows = conn.execute(query, params).fetchall()
+    return [
+        Activity(
+            id=row[0],
+            source=row[1],
+            activity_id=row[2],
+            activity_name=row[3],
+            activity_type=row[4],
+            sport_type=row[5],
+            start_time=datetime.fromisoformat(row[6]),
+            duration_seconds=row[7],
+            distance_meters=row[8],
+            calories=row[9],
+            avg_hr=row[10],
+            max_hr=row[11],
+            avg_speed=row[12],
+            max_speed=row[13],
+            elevation_gain=row[14],
+            elevation_loss=row[15],
+            created_at=datetime.fromisoformat(row[16]),
+        )
+        for row in rows
+    ]
+
+
+def get_activity_by_id(conn: sqlite3.Connection, activity_id: str) -> Activity | None:
+    row = conn.execute(
+        """
+        SELECT id, source, activity_id, activity_name, activity_type, sport_type,
+               start_time, duration_seconds, distance_meters, calories,
+               avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
+        FROM activity
+        WHERE id = ? OR activity_id = ?
+        """,
+        (activity_id, activity_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return Activity(
+        id=row[0],
+        source=row[1],
+        activity_id=row[2],
+        activity_name=row[3],
+        activity_type=row[4],
+        sport_type=row[5],
+        start_time=datetime.fromisoformat(row[6]),
+        duration_seconds=row[7],
+        distance_meters=row[8],
+        calories=row[9],
+        avg_hr=row[10],
+        max_hr=row[11],
+        avg_speed=row[12],
+        max_speed=row[13],
+        elevation_gain=row[14],
+        elevation_loss=row[15],
+        created_at=datetime.fromisoformat(row[16]),
+    )
+

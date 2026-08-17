@@ -123,3 +123,88 @@ def test_dashboard_route_renders_widgets_for_completed_onboarding(app, client):
 
     assert response.status_code == 200
     assert "sleep_score" in response.text.lower() or "sleep" in response.text.lower()
+
+
+def test_build_recent_activities_formats_correctly(conn):
+    from core.storage.models import Activity
+    from app.widgets import build_recent_activities
+
+    act = Activity(
+        id="garmin:201",
+        source="garmin",
+        activity_id="201",
+        activity_name="Morning 10K",
+        activity_type="running",
+        sport_type="running",
+        start_time=datetime(2026, 1, 10, 7, 30),
+        duration_seconds=3000.0,
+        distance_meters=10000.0,
+        calories=720.0,
+        avg_hr=156.0,
+        max_hr=175.0,
+        avg_speed=3.333,
+        max_speed=4.2,
+        elevation_gain=45.0,
+        elevation_loss=45.0,
+        created_at=datetime(2026, 1, 10, 9, 0),
+    )
+    repository.upsert_activities(conn, [act])
+
+    formatted = build_recent_activities(conn, unit="km")
+    assert len(formatted) == 1
+    assert formatted[0]["name"] == "Morning 10K"
+    assert formatted[0]["sport_label"] == "Running"
+    assert formatted[0]["distance_formatted"] == "10.00 km"
+    assert formatted[0]["duration_formatted"] == "50m"
+    assert formatted[0]["pace_or_speed_val"] == "5:00 /km"
+    assert formatted[0]["avg_hr"] == 156
+    assert formatted[0]["calories"] == 720
+
+    formatted_mi = build_recent_activities(conn, unit="mi")
+    assert formatted_mi[0]["distance_formatted"] == "6.21 mi"
+    assert formatted_mi[0]["pace_or_speed_val"] == "8:02 /mi"
+
+
+def test_activities_route_requires_admin_and_renders(app, client):
+    # Unauthenticated redirects
+    res_unauth = client.get("/activities", follow_redirects=False)
+    assert res_unauth.status_code == 303
+
+    # Complete onboarding
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "dark"})
+    app.state.credential_store.save({"email": "a@example.com", "password": "x"})
+
+    from core.storage.models import Activity
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    act = Activity(
+        id="garmin:201",
+        source="garmin",
+        activity_id="201",
+        activity_name="Morning 10K",
+        activity_type="running",
+        sport_type="running",
+        start_time=datetime(2026, 1, 10, 7, 30),
+        duration_seconds=3000.0,
+        distance_meters=10000.0,
+        calories=720.0,
+        avg_hr=156.0,
+        max_hr=175.0,
+        avg_speed=3.333,
+        max_speed=4.2,
+        elevation_gain=45.0,
+        elevation_loss=45.0,
+        created_at=datetime(2026, 1, 10, 9, 0),
+    )
+    repository.upsert_activities(conn, [act])
+    conn.close()
+
+    res = client.get("/activities")
+    assert res.status_code == 200
+    assert "Morning 10K" in res.text
+    assert "Running" in res.text
+    assert "Workout Sessions" in res.text
+
+

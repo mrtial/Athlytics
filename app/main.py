@@ -98,6 +98,7 @@ def create_app(data_dir: Path) -> FastAPI:
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
+    from app.routes import activities as activities_routes
     from app.routes import auth as auth_routes
     from app.routes import coach as coach_routes
     from app.routes import dashboard as dashboard_routes
@@ -114,9 +115,11 @@ def create_app(data_dir: Path) -> FastAPI:
     app.include_router(sync_status_routes.router)
     app.include_router(metric_detail_routes.router)
     app.include_router(dashboard_routes.router)
+    app.include_router(activities_routes.router)
     app.include_router(coach_routes.router)
     app.include_router(training_plans_routes.router)
     app.include_router(settings_routes.router)
+
 
     from app.routes import root as root_routes
 

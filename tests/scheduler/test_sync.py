@@ -152,3 +152,43 @@ def test_chunk_days_less_than_one_raises_value_error(tmp_path):
 
     with pytest.raises(ValueError, match="chunk_days must be >= 1"):
         sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5), chunk_days=0)
+
+
+def test_sync_all_metrics_persists_activities_when_provider_supports_it(tmp_path):
+    from core.storage.models import Activity
+    conn = connect(tmp_path / "test.db")
+    act = Activity(
+        id="fake:1",
+        source="fake",
+        activity_id="1",
+        activity_name="Morning 10K",
+        activity_type="running",
+        sport_type="running",
+        start_time=datetime(2026, 1, 2, 8, 0),
+        duration_seconds=3000.0,
+        distance_meters=10000.0,
+        calories=700.0,
+        avg_hr=155.0,
+        max_hr=172.0,
+        avg_speed=3.33,
+        max_speed=4.0,
+        elevation_gain=50.0,
+        elevation_loss=50.0,
+        created_at=datetime(2026, 1, 2, 9, 0),
+    )
+
+    class _ActivityProvider(FakeProvider):
+        def __init__(self):
+            super().__init__(readings_by_metric={"activity_duration": [_reading(2, 50.0)]})
+
+        def fetch_activities(self, start, end):
+            return [act]
+
+    provider = _ActivityProvider()
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5))
+
+    stored_activities = repository.get_activities(conn)
+    assert len(stored_activities) == 1
+    assert stored_activities[0].activity_name == "Morning 10K"
+    assert stored_activities[0].activity_type == "running"
+

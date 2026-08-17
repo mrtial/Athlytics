@@ -1909,8 +1909,447 @@ html[data-theme="dark"] select:focus {
 }
 
 /* ==========================================================================
+   Recent Workouts & Activities Section
+   ========================================================================== */
+
+.dashboard-activities-section,
+.activities-dashboard-section {
+  margin-top: 1.25rem;
+  margin-bottom: 3rem;
+}
+
+.dashboard-activities-section .section-header,
+.activities-dashboard-section .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.btn-link-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--fg);
+  text-decoration: none;
+  padding: 0.4rem 0.9rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  transition: all 0.15s ease;
+}
+
+.btn-link-action:hover {
+  background: var(--accent-primary);
+  color: var(--accent-primary-fg);
+  border-color: var(--accent-primary-hover);
+}
+
+.btn-link-action .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Activities Summary Chips Header */
+.activities-summary-chips {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.summary-chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.55rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  box-shadow: var(--shadow-sm);
+  min-width: 110px;
+}
+
+.summary-chip-val {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-chip-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-subtle);
+}
+
+/* Table View on Dashboard */
+.activities-table-wrapper {
+  padding: 0;
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.activities-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.activities-list-table th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-subtle);
+  padding: 0.85rem 1.15rem;
+  background: var(--surface-secondary);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.activities-list-table td {
+  padding: 0.85rem 1.15rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+  color: var(--fg);
+  vertical-align: middle;
+}
+
+.activity-table-row {
+  transition: background 0.15s ease;
+}
+
+.activity-table-row:hover {
+  background: var(--surface-secondary);
+}
+
+.activity-table-row:last-child td {
+  border-bottom: none;
+}
+
+.activity-cell-flex {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sport-pill-sm {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sport-pill-sm .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.activity-cell-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.activity-cell-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.activity-cell-type {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.cell-datetime {
+  white-space: nowrap;
+}
+
+.cell-main-date {
+  display: block;
+  font-weight: 600;
+  font-size: 0.84rem;
+  color: var(--fg);
+}
+
+.cell-sub-time {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--fg-subtle);
+}
+
+.cell-distance strong,
+.cell-duration strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.cell-muted {
+  color: var(--fg-subtle);
+}
+
+.heart-stat-inline,
+.calorie-stat-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.heart-stat-inline .stat-icon-hr {
+  color: var(--danger);
+  width: 14px;
+  height: 14px;
+}
+
+.calorie-stat-inline .stat-icon-cal {
+  color: var(--warning);
+  width: 14px;
+  height: 14px;
+}
+
+.section-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.section-subtitle {
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+}
+
+
+.workouts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.25rem;
+}
+
+.workout-card {
+  padding: 1.35rem;
+  gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.workout-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-strong);
+}
+
+.workout-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.workout-sport-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.sport-pill {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  border-radius: var(--radius-pill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-secondary);
+  color: var(--fg);
+}
+
+.sport-pill-running {
+  background: color-mix(in srgb, var(--accent-primary) 22%, transparent);
+  color: var(--fg);
+}
+
+.sport-pill-cycling {
+  background: var(--accent-blue-soft);
+  color: var(--accent-blue);
+}
+
+.sport-pill-swimming {
+  background: rgba(14, 165, 233, 0.15);
+  color: #0284c7;
+}
+
+.sport-pill-strength_training {
+  background: rgba(168, 85, 247, 0.15);
+  color: #9333ea;
+}
+
+.sport-pill-walking,
+.sport-pill-hiking {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.sport-pill-yoga {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.workout-title {
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workout-sport-type {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+  display: block;
+}
+
+.workout-time-chip {
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+  background: var(--surface-secondary);
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.workout-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.85rem 1.35rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+}
+
+.workout-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.workout-stat-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-subtle);
+}
+
+.workout-stat-value {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.workout-stat-value .stat-unit {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.stat-icon-hr {
+  color: var(--danger);
+  width: 14px;
+  height: 14px;
+}
+
+.stat-icon-cal {
+  color: var(--warning);
+  width: 14px;
+  height: 14px;
+}
+
+.workout-empty-card {
+  text-align: center;
+  padding: 3rem 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border-radius: var(--radius-lg);
+}
+
+.workout-empty-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: var(--surface-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  margin-bottom: 0.5rem;
+}
+
+.workout-empty-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--fg);
+  margin: 0;
+}
+
+.workout-empty-desc {
+  font-size: 0.86rem;
+  color: var(--fg-muted);
+  max-width: 460px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.workout-empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+/* ==========================================================================
    Responsive Breakpoints
    ========================================================================== */
+
 
 @media (max-width: 1024px) {
   .settings-grid {

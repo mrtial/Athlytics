@@ -100,3 +100,43 @@ class CoachNote:
     note: str
     tags_json: str | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class Activity:
+    """A normalized workout/activity record (run, ride, swim, gym, etc.).
+
+    Timezone contract: `start_time` and `created_at` MUST be naive `datetime`s
+    representing UTC wall-clock time, consistent with MetricReading.
+    """
+
+    id: str
+    source: str
+    activity_id: str
+    activity_name: str
+    activity_type: str  # normalized: 'running', 'cycling', 'swimming', 'walking', 'strength_training', 'cardio', 'hiking', 'yoga', 'other'
+    sport_type: str  # raw provider type key (e.g. 'treadmill_running', 'road_biking')
+    start_time: datetime
+    duration_seconds: float
+    distance_meters: float | None
+    calories: float | None
+    avg_hr: float | None
+    max_hr: float | None
+    avg_speed: float | None  # meters per second
+    max_speed: float | None  # meters per second
+    elevation_gain: float | None  # meters
+    elevation_loss: float | None  # meters
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.start_time.tzinfo is not None:
+            raise ValueError(
+                "Activity.start_time must be a naive datetime representing UTC wall-clock time; "
+                f"got a timezone-aware value: {self.start_time!r}."
+            )
+        if self.created_at.tzinfo is not None:
+            raise ValueError(
+                "Activity.created_at must be a naive datetime representing UTC wall-clock time; "
+                f"got a timezone-aware value: {self.created_at!r}."
+            )
+

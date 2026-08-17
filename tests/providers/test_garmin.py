@@ -392,6 +392,29 @@ def test_parse_activities_produces_three_metric_types_per_activity():
         assert isinstance(reading.value, float)
 
 
+def test_parse_activity_records_produces_normalized_activities():
+    raw = _load_fixture("get_activities_by_date")
+
+    activities = GarminProvider._parse_activity_records(raw)
+
+    assert len(activities) == 2
+    act1 = activities[0]
+    assert act1.id == "garmin:10001"
+    assert act1.activity_name == "Morning Run"
+    assert act1.activity_type == "running"
+    assert act1.duration_seconds == 1800.0
+    assert act1.distance_meters == 5000.0
+    assert act1.calories == 350.0
+    assert act1.start_time.tzinfo is None
+
+    act2 = activities[1]
+    assert act2.id == "garmin:10002"
+    assert act2.activity_name == "Afternoon Ride"
+    assert act2.activity_type == "cycling"
+    assert act2.duration_seconds == 3600.0
+    assert act2.distance_meters == 25000.0
+
+
 def test_fetch_activity_metric_caches_one_call_across_all_three_metric_types(tmp_path):
     store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
     raw = _load_fixture("get_activities_by_date")
@@ -410,8 +433,11 @@ def test_fetch_activity_metric_caches_one_call_across_all_three_metric_types(tmp
     provider.fetch("activity_duration", date(2026, 1, 1), date(2026, 1, 7))
     provider.fetch("activity_distance", date(2026, 1, 1), date(2026, 1, 7))
     provider.fetch("activity_calories", date(2026, 1, 1), date(2026, 1, 7))
+    acts = provider.fetch_activities(date(2026, 1, 1), date(2026, 1, 7))
 
+    assert len(acts) == 2
     assert provider._client.get_activities_by_date_calls == 1
+
 
 
 def test_supported_metric_types_covers_all_v1_metrics(tmp_path):

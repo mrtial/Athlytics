@@ -53,6 +53,12 @@ def sync_all_metrics(
                 chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
                 readings = _fetch_with_backoff(provider, metric_type, cursor, chunk_end, max_retries, sleep_fn)
                 repository.upsert_readings(conn, readings)
+                if metric_type == "activity_duration" and hasattr(provider, "fetch_activities"):
+                    try:
+                        activities = provider.fetch_activities(cursor, chunk_end)
+                        repository.upsert_activities(conn, activities)
+                    except Exception:
+                        logger.warning("failed to upsert activities during sync pass", exc_info=True)
                 repository.set_checkpoint(conn, provider.name, metric_type, chunk_end)
                 cursor = chunk_end + timedelta(days=1)
                 if pace_seconds and cursor <= end:

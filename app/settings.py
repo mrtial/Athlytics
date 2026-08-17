@@ -25,6 +25,8 @@ PERSONA_METRIC_TYPES: dict[str, list[str]] = {
         "resting_hr",
         "hrv",
         "training_load",
+        "activity_distance",
+        "activity_duration",
         "race_predictor_5k",
         "race_predictor_10k",
         "race_predictor_half_marathon",

@@ -366,6 +366,47 @@ function initSkinToggle() {
   });
 }
 
+function initActivityFilters() {
+  const container = document.getElementById("activities-section");
+  if (!container) return;
+
+  const toggleGroup = document.getElementById("activity-filter-toggle");
+  const cards = container.querySelectorAll(".workout-card");
+  const emptyFilterMsg = document.getElementById("activity-filter-empty");
+
+  if (!toggleGroup) return;
+
+  toggleGroup.addEventListener("click", (evt) => {
+    const btn = evt.target.closest(".activity-filter-btn");
+    if (!btn) return;
+
+    const filter = btn.dataset.filter;
+    toggleGroup.querySelectorAll(".activity-filter-btn").forEach((b) => {
+      b.classList.toggle("is-active", b === btn);
+    });
+
+    let visibleCount = 0;
+    cards.forEach((card) => {
+      const type = card.dataset.activityType;
+      const match =
+        filter === "all" ||
+        type === filter ||
+        (filter === "other" &&
+          !["running", "cycling", "swimming", "strength_training"].includes(type));
+      if (match) {
+        card.style.display = "";
+        visibleCount++;
+      } else {
+        card.style.display = "none";
+      }
+    });
+
+    if (emptyFilterMsg) {
+      emptyFilterMsg.style.display = visibleCount === 0 ? "block" : "none";
+    }
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("sync-status")) {
     refreshSyncStatus();
@@ -374,4 +415,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initMetricCards();
   initThemeToggle();
   initSkinToggle();
+  initActivityFilters();
 });
+

@@ -119,4 +119,107 @@
     {% endfor %}
   </div>
 </section>
+
+<section id="dashboard-activities-section" class="dashboard-activities-section">
+  <div class="section-header">
+    <div class="section-header-left">
+      <h2 class="section-title">
+        <span>Recent Activities</span>
+      </h2>
+      <span class="section-subtitle">Last 10 workouts recorded</span>
+    </div>
+    {% if activities %}
+    <a href="/activities" class="btn-link-action">
+      View All Activities {{ feather_icon('arrow-right') }}
+    </a>
+    {% endif %}
+  </div>
+
+  {% if activities %}
+  <div class="activities-table-wrapper widget-card">
+    <table class="activities-list-table">
+      <thead>
+        <tr>
+          <th>Activity</th>
+          <th>Date &amp; Time</th>
+          <th>Distance</th>
+          <th>Duration</th>
+          <th>Pace / Speed</th>
+          <th>Avg HR</th>
+          <th>Calories</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for act in activities %}
+        <tr class="activity-table-row" data-activity-type="{{ act.type }}">
+          <td class="cell-activity-info">
+            <div class="activity-cell-flex">
+              <div class="metric-pill sport-pill-sm sport-pill-{{ act.type }}">
+                {% if act.type == 'running' %}{{ feather_icon('flag') }}
+                {% elif act.type == 'cycling' %}{{ feather_icon('disc') }}
+                {% elif act.type == 'swimming' %}{{ feather_icon('droplet') }}
+                {% elif act.type == 'walking' %}{{ feather_icon('navigation') }}
+                {% elif act.type == 'hiking' %}{{ feather_icon('compass') }}
+                {% elif act.type == 'strength_training' %}{{ feather_icon('zap') }}
+                {% elif act.type == 'yoga' %}{{ feather_icon('sun') }}
+                {% else %}{{ feather_icon('activity') }}{% endif %}
+              </div>
+              <div class="activity-cell-text">
+                <span class="activity-cell-name">{{ act.name }}</span>
+                <span class="activity-cell-type">{{ act.sport_label }}</span>
+              </div>
+            </div>
+          </td>
+          <td class="cell-datetime">
+            <span class="cell-main-date">{{ act.date_str }}</span>
+            <span class="cell-sub-time">{{ act.time_str }}</span>
+          </td>
+          <td class="cell-distance">
+            {% if act.distance_formatted %}
+            <strong>{{ act.distance_formatted }}</strong>
+            {% else %}
+            <span class="cell-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="cell-duration">
+            <strong>{{ act.duration_formatted }}</strong>
+          </td>
+          <td class="cell-pace">
+            {% if act.pace_or_speed_val %}
+            <span>{{ act.pace_or_speed_val }}</span>
+            {% else %}
+            <span class="cell-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="cell-hr">
+            {% if act.avg_hr %}
+            <span class="heart-stat-inline">{{ feather_icon('heart', 'stat-icon-hr') }} {{ act.avg_hr }} <span class="stat-unit">bpm</span></span>
+            {% else %}
+            <span class="cell-muted">—</span>
+            {% endif %}
+          </td>
+          <td class="cell-calories">
+            {% if act.calories %}
+            <span class="calorie-stat-inline">{{ feather_icon('trending-up', 'stat-icon-cal') }} {{ act.calories }} <span class="stat-unit">kcal</span></span>
+            {% else %}
+            <span class="cell-muted">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="widget-card workout-empty-card">
+    <div class="workout-empty-icon">{{ feather_icon('activity') }}</div>
+    <h3 class="workout-empty-title">No Workouts Recorded Yet</h3>
+    <p class="workout-empty-desc">Sync your Garmin Connect data to automatically pull and view your running, cycling, swimming, and workout sessions.</p>
+    <button type="button" class="btn-primary" onclick="triggerManualSync(event)" style="margin-top: 0.5rem; font-size: 0.85rem; padding: 0.5rem 1.25rem;">
+      {{ feather_icon('zap') }} Sync Garmin Data
+    </button>
+  </div>
+  {% endif %}
+</section>
 {% endblock %}
+

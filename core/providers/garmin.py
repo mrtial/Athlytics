@@ -13,7 +13,7 @@ from garminconnect import (
 
 from core.providers.base import RateLimitError
 from core.security.credentials import CredentialStore
-from core.storage.models import MetricReading
+from core.storage.models import Activity, MetricReading
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,30 @@ class GarminMfaRequired(GarminAuthError):
         self.client_state = client_state
 
 
+def normalize_activity_type(type_key: str | None) -> str:
+    """Normalize raw provider sport type / typeKey into canonical category."""
+    if not type_key:
+        return "other"
+    tk = str(type_key).lower().replace("-", "_")
+    if any(r in tk for r in ("running", "run", "jogging", "treadmill")):
+        return "running"
+    if any(c in tk for c in ("cycling", "biking", "bike", "ride", "cycl")):
+        return "cycling"
+    if any(s in tk for s in ("swimming", "swim", "pool", "lap")):
+        return "swimming"
+    if any(w in tk for w in ("walking", "walk")):
+        return "walking"
+    if any(h in tk for h in ("hiking", "hike")):
+        return "hiking"
+    if any(st in tk for st in ("strength", "weight", "gym")):
+        return "strength_training"
+    if any(cd in tk for cd in ("cardio", "elliptical", "stair", "hiit", "rowing", "rower", "fitness_equipment")):
+        return "cardio"
+    if any(y in tk for y in ("yoga", "pilates", "stretch")):
+        return "yoga"
+    return tk
+
+
 class GarminProvider:
     name = "garmin"
 
@@ -77,6 +101,7 @@ class GarminProvider:
 
         self._race_predictor_cache: dict[tuple[date, date], list[MetricReading]] = {}
         self._activities_cache: dict[tuple[date, date], list[MetricReading]] = {}
+        self._activity_records_cache: dict[tuple[date, date], list[Activity]] = {}
 
         self._registry: dict[str, Callable[[date, date], list[MetricReading]]] = {
             "resting_hr": self._fetch_resting_hr,
@@ -579,11 +604,88 @@ class GarminProvider:
                 )
         return readings
 
+    @staticmethod
+    def _parse_activity_records(raw: list[dict]) -> list[Activity]:
+        """Map get_activities_by_date()'s response to full normalized Activity records."""
+        activities = []
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        for act in raw:
+            raw_id = act.get("activityId")
+            raw_start = act.get("startTimeGMT") or act.get("startTimeLocal")
+            if raw_start is None:
+                continue
+            if isinstance(raw_start, str):
+                ts = datetime.fromisoformat(raw_start)
+                if ts.tzinfo is not None:
+                    ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+            else:
+                ts = raw_start
+
+            act_id_str = str(raw_id) if raw_id is not None else str(int(ts.timestamp()))
+
+            name = act.get("activityName") or "Workout"
+            type_obj = act.get("activityType")
+            if isinstance(type_obj, dict):
+                sport_key = type_obj.get("typeKey") or "other"
+            elif isinstance(type_obj, str):
+                sport_key = type_obj
+            else:
+                sport_key = "other"
+
+            norm_type = normalize_activity_type(sport_key)
+
+            duration = float(act.get("duration") or 0.0)
+            distance = float(act["distance"]) if act.get("distance") is not None else None
+            calories = float(act["calories"]) if act.get("calories") is not None else None
+            avg_hr = float(act["averageHR"]) if act.get("averageHR") is not None else None
+            max_hr = float(act["maxHR"]) if act.get("maxHR") is not None else None
+            avg_speed = float(act["averageSpeed"]) if act.get("averageSpeed") is not None else None
+            max_speed = float(act["maxSpeed"]) if act.get("maxSpeed") is not None else None
+            elev_gain = float(act["elevationGain"]) if act.get("elevationGain") is not None else None
+            elev_loss = float(act["elevationLoss"]) if act.get("elevationLoss") is not None else None
+
+            activities.append(
+                Activity(
+                    id=f"garmin:{act_id_str}",
+                    source="garmin",
+                    activity_id=act_id_str,
+                    activity_name=name,
+                    activity_type=norm_type,
+                    sport_type=sport_key,
+                    start_time=ts,
+                    duration_seconds=duration,
+                    distance_meters=distance,
+                    calories=calories,
+                    avg_hr=avg_hr,
+                    max_hr=max_hr,
+                    avg_speed=avg_speed,
+                    max_speed=max_speed,
+                    elevation_gain=elev_gain,
+                    elevation_loss=elev_loss,
+                    created_at=now,
+                )
+            )
+        return activities
+
+    def fetch_activities(self, start: date, end: date) -> list[Activity]:
+        """Fetch full Activity objects across [start, end]."""
+        cache_key = (start, end)
+        if cache_key not in self._activity_records_cache:
+            raw = self._call(self._client.get_activities_by_date, start.isoformat(), end.isoformat())
+            if not isinstance(raw, list):
+                raw = []
+            self._activities_cache[cache_key] = self._parse_activities(raw)
+            self._activity_records_cache[cache_key] = self._parse_activity_records(raw)
+        return self._activity_records_cache[cache_key]
+
     def _fetch_activity_metric(self, metric_type: str, start: date, end: date) -> list[MetricReading]:
         cache_key = (start, end)
         if cache_key not in self._activities_cache:
             raw = self._call(self._client.get_activities_by_date, start.isoformat(), end.isoformat())
+            if not isinstance(raw, list):
+                raw = []
             self._activities_cache[cache_key] = self._parse_activities(raw)
+            self._activity_records_cache[cache_key] = self._parse_activity_records(raw)
         return [r for r in self._activities_cache[cache_key] if r.metric_type == metric_type]
 
     def supported_metric_types(self) -> list[str]:

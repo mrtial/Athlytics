@@ -46,3 +46,113 @@ def build_metric_detail(conn, metric_type: str, days: int = WIDGET_WINDOW_DAYS, 
         day += timedelta(days=1)
 
     return {"metric_type": metric_type, "unit": unit, "points": points}
+
+
+def format_activity_for_display(activity, unit: str = "km") -> dict:
+    type_display_map = {
+        "running": ("Running", "flag"),
+        "cycling": ("Cycling", "disc"),
+        "swimming": ("Swimming", "droplet"),
+        "walking": ("Walking", "navigation"),
+        "hiking": ("Hiking", "compass"),
+        "strength_training": ("Strength", "zap"),
+        "cardio": ("Cardio", "activity"),
+        "yoga": ("Yoga", "sun"),
+        "other": ("Workout", "award"),
+    }
+    label, icon = type_display_map.get(
+        activity.activity_type,
+        (activity.activity_type.replace("_", " ").title(), "activity"),
+    )
+
+    dt = activity.start_time
+    date_str = dt.strftime("%a, %d %b")
+    time_str = dt.strftime("%H:%M")
+
+    dur_sec = int(activity.duration_seconds)
+    hours = dur_sec // 3600
+    minutes = (dur_sec % 3600) // 60
+    seconds = dur_sec % 60
+    if hours > 0:
+        duration_formatted = f"{hours}h {minutes}m"
+    elif minutes > 0:
+        duration_formatted = f"{minutes}m {seconds:02d}s" if seconds > 0 else f"{minutes}m"
+    else:
+        duration_formatted = f"{seconds}s"
+
+    distance_formatted = None
+    distance_val = None
+    distance_unit = "km"
+    if activity.distance_meters is not None and activity.distance_meters > 0:
+        if unit == "mi":
+            mi = activity.distance_meters * 0.000621371
+            distance_val = mi
+            distance_unit = "mi"
+            distance_formatted = f"{mi:.2f} mi"
+        else:
+            km = activity.distance_meters / 1000.0
+            distance_val = km
+            distance_unit = "km"
+            distance_formatted = f"{km:.2f} km"
+
+    pace_or_speed_label = None
+    pace_or_speed_val = None
+    if activity.avg_speed is not None and activity.avg_speed > 0.5:
+        if activity.activity_type in ("running", "walking", "hiking"):
+            pace_or_speed_label = "Pace"
+            if unit == "mi":
+                sec_per_mi = int(1609.344 / activity.avg_speed)
+                p_min = sec_per_mi // 60
+                p_sec = sec_per_mi % 60
+                pace_or_speed_val = f"{p_min}:{p_sec:02d} /mi"
+            else:
+                sec_per_km = int(1000.0 / activity.avg_speed)
+                p_min = sec_per_km // 60
+                p_sec = sec_per_km % 60
+                pace_or_speed_val = f"{p_min}:{p_sec:02d} /km"
+        elif activity.activity_type in ("cycling",):
+            pace_or_speed_label = "Avg Speed"
+            if unit == "mi":
+                mph = activity.avg_speed * 2.23694
+                pace_or_speed_val = f"{mph:.1f} mph"
+            else:
+                kmh = activity.avg_speed * 3.6
+                pace_or_speed_val = f"{kmh:.1f} km/h"
+
+    avg_hr = int(round(activity.avg_hr)) if activity.avg_hr is not None else None
+    calories = int(round(activity.calories)) if activity.calories is not None else None
+
+    elev_gain = None
+    if activity.elevation_gain is not None and activity.elevation_gain > 0:
+        if unit == "mi":
+            elev_gain = f"+{int(round(activity.elevation_gain * 3.28084))} ft"
+        else:
+            elev_gain = f"+{int(round(activity.elevation_gain))} m"
+
+    return {
+        "id": activity.id,
+        "activity_id": activity.activity_id,
+        "name": activity.activity_name,
+        "type": activity.activity_type,
+        "sport_type": activity.sport_type,
+        "sport_label": label,
+        "icon": icon,
+        "date_str": date_str,
+        "time_str": time_str,
+        "duration_formatted": duration_formatted,
+        "distance_formatted": distance_formatted,
+        "distance_val": distance_val,
+        "distance_unit": distance_unit,
+        "pace_or_speed_label": pace_or_speed_label,
+        "pace_or_speed_val": pace_or_speed_val,
+        "avg_hr": avg_hr,
+        "calories": calories,
+        "elevation_gain": elev_gain,
+        "raw_start_time": activity.start_time.isoformat(),
+    }
+
+
+def build_recent_activities(conn, unit: str = "km", limit: int = 20) -> list[dict]:
+    """Fetch and format recent workout activities for dashboard display."""
+    activities = repository.get_activities(conn, limit=limit)
+    return [format_activity_for_display(act, unit=unit) for act in activities]

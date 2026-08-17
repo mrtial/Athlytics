@@ -181,3 +181,86 @@ def test_coach_note_save_and_retrieve(tmp_path):
     injury_notes = repository.get_coach_notes(conn, category="injury")
     assert len(injury_notes) == 1
     assert injury_notes[0].category == "injury"
+
+
+def test_activity_upsert_and_retrieve(tmp_path):
+    from core.storage.models import Activity
+    conn = connect(tmp_path / "test.db")
+    now = datetime(2026, 1, 1, 12, 0)
+    act1 = Activity(
+        id="garmin:101",
+        source="garmin",
+        activity_id="101",
+        activity_name="Morning 5K",
+        activity_type="running",
+        sport_type="running",
+        start_time=datetime(2026, 1, 2, 7, 0),
+        duration_seconds=1500.0,
+        distance_meters=5000.0,
+        calories=350.0,
+        avg_hr=152.0,
+        max_hr=168.0,
+        avg_speed=3.33,
+        max_speed=4.1,
+        elevation_gain=25.0,
+        elevation_loss=25.0,
+        created_at=now,
+    )
+    act2 = Activity(
+        id="garmin:102",
+        source="garmin",
+        activity_id="102",
+        activity_name="Afternoon Tempo Ride",
+        activity_type="cycling",
+        sport_type="cycling",
+        start_time=datetime(2026, 1, 3, 14, 0),
+        duration_seconds=3600.0,
+        distance_meters=28000.0,
+        calories=650.0,
+        avg_hr=145.0,
+        max_hr=165.0,
+        avg_speed=7.78,
+        max_speed=11.2,
+        elevation_gain=120.0,
+        elevation_loss=120.0,
+        created_at=now,
+    )
+    repository.upsert_activities(conn, [act1, act2])
+
+    all_acts = repository.get_activities(conn, limit=10)
+    assert len(all_acts) == 2
+    assert all_acts[0].id == "garmin:102"  # Sorted DESC by start_time
+
+    runs = repository.get_activities(conn, activity_type="running")
+    assert len(runs) == 1
+    assert runs[0].activity_name == "Morning 5K"
+
+    by_id = repository.get_activity_by_id(conn, "101")
+    assert by_id is not None
+    assert by_id.activity_id == "101"
+
+    # Idempotent update
+    updated_act1 = Activity(
+        id="garmin:101",
+        source="garmin",
+        activity_id="101",
+        activity_name="Morning 5K Tempo",
+        activity_type="running",
+        sport_type="running",
+        start_time=datetime(2026, 1, 2, 7, 0),
+        duration_seconds=1450.0,
+        distance_meters=5000.0,
+        calories=360.0,
+        avg_hr=155.0,
+        max_hr=170.0,
+        avg_speed=3.45,
+        max_speed=4.2,
+        elevation_gain=25.0,
+        elevation_loss=25.0,
+        created_at=now,
+    )
+    repository.upsert_activities(conn, [updated_act1])
+    retrieved = repository.get_activity_by_id(conn, "garmin:101")
+    assert retrieved.activity_name == "Morning 5K Tempo"
+    assert retrieved.duration_seconds == 1450.0
+

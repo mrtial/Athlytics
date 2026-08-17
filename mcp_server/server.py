@@ -15,7 +15,7 @@ from mcp.server import MCPServer
 from core.analytics import Anomaly, Trend, detect_anomalies_for_metrics, get_trend as analytics_get_trend
 from core.storage import repository
 from core.storage.db import connect
-from core.storage.models import CoachNote, MetricReading, MetricSummary, Report, Target, TrainingPlan
+from core.storage.models import Activity, CoachNote, MetricReading, MetricSummary, Report, Target, TrainingPlan
 from mcp_server.prompts import (
     prompt_build_training_plan,
     prompt_readiness_check,
@@ -112,6 +112,22 @@ def get_coach_notes(limit: int = 10, category: str | None = None) -> list[CoachN
     """Fetch recent qualitative coach notes, injury logs, or athlete feedback."""
     with _connection() as conn:
         return repository.get_coach_notes(conn, limit=limit, category=category)
+
+
+@mcp.tool()
+def get_activities(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    activity_type: str | None = None,
+    limit: int = 20,
+) -> list[Activity]:
+    """Fetch structured workout activity sessions (running, cycling, swimming, strength, etc.) with duration, distance, pace/speed, and HR."""
+    s_date = date.fromisoformat(start_date) if start_date else None
+    e_date = date.fromisoformat(end_date) if end_date else None
+    with _connection() as conn:
+        return repository.get_activities(
+            conn, start_date=s_date, end_date=e_date, activity_type=activity_type, limit=limit
+        )
 
 
 # ---------------------------------------------------------------------------

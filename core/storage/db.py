@@ -64,11 +64,35 @@ CREATE TABLE IF NOT EXISTS coach_note (
 );
 
 CREATE INDEX IF NOT EXISTS idx_coach_note_date ON coach_note(date);
+
+CREATE TABLE IF NOT EXISTS activity (
+    id TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    activity_id TEXT NOT NULL,
+    activity_name TEXT,
+    activity_type TEXT NOT NULL,
+    sport_type TEXT,
+    start_time TEXT NOT NULL,
+    duration_seconds REAL NOT NULL,
+    distance_meters REAL,
+    calories REAL,
+    avg_hr REAL,
+    max_hr REAL,
+    avg_speed REAL,
+    max_speed REAL,
+    elevation_gain REAL,
+    elevation_loss REAL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_start_time ON activity(start_time);
+CREATE INDEX IF NOT EXISTS idx_activity_type ON activity(activity_type);
 """
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.executescript(SCHEMA)
     conn.commit()
     return conn
+
