@@ -87,6 +87,11 @@ CREATE TABLE IF NOT EXISTS activity (
 
 CREATE INDEX IF NOT EXISTS idx_activity_start_time ON activity(start_time);
 CREATE INDEX IF NOT EXISTS idx_activity_type ON activity(activity_type);
+
+CREATE TABLE IF NOT EXISTS metric_source_priority (
+    metric_type TEXT PRIMARY KEY,
+    preferred_source TEXT NOT NULL
+);
 """
 
 

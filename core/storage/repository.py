@@ -64,6 +64,26 @@ def set_checkpoint(conn: sqlite3.Connection, source: str, metric_type: str, last
     conn.commit()
 
 
+def get_source_priority(conn: sqlite3.Connection, metric_type: str) -> str | None:
+    row = conn.execute(
+        "SELECT preferred_source FROM metric_source_priority WHERE metric_type = ?",
+        (metric_type,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def set_source_priority(conn: sqlite3.Connection, metric_type: str, source: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO metric_source_priority (metric_type, preferred_source)
+        VALUES (?, ?)
+        ON CONFLICT(metric_type) DO UPDATE SET preferred_source = excluded.preferred_source
+        """,
+        (metric_type, source),
+    )
+    conn.commit()
+
+
 def list_metric_summaries(conn: sqlite3.Connection) -> list[MetricSummary]:
     rows = conn.execute(
         """

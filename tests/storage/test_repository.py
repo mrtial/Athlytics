@@ -264,3 +264,21 @@ def test_activity_upsert_and_retrieve(tmp_path):
     assert retrieved.activity_name == "Morning 5K Tempo"
     assert retrieved.duration_seconds == 1450.0
 
+def test_get_source_priority_returns_none_when_unset(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    assert repository.get_source_priority(conn, "resting_hr") is None
+
+
+def test_set_and_get_source_priority_roundtrip(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.set_source_priority(conn, "resting_hr", "garmin")
+
+    assert repository.get_source_priority(conn, "resting_hr") == "garmin"
+
+
+def test_set_source_priority_overwrites_existing_value(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.set_source_priority(conn, "resting_hr", "garmin")
+    repository.set_source_priority(conn, "resting_hr", "apple_health")
+
+    assert repository.get_source_priority(conn, "resting_hr") == "apple_health"
