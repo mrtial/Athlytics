@@ -72,6 +72,20 @@ def test_root_redirects_to_dashboard_when_only_apple_health_connected(app, clien
     assert response.headers["location"] == "/dashboard"
 
 
+def test_root_redirects_to_dashboard_when_only_strava_connected(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    app.state.strava_credential_store.save(
+        {"client_id": "1", "client_secret": "s", "access_token": "a", "refresh_token": "r", "expires_at": "9999999999"}
+    )
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.headers["location"] == "/dashboard"
+
+
 def test_root_still_redirects_to_connect_when_neither_source_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})

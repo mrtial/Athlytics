@@ -58,6 +58,26 @@
       });
     </script>
 
+    <h2 class="section-title" style="font-size: 1rem; margin: 1.75rem 0 0.75rem;">Strava</h2>
+    <form method="post" action="/oauth/strava/authorize">
+      <div class="form-group">
+        <label class="form-label" for="strava_client_id">Strava API Client ID</label>
+        <input class="form-input" type="text" id="strava_client_id" name="client_id" placeholder="12345" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="strava_client_secret">Strava API Client Secret</label>
+        <input class="form-input" type="password" id="strava_client_secret" name="client_secret" placeholder="••••••••••••" required>
+      </div>
+      <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0.25rem 0 1rem;">
+        Create an API application at strava.com/settings/api to get these, then continue here to authorize Athlytics.
+      </p>
+
+      <button type="submit" class="btn-primary">
+        <span>Connect Strava</span>
+      </button>
+    </form>
+
     <div style="margin-top: 1.5rem; padding: 0.85rem 1rem; background: var(--surface-secondary); border-radius: var(--radius-md); border: 1px solid var(--border); font-size: 0.78rem; color: var(--fg-muted); display: flex; align-items: center; gap: 0.5rem;">
       <span>🔒</span>
       <span>Credentials and uploaded data are encrypted/stored locally and never leave your server.</span>

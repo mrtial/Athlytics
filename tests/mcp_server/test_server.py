@@ -301,3 +301,12 @@ async def test_sync_garmin_data_tool_forwards_force_full_history(tmp_path, monke
 
     assert result.is_error is not True
     assert captured.get("force_full_backfill") is True
+
+
+def test_sync_strava_data_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import sync_strava_data
+
+    with pytest.raises(ValueError, match="Strava credentials not found"):
+        sync_strava_data()

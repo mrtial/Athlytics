@@ -10,8 +10,14 @@ router = APIRouter()
 
 @router.get("/api/sync-status")
 def sync_status(request: Request, conn=Depends(require_admin_api)):
-    status = get_sync_status(conn)
+    status = get_sync_status(conn, "garmin")
     status["connected"] = request.app.state.credential_store.load() is not None
+
+    if request.app.state.strava_credential_store.load() is not None:
+        strava_status = get_sync_status(conn, "strava")
+        strava_status["connected"] = True
+        status["strava"] = strava_status
+
     return status
 
 

@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from core.storage.models import Activity, CoachNote, MetricReading, MetricSummary, Report, Target, TrainingPlan
 
@@ -439,54 +439,91 @@ def get_coach_notes(conn: sqlite3.Connection, limit: int = 10, category: str | N
     ]
 
 
+ACTIVITY_SOURCE_PRIORITY: list[str] = ["garmin", "strava"]
+ACTIVITY_DEDUP_WINDOW_MINUTES = 5
+
+
+def _activity_source_rank(source: str) -> int:
+    try:
+        return ACTIVITY_SOURCE_PRIORITY.index(source)
+    except ValueError:
+        return len(ACTIVITY_SOURCE_PRIORITY)
+
+
 def upsert_activities(conn: sqlite3.Connection, activities: list[Activity]) -> int:
-    conn.executemany(
-        """
-        INSERT INTO activity (
-            id, source, activity_id, activity_name, activity_type, sport_type,
-            start_time, duration_seconds, distance_meters, calories,
-            avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            activity_name = excluded.activity_name,
-            activity_type = excluded.activity_type,
-            sport_type = excluded.sport_type,
-            start_time = excluded.start_time,
-            duration_seconds = excluded.duration_seconds,
-            distance_meters = excluded.distance_meters,
-            calories = excluded.calories,
-            avg_hr = excluded.avg_hr,
-            max_hr = excluded.max_hr,
-            avg_speed = excluded.avg_speed,
-            max_speed = excluded.max_speed,
-            elevation_gain = excluded.elevation_gain,
-            elevation_loss = excluded.elevation_loss
-        """,
-        [
+    """Insert/update activities, applying symmetric cross-source dedup:
+    a same-activity_type, close-in-time Activity from a *different* source
+    is treated as the same real-world workout. The higher-priority source
+    (ACTIVITY_SOURCE_PRIORITY) always wins, regardless of which provider's
+    sync ran first -- see docs/superpowers/specs/strava_provider.md §6."""
+    inserted = 0
+    for activity in activities:
+        window_start = (activity.start_time - timedelta(minutes=ACTIVITY_DEDUP_WINDOW_MINUTES)).isoformat()
+        window_end = (activity.start_time + timedelta(minutes=ACTIVITY_DEDUP_WINDOW_MINUTES)).isoformat()
+        existing_rows = conn.execute(
+            """
+            SELECT id, source FROM activity
+            WHERE source != ? AND activity_type = ? AND start_time BETWEEN ? AND ?
+            """,
+            (activity.source, activity.activity_type, window_start, window_end),
+        ).fetchall()
+
+        incoming_rank = _activity_source_rank(activity.source)
+        skip_incoming = False
+        for existing_id, existing_source in existing_rows:
+            if _activity_source_rank(existing_source) <= incoming_rank:
+                skip_incoming = True
+            else:
+                conn.execute("DELETE FROM activity WHERE id = ?", (existing_id,))
+
+        if skip_incoming:
+            continue
+
+        conn.execute(
+            """
+            INSERT INTO activity (
+                id, source, activity_id, activity_name, activity_type, sport_type,
+                start_time, duration_seconds, distance_meters, calories,
+                avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                activity_name = excluded.activity_name,
+                activity_type = excluded.activity_type,
+                sport_type = excluded.sport_type,
+                start_time = excluded.start_time,
+                duration_seconds = excluded.duration_seconds,
+                distance_meters = excluded.distance_meters,
+                calories = excluded.calories,
+                avg_hr = excluded.avg_hr,
+                max_hr = excluded.max_hr,
+                avg_speed = excluded.avg_speed,
+                max_speed = excluded.max_speed,
+                elevation_gain = excluded.elevation_gain,
+                elevation_loss = excluded.elevation_loss
+            """,
             (
-                a.id,
-                a.source,
-                a.activity_id,
-                a.activity_name,
-                a.activity_type,
-                a.sport_type,
-                a.start_time.isoformat(),
-                a.duration_seconds,
-                a.distance_meters,
-                a.calories,
-                a.avg_hr,
-                a.max_hr,
-                a.avg_speed,
-                a.max_speed,
-                a.elevation_gain,
-                a.elevation_loss,
-                a.created_at.isoformat(),
-            )
-            for a in activities
-        ],
-    )
+                activity.id,
+                activity.source,
+                activity.activity_id,
+                activity.activity_name,
+                activity.activity_type,
+                activity.sport_type,
+                activity.start_time.isoformat(),
+                activity.duration_seconds,
+                activity.distance_meters,
+                activity.calories,
+                activity.avg_hr,
+                activity.max_hr,
+                activity.avg_speed,
+                activity.max_speed,
+                activity.elevation_gain,
+                activity.elevation_loss,
+                activity.created_at.isoformat(),
+            ),
+        )
+        inserted += 1
     conn.commit()
-    return len(activities)
+    return inserted
 
 
 def get_activities(

@@ -25,7 +25,7 @@ PROVIDER_METRIC_TYPES = {"garmin": GARMIN_METRIC_TYPES, "apple_health": APPLE_HE
 
 @router.get("/dashboard")
 def dashboard_page(request: Request, conn=Depends(require_admin_page)):
-    status = onboarding_status(conn, request.app.state.credential_store)
+    status = onboarding_status(conn, request.app.state.credential_store, request.app.state.strava_credential_store)
     if status != "complete":
         return RedirectResponse(url=f"/onboarding/{status}", status_code=303)
 

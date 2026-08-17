@@ -4,7 +4,7 @@ import pytest
 
 from core.storage import repository
 from core.storage.db import connect
-from core.storage.models import MetricReading
+from core.storage.models import Activity, MetricReading
 
 
 def test_upsert_and_get_readings_roundtrip(tmp_path):
@@ -368,3 +368,77 @@ def test_has_synced_data_is_source_specific(tmp_path):
 
     assert repository.has_synced_data(conn, "apple_health") is False
     assert repository.has_synced_data(conn, "garmin") is True
+
+
+def _activity(source, activity_id, start_time, activity_type="running"):
+    return Activity(
+        id=f"{source}:{activity_id}",
+        source=source,
+        activity_id=activity_id,
+        activity_name="Morning Run",
+        activity_type=activity_type,
+        sport_type="run",
+        start_time=start_time,
+        duration_seconds=1800.0,
+        distance_meters=5000.0,
+        calories=300.0,
+        avg_hr=140.0,
+        max_hr=160.0,
+        avg_speed=2.8,
+        max_speed=3.5,
+        elevation_gain=20.0,
+        elevation_loss=20.0,
+        created_at=datetime(2026, 1, 1, 8, 0),
+    )
+
+
+def test_upsert_activities_skips_strava_duplicate_of_existing_garmin_activity(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    garmin_activity = _activity("garmin", "111", datetime(2026, 1, 1, 7, 0))
+    repository.upsert_activities(conn, [garmin_activity])
+
+    strava_duplicate = _activity("strava", "999", datetime(2026, 1, 1, 7, 2))  # 2 min later, same run
+    inserted = repository.upsert_activities(conn, [strava_duplicate])
+
+    assert inserted == 0
+    all_activities = repository.get_activities(conn)
+    assert len(all_activities) == 1
+    assert all_activities[0].source == "garmin"
+
+
+def test_upsert_activities_strava_first_then_garmin_supersedes(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    strava_activity = _activity("strava", "999", datetime(2026, 1, 1, 7, 0))
+    repository.upsert_activities(conn, [strava_activity])
+
+    garmin_activity = _activity("garmin", "111", datetime(2026, 1, 1, 7, 1))  # 1 min later, same run
+    inserted = repository.upsert_activities(conn, [garmin_activity])
+
+    assert inserted == 1
+    all_activities = repository.get_activities(conn)
+    assert len(all_activities) == 1
+    assert all_activities[0].source == "garmin"
+
+
+def test_upsert_activities_different_activity_types_both_kept(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    garmin_run = _activity("garmin", "111", datetime(2026, 1, 1, 7, 0), activity_type="running")
+    strava_ride = _activity("strava", "222", datetime(2026, 1, 1, 7, 2), activity_type="cycling")
+
+    repository.upsert_activities(conn, [garmin_run])
+    inserted = repository.upsert_activities(conn, [strava_ride])
+
+    assert inserted == 1
+    assert len(repository.get_activities(conn)) == 2
+
+
+def test_upsert_activities_far_apart_in_time_both_kept(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    garmin_activity = _activity("garmin", "111", datetime(2026, 1, 1, 7, 0))
+    strava_activity = _activity("strava", "222", datetime(2026, 1, 1, 9, 0))  # 2 hours later
+
+    repository.upsert_activities(conn, [garmin_activity])
+    inserted = repository.upsert_activities(conn, [strava_activity])
+
+    assert inserted == 1
+    assert len(repository.get_activities(conn)) == 2

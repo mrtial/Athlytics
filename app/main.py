@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import httpx
 from markupsafe import Markup
 
 from app.db import ensure_app_schema
@@ -59,6 +60,7 @@ def create_app(data_dir: Path) -> FastAPI:
     env_path = data_dir / ".env"
     credentials_path = data_dir / "garmin_credentials.enc"
     token_cache_dir = data_dir / "garmin_tokens"
+    strava_credentials_path = data_dir / "strava_credentials.enc"
 
     conn = connect(db_path)
     ensure_app_schema(conn)
@@ -66,6 +68,7 @@ def create_app(data_dir: Path) -> FastAPI:
 
     secret_key = get_or_create_secret_key(env_path)
     credential_store = CredentialStore(secret_key, credentials_path)
+    strava_credential_store = CredentialStore(secret_key, strava_credentials_path)
 
     def sync_fn() -> None:
         perform_sync_pass(
@@ -73,6 +76,8 @@ def create_app(data_dir: Path) -> FastAPI:
             credential_store,
             token_cache_dir,
             garmin_client_factory=app.state.garmin_client_factory,
+            strava_credential_store=strava_credential_store,
+            strava_http_client_factory=app.state.strava_http_client_factory,
         )
 
     scheduler = BackgroundSyncScheduler(sync_fn)
@@ -94,6 +99,9 @@ def create_app(data_dir: Path) -> FastAPI:
     from garminconnect import Garmin
 
     app.state.garmin_client_factory = Garmin
+    app.state.strava_credential_store = strava_credential_store
+    app.state.pending_strava_oauth = None
+    app.state.strava_http_client_factory = lambda: httpx.Client(base_url="https://www.strava.com", timeout=30.0)
     app.state.secure_cookies = os.environ.get("ATHLYTICS_SECURE_COOKIES", "false").lower() == "true"
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -106,12 +114,14 @@ def create_app(data_dir: Path) -> FastAPI:
     from app.routes import metric_detail as metric_detail_routes
     from app.routes import onboarding as onboarding_routes
     from app.routes import settings as settings_routes
+    from app.routes import strava_oauth as strava_oauth_routes
     from app.routes import sync_status as sync_status_routes
     from app.routes import training_plans as training_plans_routes
 
     app.include_router(auth_routes.router)
     app.include_router(onboarding_routes.router)
     app.include_router(data_sources_routes.router)
+    app.include_router(strava_oauth_routes.router)
     app.include_router(sync_status_routes.router)
     app.include_router(metric_detail_routes.router)
     app.include_router(dashboard_routes.router)

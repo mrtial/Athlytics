@@ -7,7 +7,10 @@ from typing import Callable
 
 from garminconnect import Garmin
 
+import httpx
+
 from core.providers.garmin import GarminAuthError, GarminProvider
+from core.providers.strava import StravaAuthError, StravaProvider
 from core.scheduler.sync import sync_all_metrics
 from core.security.credentials import CredentialStore
 from core.storage.db import connect
@@ -22,34 +25,37 @@ SYNC_PACE_SECONDS = 1.0
 SYNC_CHUNK_DAYS = 30
 
 
-def record_sync_run(conn: sqlite3.Connection, auth_error: str | None) -> None:
+def record_sync_run(conn: sqlite3.Connection, source: str, auth_error: str | None) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.execute(
         """
-        INSERT INTO sync_run_status (id, last_run_at, auth_error) VALUES (1, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET last_run_at = excluded.last_run_at, auth_error = excluded.auth_error
+        INSERT INTO sync_run_status (source, last_run_at, auth_error) VALUES (?, ?, ?)
+        ON CONFLICT(source) DO UPDATE SET last_run_at = excluded.last_run_at, auth_error = excluded.auth_error
         """,
-        (now, auth_error),
+        (source, now, auth_error),
     )
     conn.commit()
 
 
-def record_metric_statuses(conn: sqlite3.Connection, results: dict[str, str]) -> None:
+def record_metric_statuses(conn: sqlite3.Connection, source: str, results: dict[str, str]) -> None:
     now = datetime.now(timezone.utc).isoformat()
     conn.executemany(
         """
-        INSERT INTO sync_metric_status (metric_type, status, updated_at) VALUES (?, ?, ?)
-        ON CONFLICT(metric_type) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
+        INSERT INTO sync_metric_status (source, metric_type, status, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(source, metric_type) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
         """,
-        [(metric_type, status, now) for metric_type, status in results.items()],
+        [(source, metric_type, status, now) for metric_type, status in results.items()],
     )
     conn.commit()
 
 
-def get_sync_status(conn: sqlite3.Connection) -> dict:
-    run_row = conn.execute("SELECT last_run_at, auth_error FROM sync_run_status WHERE id = 1").fetchone()
+def get_sync_status(conn: sqlite3.Connection, source: str = "garmin") -> dict:
+    run_row = conn.execute(
+        "SELECT last_run_at, auth_error FROM sync_run_status WHERE source = ?", (source,)
+    ).fetchone()
     metric_rows = conn.execute(
-        "SELECT metric_type, status, updated_at FROM sync_metric_status ORDER BY metric_type"
+        "SELECT metric_type, status, updated_at FROM sync_metric_status WHERE source = ? ORDER BY metric_type",
+        (source,),
     ).fetchall()
     return {
         "last_run_at": run_row[0] if run_row else None,
@@ -63,33 +69,51 @@ def perform_sync_pass(
     credential_store: CredentialStore,
     token_cache_dir: Path,
     garmin_client_factory: Callable[..., Garmin] = Garmin,
+    strava_credential_store: CredentialStore | None = None,
+    strava_http_client_factory: Callable[[], httpx.Client] | None = None,
     force_full_backfill: bool = False,
 ) -> None:
-    if credential_store.load() is None:
-        return
-
-    conn = connect(db_path)
-    try:
+    if credential_store.load() is not None:
+        conn = connect(db_path)
         try:
-            provider = GarminProvider(credential_store, token_cache_dir, garmin_client_factory=garmin_client_factory)
-        except GarminAuthError as exc:
-            record_sync_run(conn, auth_error=str(exc))
-            return
+            try:
+                provider = GarminProvider(credential_store, token_cache_dir, garmin_client_factory=garmin_client_factory)
+            except GarminAuthError as exc:
+                record_sync_run(conn, "garmin", auth_error=str(exc))
+            else:
+                backfill_start = date.today() - timedelta(days=BACKFILL_LOOKBACK_DAYS)
+                results = sync_all_metrics(
+                    conn,
+                    provider,
+                    backfill_start,
+                    date.today(),
+                    chunk_days=SYNC_CHUNK_DAYS,
+                    pace_seconds=SYNC_PACE_SECONDS,
+                    force_full_backfill=force_full_backfill,
+                )
+                record_sync_run(conn, "garmin", auth_error=None)
+                record_metric_statuses(conn, "garmin", results)
+        finally:
+            conn.close()
 
-        backfill_start = date.today() - timedelta(days=BACKFILL_LOOKBACK_DAYS)
-        results = sync_all_metrics(
-            conn,
-            provider,
-            backfill_start,
-            date.today(),
-            chunk_days=SYNC_CHUNK_DAYS,
-            pace_seconds=SYNC_PACE_SECONDS,
-            force_full_backfill=force_full_backfill,
-        )
-        record_sync_run(conn, auth_error=None)
-        record_metric_statuses(conn, results)
-    finally:
-        conn.close()
+    if strava_credential_store is not None and strava_credential_store.load() is not None:
+        conn = connect(db_path)
+        try:
+            http_client = strava_http_client_factory() if strava_http_client_factory else None
+            try:
+                provider = StravaProvider(strava_credential_store, http_client=http_client)
+            except StravaAuthError as exc:
+                record_sync_run(conn, "strava", auth_error=str(exc))
+            else:
+                backfill_start = date.today() - timedelta(days=BACKFILL_LOOKBACK_DAYS)
+                results = sync_all_metrics(
+                    conn, provider, backfill_start, date.today(),
+                    chunk_days=SYNC_CHUNK_DAYS, pace_seconds=SYNC_PACE_SECONDS, force_full_backfill=force_full_backfill,
+                )
+                record_sync_run(conn, "strava", auth_error=None)
+                record_metric_statuses(conn, "strava", results)
+        finally:
+            conn.close()
 
 
 class BackgroundSyncScheduler:

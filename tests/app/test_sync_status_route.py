@@ -41,8 +41,8 @@ def test_sync_status_route_reflects_recorded_run_and_metric_statuses(app, client
     _login(client)
     conn = connect(app.state.db_path)
     ensure_app_schema(conn)
-    record_sync_run(conn, auth_error=None)
-    record_metric_statuses(conn, {"steps": "complete", "resting_hr": "failed"})
+    record_sync_run(conn, "garmin", auth_error=None)
+    record_metric_statuses(conn, "garmin", {"steps": "complete", "resting_hr": "failed"})
     conn.close()
 
     response = client.get("/api/sync-status")
@@ -57,7 +57,7 @@ def test_sync_status_route_surfaces_auth_error(app, client):
     _login(client)
     conn = connect(app.state.db_path)
     ensure_app_schema(conn)
-    record_sync_run(conn, auth_error="Garmin requires an MFA code to complete login")
+    record_sync_run(conn, "garmin", auth_error="Garmin requires an MFA code to complete login")
     conn.close()
 
     response = client.get("/api/sync-status")

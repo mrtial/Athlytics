@@ -38,7 +38,9 @@ def require_admin_api(request: Request, conn: sqlite3.Connection = Depends(get_c
     return conn
 
 
-def onboarding_status(conn: sqlite3.Connection, credential_store: CredentialStore) -> str:
+def onboarding_status(
+    conn: sqlite3.Connection, credential_store: CredentialStore, strava_credential_store: CredentialStore | None = None
+) -> str:
     """One of "admin"/"persona"/"theme"/"connect"/"complete" -- how far
     onboarding (design doc's Onboarding Flow) has progressed. "connect"'s
     completion is signaled by either Garmin credentials existing or Apple
@@ -59,6 +61,7 @@ def onboarding_status(conn: sqlite3.Connection, credential_store: CredentialStor
         return "theme"
     garmin_connected = credential_store.load() is not None
     apple_health_connected = repository.has_synced_data(conn, "apple_health")
-    if not garmin_connected and not apple_health_connected:
+    strava_connected = strava_credential_store is not None and strava_credential_store.load() is not None
+    if not garmin_connected and not apple_health_connected and not strava_connected:
         return "connect"
     return "complete"

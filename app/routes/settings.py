@@ -33,6 +33,7 @@ router = APIRouter()
 def _settings_context(conn, request, *, theme, persona_error=None, theme_error=None, unit_error=None, skin_error=None, profile_error=None):
     garmin_connected = request.app.state.credential_store.load() is not None
     apple_connected = has_synced_data(conn, "apple_health")
+    strava_connected = request.app.state.strava_credential_store.load() is not None
     overlapping_metric_types = []
     if garmin_connected and apple_connected:
         overlapping_metric_types = sorted(set(GARMIN_METRIC_TYPES) & set(APPLE_HEALTH_METRIC_TYPES))
@@ -58,6 +59,7 @@ def _settings_context(conn, request, *, theme, persona_error=None, theme_error=N
         "profile_error": profile_error,
         "garmin_connected": garmin_connected,
         "apple_health_connected": apple_connected,
+        "strava_connected": strava_connected,
         "overlapping_metric_types": overlapping_metric_types,
         "source_priority": {mt: get_source_priority(conn, mt) or "garmin" for mt in overlapping_metric_types},
     }

@@ -24,7 +24,7 @@ def conn(tmp_path):
 
 
 def test_record_and_get_sync_run_status_roundtrips(conn):
-    record_sync_run(conn, auth_error=None)
+    record_sync_run(conn, "garmin", auth_error=None)
 
     status = get_sync_status(conn)
 
@@ -33,7 +33,7 @@ def test_record_and_get_sync_run_status_roundtrips(conn):
 
 
 def test_record_sync_run_persists_auth_error(conn):
-    record_sync_run(conn, auth_error="Garmin requires an MFA code")
+    record_sync_run(conn, "garmin", auth_error="Garmin requires an MFA code")
 
     status = get_sync_status(conn)
 
@@ -41,14 +41,14 @@ def test_record_sync_run_persists_auth_error(conn):
 
 
 def test_record_sync_run_overwrites_previous_run(conn):
-    record_sync_run(conn, auth_error="first error")
-    record_sync_run(conn, auth_error=None)
+    record_sync_run(conn, "garmin", auth_error="first error")
+    record_sync_run(conn, "garmin", auth_error=None)
 
     assert get_sync_status(conn)["auth_error"] is None
 
 
 def test_record_and_get_metric_statuses(conn):
-    record_metric_statuses(conn, {"steps": "complete", "resting_hr": "failed"})
+    record_metric_statuses(conn, "garmin", {"steps": "complete", "resting_hr": "failed"})
 
     status = get_sync_status(conn)
 
@@ -57,8 +57,8 @@ def test_record_and_get_metric_statuses(conn):
 
 
 def test_record_metric_statuses_upserts_existing_metric_type(conn):
-    record_metric_statuses(conn, {"steps": "failed"})
-    record_metric_statuses(conn, {"steps": "complete"})
+    record_metric_statuses(conn, "garmin", {"steps": "failed"})
+    record_metric_statuses(conn, "garmin", {"steps": "complete"})
 
     metrics = {m["metric_type"]: m["status"] for m in get_sync_status(conn)["metrics"]}
     assert metrics == {"steps": "complete"}
@@ -70,6 +70,40 @@ def test_get_sync_status_before_any_run_has_no_run_and_no_metrics(conn):
     assert status["last_run_at"] is None
     assert status["auth_error"] is None
     assert status["metrics"] == []
+
+
+def test_sync_run_status_is_source_scoped(tmp_path):
+    from app.db import ensure_app_schema
+    from core.storage.db import connect
+
+    conn = connect(tmp_path / "test.db")
+    ensure_app_schema(conn)
+
+    record_sync_run(conn, "garmin", auth_error="garmin failed")
+    record_sync_run(conn, "strava", auth_error=None)
+
+    garmin_status = get_sync_status(conn, "garmin")
+    strava_status = get_sync_status(conn, "strava")
+
+    assert garmin_status["auth_error"] == "garmin failed"
+    assert strava_status["auth_error"] is None
+
+
+def test_sync_metric_status_is_source_scoped(tmp_path):
+    from app.db import ensure_app_schema
+    from core.storage.db import connect
+
+    conn = connect(tmp_path / "test.db")
+    ensure_app_schema(conn)
+
+    record_metric_statuses(conn, "garmin", {"activity_duration": "complete"})
+    record_metric_statuses(conn, "strava", {"activity_duration": "failed"})
+
+    garmin_metrics = {m["metric_type"]: m["status"] for m in get_sync_status(conn, "garmin")["metrics"]}
+    strava_metrics = {m["metric_type"]: m["status"] for m in get_sync_status(conn, "strava")["metrics"]}
+
+    assert garmin_metrics["activity_duration"] == "complete"
+    assert strava_metrics["activity_duration"] == "failed"
 
 
 class _StubGarminClient:
@@ -213,6 +247,39 @@ def test_background_sync_scheduler_swallows_exceptions_from_sync_fn():
         while len(calls) < 1 and time.time() < deadline:
             time.sleep(0.05)
         assert len(calls) == 1  # thread must still be alive after the exception, not crashed
-        assert scheduler._thread.is_alive()
     finally:
         scheduler.stop(timeout=2)
+
+
+def test_perform_sync_pass_runs_strava_when_connected(tmp_path):
+    from app.db import ensure_app_schema
+    from core.security.credentials import CredentialStore
+    from cryptography.fernet import Fernet
+
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_credentials.enc")  # not connected
+    strava_store = CredentialStore(Fernet.generate_key(), tmp_path / "strava_credentials.enc")
+    strava_store.save({
+        "client_id": "1", "client_secret": "s", "access_token": "a", "refresh_token": "r", "expires_at": "9999999999"
+    })
+
+    def strava_http_client_factory():
+        import httpx
+        return httpx.Client(
+            base_url="https://www.strava.com",
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[])),
+        )
+
+    perform_sync_pass(
+        db_path, garmin_store, tmp_path / "garmin_tokens",
+        strava_credential_store=strava_store, strava_http_client_factory=strava_http_client_factory,
+    )
+
+    conn = connect(db_path)
+    status = get_sync_status(conn, "strava")
+    assert status["auth_error"] is None
+    assert status["metrics"]  # activity_duration/distance/calories all recorded

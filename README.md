@@ -70,6 +70,7 @@ All application data persists in a single named Docker volume, `athlytics_data`,
 - `/data/.env` — Generated Fernet encryption secret key.
 - `/data/garmin_credentials.enc` — Encrypted Garmin credentials.
 - `/data/garmin_tokens/` — Garmin cached OAuth/session tokens.
+- `/data/strava_credentials.enc` — Encrypted Strava OAuth tokens.
 
 Recreating the container (`docker compose up -d --build` or `docker compose restart`) preserves this volume.
 
@@ -79,6 +80,13 @@ To back up the volume to a local archive:
 docker run --rm -v athlytics_data:/data -v "$(pwd)":/backup alpine \
   tar czf /backup/athlytics-backup.tar.gz -C /data .
 ```
+
+### Connecting Strava
+
+1. Create a Strava API application at [strava.com/settings/api](https://www.strava.com/settings/api). Any values work for "Website"/"Authorization Callback Domain" during creation, but the callback domain must match the host you'll access Athlytics from once connecting (e.g. `localhost` for local access, or your server's real domain/IP if accessed remotely).
+2. Note the **Client ID** and **Client Secret** Strava shows you.
+3. In Athlytics, go to onboarding's Connect step (or Settings, if already onboarded) and enter those two values under "Strava" — this redirects you to Strava to authorize, then back to Athlytics, which stores the resulting OAuth tokens encrypted at `/data/strava_credentials.enc` (bring-your-own-key: your Client ID/Secret never leave your server).
+4. A background sync starts automatically; activities already synced from Garmin (if connected) that also appear in your Strava history are deduplicated automatically, keeping the Garmin-recorded version.
 
 ### Encryption Secret Provisioning
 

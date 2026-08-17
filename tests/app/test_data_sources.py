@@ -397,6 +397,19 @@ def test_import_apple_health_checkpoint_does_not_regress_on_older_reupload(tmp_p
     assert repository.get_checkpoint(conn, "apple_health", "steps") == date(2026, 1, 10)
 
 
+def test_app_exposes_strava_credential_store(app):
+    assert app.state.strava_credential_store is not None
+    assert app.state.strava_credential_store.load() is None  # nothing connected yet
+
+
+def test_strava_credential_store_is_independent_of_garmin_store(app, tmp_path):
+    app.state.credential_store.save({"email": "a@example.com", "password": "x"})
+    app.state.strava_credential_store.save({"client_id": "1", "client_secret": "s", "access_token": "a", "refresh_token": "r", "expires_at": "9999999999"})
+
+    assert app.state.credential_store.load()["email"] == "a@example.com"
+    assert app.state.strava_credential_store.load()["client_id"] == "1"
+
+
 def test_onboarding_connect_page_shows_both_provider_options(client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
 
@@ -422,3 +435,13 @@ def test_completing_onboarding_via_apple_health_upload_reaches_dashboard(client)
 
     root_response = client.get("/", follow_redirects=False)
     assert root_response.headers["location"] == "/dashboard"
+
+
+def test_onboarding_connect_page_shows_strava_option(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/onboarding/connect")
+
+    assert response.status_code == 200
+    assert "strava" in response.text.lower()
+    assert 'action="/oauth/strava/authorize"' in response.text

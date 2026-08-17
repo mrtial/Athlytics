@@ -23,15 +23,17 @@ CREATE TABLE IF NOT EXISTS app_setting (
 );
 
 CREATE TABLE IF NOT EXISTS sync_run_status (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    source TEXT PRIMARY KEY,
     last_run_at TEXT NOT NULL,
     auth_error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sync_metric_status (
-    metric_type TEXT PRIMARY KEY,
+    source TEXT NOT NULL,
+    metric_type TEXT NOT NULL,
     status TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (source, metric_type)
 );
 """
 
@@ -44,3 +46,17 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     """
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate_sync_status_tables(conn)
+
+
+def _migrate_sync_status_tables(conn: sqlite3.Connection) -> None:
+    """One-time migration for databases created before sync_run_status/
+    sync_metric_status became source-keyed. Both tables hold only
+    re-derivable sync status (never user data), so a drop-and-recreate is
+    safe -- the next sync pass repopulates them."""
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(sync_run_status)").fetchall()]
+    if cols and "source" not in cols:
+        conn.execute("DROP TABLE sync_run_status")
+        conn.execute("DROP TABLE sync_metric_status")
+        conn.executescript(SCHEMA)
+        conn.commit()
