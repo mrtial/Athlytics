@@ -69,3 +69,10 @@ async def test_dynamic_resources_contract(tmp_path, monkeypatch):
         # Resource 3: coach context
         res_ctx = await client.read_resource("athlytics://coach/context")
         assert "Left hamstring feeling tight" in res_ctx.contents[0].text
+
+        # Resource 4: coach playbook (sourced from skills/athlytics-coach/SKILL.md)
+        res_playbook = await client.read_resource("athlytics://coach/playbook")
+        playbook_text = res_playbook.contents[0].text
+        assert "10% Rule" in playbook_text
+        assert "Recovery-Gated" in playbook_text
+        assert "---" not in playbook_text.splitlines()[0]

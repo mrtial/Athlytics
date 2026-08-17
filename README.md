@@ -265,12 +265,8 @@ athlytics/
 │   ├── resources.py      # Living context generators (athlytics:// snapshot & plans)
 │   └── prompts.py        # Workflow prompts (readiness, weekly review, plan builder)
 ├── scripts/              # Helper scripts (interactive MFA login, fixture capture)
-├── .claude/              # Claude Code and Desktop coaching skills
+├── skills/               # Shared coaching/setup playbooks (symlinked at .claude/skills)
 ├── .agents/              # Antigravity and Gemini MCP configurations
-├── docs/
-│   ├── superpowers/specs # System architecture & AI Coach design specifications
-│   ├── superpowers/plans # Implementation plans across all subsystems
-│   └── coach/            # Client setup guides & Gemini system instructions
 ├── tests/                # 215+ unit, integration, and contract tests
 ├── Dockerfile            # Single-stage container image
 ├── docker-compose.yml    # One-click Compose deployment with persistent volume
@@ -281,7 +277,7 @@ athlytics/
 
 ## Documentation
 
-- **Design Specification**: [`docs/superpowers/specs/2026-08-16-athlytics-design.md`](docs/superpowers/specs/2026-08-16-athlytics-design.md)
-- **AI Coach & MCP Architecture**: [`docs/superpowers/specs/2026-08-16-athlytics-ai-coach-design.md`](docs/superpowers/specs/2026-08-16-athlytics-ai-coach-design.md)
-- **AI Client Setup Guide**: [`docs/coach/client-setup.md`](docs/coach/client-setup.md)
-- **Gemini Coaching Instructions**: [`docs/coach/gemini-system-instructions.md`](docs/coach/gemini-system-instructions.md)
+- **Coaching Playbook**: served live over MCP at `athlytics://coach/playbook` (canonical source: [`skills/athlytics-coach/SKILL.md`](skills/athlytics-coach/SKILL.md))
+- **MCP Client Setup Guide**: [`skills/athlytics-setup/SKILL.md`](skills/athlytics-setup/SKILL.md)
+
+Design specs and implementation plans live locally under `docs/` (not published to GitHub).

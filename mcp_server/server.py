@@ -24,6 +24,7 @@ from mcp_server.prompts import (
 from mcp_server.resources import (
     build_athlete_snapshot,
     build_coach_context,
+    build_coach_playbook,
     build_training_current_state,
 )
 
@@ -309,6 +310,12 @@ def coach_context() -> str:
     """Athlete coaching profile, recent qualitative feedback, injury history, and notes."""
     with _connection() as conn:
         return build_coach_context(conn)
+
+
+@mcp.resource("athlytics://coach/playbook")
+def coach_playbook() -> str:
+    """Evidence-based coaching playbook: recovery gating, the 10% volume rule, deload cadence, and action persistence."""
+    return build_coach_playbook()
 
 
 # ---------------------------------------------------------------------------

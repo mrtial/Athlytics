@@ -1,8 +1,11 @@
 """Dynamic context resource generators for Athlytics AI Coach."""
 import json
 from datetime import date, timedelta
+from pathlib import Path
 from core.storage import repository
 from core.analytics import get_trend
+
+_COACH_PLAYBOOK_PATH = Path(__file__).resolve().parent.parent / "skills" / "athlytics-coach" / "SKILL.md"
 
 
 def build_athlete_snapshot(conn) -> str:
@@ -66,6 +69,16 @@ def build_training_current_state(conn) -> str:
         lines.append("No active targets set.")
 
     return "\n".join(lines)
+
+
+def build_coach_playbook() -> str:
+    """Serves the canonical coaching playbook (recovery gating, 10% rule, deload weeks,
+    action persistence), sourced directly from skills/athlytics-coach/SKILL.md so every
+    MCP client sees the same rules the file-based skill defines."""
+    text = _COACH_PLAYBOOK_PATH.read_text()
+    _, _, body = text.partition("---\n")
+    _, _, body = body.partition("---\n")
+    return body.strip() or text.strip()
 
 
 def build_coach_context(conn) -> str:
