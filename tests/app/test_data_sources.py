@@ -321,3 +321,30 @@ def test_apple_health_import_route_returns_400_for_malformed_xml_inside_valid_zi
     )
 
     assert response.status_code == 400
+
+
+def test_onboarding_connect_page_shows_both_provider_options(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/onboarding/connect")
+
+    assert response.status_code == 200
+    assert "garmin" in response.text.lower()
+    assert "apple health" in response.text.lower()
+    assert 'action="/api/data-sources/apple-health/import"' in response.text
+
+
+def test_completing_onboarding_via_apple_health_upload_reaches_dashboard(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", _apple_health_zip(), "application/zip")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200  # import route returns a JSON summary, not a redirect
+
+    root_response = client.get("/", follow_redirects=False)
+    assert root_response.headers["location"] == "/dashboard"
