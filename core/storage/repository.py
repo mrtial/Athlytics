@@ -22,15 +22,52 @@ def upsert_readings(conn: sqlite3.Connection, readings: list[MetricReading]) -> 
     return len(readings)
 
 
+DEFAULT_SOURCE_PRIORITY: list[str] = ["garmin", "apple_health"]
+
+
 def get_readings(conn: sqlite3.Connection, metric_type: str, start: date, end: date) -> list[MetricReading]:
+    override_row = conn.execute(
+        "SELECT preferred_source FROM metric_source_priority WHERE metric_type = ?",
+        (metric_type,),
+    ).fetchone()
+    preferred_source = override_row[0] if override_row else None
+
+    # Rank each row's source: the override (if any) ranks first, then
+    # DEFAULT_SOURCE_PRIORITY in order, then anything else last. Expressed
+    # as a SQL CASE so reconciliation happens in one query rather than
+    # post-filtering in Python.
+    priority_order = [preferred_source] if preferred_source else []
+    priority_order += [s for s in DEFAULT_SOURCE_PRIORITY if s != preferred_source]
+
+    case_clauses = " ".join(
+        f"WHEN source = ? THEN {rank}" for rank, _ in enumerate(priority_order)
+    )
+    case_params = list(priority_order)
+    fallback_rank = len(priority_order)
+    rank_expr = f"(CASE {case_clauses} ELSE {fallback_rank} END)"
+
+    # Rank each row by source priority, then find the best (lowest) rank
+    # present per day via a window MIN(). Keep every row matching that best
+    # rank rather than just one arbitrary row per day -- this drops rows
+    # from a lower-priority source when a higher-priority source also has
+    # data that day, while leaving multiple same-source, same-day readings
+    # (e.g. several intraday syncs) untouched.
     rows = conn.execute(
-        """
+        f"""
         SELECT source, metric_type, timestamp, value, unit
-        FROM metric_reading
-        WHERE metric_type = ? AND date(timestamp) BETWEEN date(?) AND date(?)
+        FROM (
+            SELECT *,
+                {rank_expr} AS rank,
+                MIN({rank_expr}) OVER (
+                    PARTITION BY metric_type, date(timestamp)
+                ) AS best_rank
+            FROM metric_reading
+            WHERE metric_type = ? AND date(timestamp) BETWEEN date(?) AND date(?)
+        )
+        WHERE rank = best_rank
         ORDER BY timestamp ASC
         """,
-        (metric_type, start.isoformat(), end.isoformat()),
+        (*case_params, *case_params, metric_type, start.isoformat(), end.isoformat()),
     ).fetchall()
     return [
         MetricReading(

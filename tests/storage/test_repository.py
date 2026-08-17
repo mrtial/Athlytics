@@ -282,3 +282,60 @@ def test_set_source_priority_overwrites_existing_value(tmp_path):
     repository.set_source_priority(conn, "resting_hr", "apple_health")
 
     assert repository.get_source_priority(conn, "resting_hr") == "apple_health"
+
+
+def test_get_readings_prefers_garmin_by_default_on_overlap(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    garmin_reading = MetricReading("garmin", "resting_hr", datetime(2026, 1, 1), 50.0, "bpm")
+    apple_reading = MetricReading("apple_health", "resting_hr", datetime(2026, 1, 1), 55.0, "bpm")
+    repository.upsert_readings(conn, [garmin_reading, apple_reading])
+
+    result = repository.get_readings(conn, "resting_hr", date(2026, 1, 1), date(2026, 1, 1))
+
+    assert result == [garmin_reading]
+
+
+def test_get_readings_respects_explicit_source_priority_override(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    garmin_reading = MetricReading("garmin", "resting_hr", datetime(2026, 1, 1), 50.0, "bpm")
+    apple_reading = MetricReading("apple_health", "resting_hr", datetime(2026, 1, 1), 55.0, "bpm")
+    repository.upsert_readings(conn, [garmin_reading, apple_reading])
+    repository.set_source_priority(conn, "resting_hr", "apple_health")
+
+    result = repository.get_readings(conn, "resting_hr", date(2026, 1, 1), date(2026, 1, 1))
+
+    assert result == [apple_reading]
+
+
+def test_get_readings_uses_the_only_available_source_regardless_of_priority(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    apple_only = MetricReading("apple_health", "steps", datetime(2026, 1, 1), 8000.0, "count")
+    repository.upsert_readings(conn, [apple_only])
+
+    result = repository.get_readings(conn, "steps", date(2026, 1, 1), date(2026, 1, 1))
+
+    assert result == [apple_only]
+
+
+def test_get_readings_reconciles_per_day_independently(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    day1_garmin = MetricReading("garmin", "resting_hr", datetime(2026, 1, 1), 50.0, "bpm")
+    day1_apple = MetricReading("apple_health", "resting_hr", datetime(2026, 1, 1), 55.0, "bpm")
+    day2_apple_only = MetricReading("apple_health", "resting_hr", datetime(2026, 1, 2), 52.0, "bpm")
+    repository.upsert_readings(conn, [day1_garmin, day1_apple, day2_apple_only])
+
+    result = repository.get_readings(conn, "resting_hr", date(2026, 1, 1), date(2026, 1, 2))
+
+    assert result == [day1_garmin, day2_apple_only]
+
+
+def test_get_readings_keeps_multiple_same_source_readings_on_overlapping_day(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    garmin_morning = MetricReading("garmin", "steps", datetime(2026, 1, 1, 8, 0), 100.0, "count")
+    garmin_evening = MetricReading("garmin", "steps", datetime(2026, 1, 1, 20, 0), 200.0, "count")
+    apple_reading = MetricReading("apple_health", "steps", datetime(2026, 1, 1, 12, 0), 9000.0, "count")
+    repository.upsert_readings(conn, [garmin_morning, garmin_evening, apple_reading])
+
+    result = repository.get_readings(conn, "steps", date(2026, 1, 1), date(2026, 1, 1))
+
+    assert result == [garmin_morning, garmin_evening]
