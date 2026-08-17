@@ -4,7 +4,6 @@ __pycache__/
 *.egg-info/
 *.db
 .env
-.claude
 *.enc
 .garmin_tokens/
 .pytest_cache/

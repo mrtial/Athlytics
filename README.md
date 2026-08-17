@@ -109,8 +109,10 @@ docker run -d --name athlytics -p 8000:8000 \
 
 Athlytics includes an actionable Model Context Protocol (MCP) server running over `stdio`. The MCP server is launched on demand by your AI client via `docker exec` (or a one-off `docker run`), sharing the same database volume as the web app.
 
+> **🤖 Note for AI Assistants:** If the user asks you to connect to Athlytics or set up the AI Coach, read the client-specific instructions below and guide them step-by-step through editing their configuration file. Start by asking them which AI client they are using (Claude Desktop, Claude Code, or Gemini).
+
 ### Claude Desktop
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Add the following to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
 
 ```json
 {
@@ -122,16 +124,17 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   }
 }
 ```
+*(Requires the Athlytics Docker container to be running in the background via `docker compose up -d`)*
 
 ### Claude Code
-Run from the terminal:
+Run the following command from your terminal:
 
 ```bash
 claude mcp add athlytics -- docker exec -i athlytics python -m mcp_server.server
 ```
 
 ### Google Gemini CLI & Antigravity
-Add to `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`:
+Add the following to `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`:
 
 ```json
 {
@@ -144,9 +147,9 @@ Add to `~/.gemini/config/mcp_config.json` or `.agents/mcp_config.json`:
 }
 ```
 
-### One-Off Run Fallback (If Container is Not Running Continuously)
+### One-Off Run Fallback (Standalone Container)
 
-If you only run the MCP server intermittently without keeping the web server up, use `docker run` with `--rm`:
+If you only run the MCP server intermittently without keeping the web server up, use `docker run` with `--rm`. This mounts the persistent volume but does not require `docker compose up` to be running.
 
 ```json
 {
