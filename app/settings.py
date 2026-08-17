@@ -39,6 +39,9 @@ PERSONA_METRIC_TYPES: dict[str, list[str]] = {
         "activity_duration",
         "training_load",
         "resting_hr",
+        "exercise_minutes",
+        "walking_asymmetry",
+        "walking_steadiness",
     ],
     "sleep_recovery_focus": [
         "sleep_score",
@@ -47,6 +50,9 @@ PERSONA_METRIC_TYPES: dict[str, list[str]] = {
         "stress",
         "resting_hr",
         "respiration",
+        "sleep_duration",
+        "mindful_minutes",
+        "stand_hours",
     ],
     "full_overview": [
         "resting_hr",
@@ -67,6 +73,12 @@ PERSONA_METRIC_TYPES: dict[str, list[str]] = {
         "activity_duration",
         "activity_distance",
         "activity_calories",
+        "sleep_duration",
+        "mindful_minutes",
+        "stand_hours",
+        "exercise_minutes",
+        "walking_asymmetry",
+        "walking_steadiness",
     ],
 }
 

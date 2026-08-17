@@ -60,6 +60,8 @@
           {% elif 'weight' in metric_type %}{{ feather_icon('disc') }}
           {% elif 'battery' in metric_type %}{{ feather_icon('battery-charging') }}
           {% elif 'spo2' in metric_type %}{{ feather_icon('droplet') }}
+          {% elif 'mindful' in metric_type %}{{ feather_icon('wind') }}
+          {% elif 'walking' in metric_type or 'stand_hours' in metric_type or 'exercise' in metric_type %}{{ feather_icon('activity') }}
           {% else %}{{ feather_icon('bar-chart-2') }}{% endif %}
         </div>
       </div>

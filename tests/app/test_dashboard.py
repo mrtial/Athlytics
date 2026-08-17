@@ -238,3 +238,17 @@ def test_activities_route_requires_admin_and_renders(app, client):
     assert "Workout Sessions" in res.text
 
 
+def test_dashboard_shows_mindful_minutes_widget_for_sleep_recovery_persona_when_apple_connected(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "sleep_recovery_focus"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    from core.storage import repository
+    from core.storage.db import connect
+    conn = connect(app.state.db_path)
+    repository.set_checkpoint(conn, "apple_health", "mindful_minutes", date(2026, 1, 1))
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "mindful_minutes" in response.text

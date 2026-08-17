@@ -82,14 +82,19 @@ def test_every_persona_has_a_nonempty_metric_type_list():
         assert len(PERSONA_METRIC_TYPES[persona]) > 0
 
 
-def test_full_overview_includes_all_eighteen_garmin_metric_types():
-    all_18 = {
+def test_full_overview_includes_all_eighteen_garmin_metric_types_plus_apple_health_only_types():
+    all_18_garmin = {
         "resting_hr", "hrv", "vo2max", "body_battery", "weight", "sleep_score",
         "steps", "stress", "respiration", "spo2", "training_load",
         "race_predictor_5k", "race_predictor_10k", "race_predictor_half_marathon",
         "race_predictor_marathon", "activity_duration", "activity_distance", "activity_calories",
     }
-    assert set(PERSONA_METRIC_TYPES["full_overview"]) == all_18
+    apple_health_only = {
+        "sleep_duration", "mindful_minutes", "stand_hours", "exercise_minutes",
+        "walking_asymmetry", "walking_steadiness",
+    }
+
+    assert set(PERSONA_METRIC_TYPES["full_overview"]) == all_18_garmin | apple_health_only
 
 
 def test_defaults_are_valid_members():
