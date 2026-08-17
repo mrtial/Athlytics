@@ -7,6 +7,7 @@ from app.db import ensure_app_schema
 from app.session import SESSION_COOKIE_NAME, is_valid_session
 from app.settings import get_persona, get_theme
 from core.security.credentials import CredentialStore
+from core.storage import repository
 from core.storage.db import connect
 
 
@@ -40,12 +41,13 @@ def require_admin_api(request: Request, conn: sqlite3.Connection = Depends(get_c
 def onboarding_status(conn: sqlite3.Connection, credential_store: CredentialStore) -> str:
     """One of "admin"/"persona"/"theme"/"connect"/"complete" -- how far
     onboarding (design doc's Onboarding Flow) has progressed. "connect"'s
-    completion is signaled by CredentialStore.load() returning non-None
-    rather than a separate DB row: the encrypted credentials file is
-    already the single source of truth for "is a data source connected",
-    and duplicating that as a second piece of state risks the two
-    disagreeing (design doc: "connect a data source" has no notion of a
-    connection succeeding without valid, storable credentials).
+    completion is signaled by either Garmin credentials existing or Apple
+    Health having synced data. For Garmin, CredentialStore.load() returning
+    non-None is the single source of truth for "is connected", and duplicating
+    that as a second piece of state risks the two disagreeing (design doc:
+    "connect a data source" has no notion of a connection succeeding without
+    valid, storable credentials). For Apple Health, synced data is checked via
+    repository.has_synced_data().
     """
     from app.auth import admin_exists
 
@@ -55,6 +57,8 @@ def onboarding_status(conn: sqlite3.Connection, credential_store: CredentialStor
         return "persona"
     if get_theme(conn) is None:
         return "theme"
-    if credential_store.load() is None:
+    garmin_connected = credential_store.load() is not None
+    apple_health_connected = repository.has_synced_data(conn, "apple_health")
+    if not garmin_connected and not apple_health_connected:
         return "connect"
     return "complete"

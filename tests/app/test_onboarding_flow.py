@@ -56,6 +56,32 @@ class _E2EStubGarminClient:
         return (False, None)
 
 
+def test_root_redirects_to_dashboard_when_only_apple_health_connected(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    from core.storage import repository
+    from core.storage.db import connect
+    from datetime import date
+    conn = connect(app.state.db_path)
+    repository.set_checkpoint(conn, "apple_health", "steps", date(2026, 1, 1))
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.headers["location"] == "/dashboard"
+
+
+def test_root_still_redirects_to_connect_when_neither_source_connected(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.headers["location"] == "/onboarding/connect"
+
+
 def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
     """Walks the entire design-doc Onboarding Flow through the real running
     app: admin creation -> persona -> theme -> connect -> dashboard usable,
