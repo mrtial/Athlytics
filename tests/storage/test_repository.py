@@ -339,3 +339,23 @@ def test_get_readings_keeps_multiple_same_source_readings_on_overlapping_day(tmp
     result = repository.get_readings(conn, "steps", date(2026, 1, 1), date(2026, 1, 1))
 
     assert result == [garmin_morning, garmin_evening]
+
+
+def test_has_synced_data_false_when_no_checkpoint_for_source(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    assert repository.has_synced_data(conn, "apple_health") is False
+
+
+def test_has_synced_data_true_after_a_checkpoint_is_set(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.set_checkpoint(conn, "apple_health", "steps", date(2026, 1, 1))
+
+    assert repository.has_synced_data(conn, "apple_health") is True
+
+
+def test_has_synced_data_is_source_specific(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.set_checkpoint(conn, "garmin", "steps", date(2026, 1, 1))
+
+    assert repository.has_synced_data(conn, "apple_health") is False
+    assert repository.has_synced_data(conn, "garmin") is True

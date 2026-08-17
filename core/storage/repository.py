@@ -101,6 +101,14 @@ def set_checkpoint(conn: sqlite3.Connection, source: str, metric_type: str, last
     conn.commit()
 
 
+def has_synced_data(conn: sqlite3.Connection, source: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sync_checkpoint WHERE source = ? LIMIT 1",
+        (source,),
+    ).fetchone()
+    return row is not None
+
+
 def get_source_priority(conn: sqlite3.Connection, metric_type: str) -> str | None:
     row = conn.execute(
         "SELECT preferred_source FROM metric_source_priority WHERE metric_type = ?",
