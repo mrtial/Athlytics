@@ -109,6 +109,36 @@ def test_dashboard_route_redirects_to_persona_step_when_onboarding_incomplete(cl
     assert response.headers["location"] == "/onboarding/persona"
 
 
+def test_dashboard_shows_only_garmin_metrics_when_only_garmin_connected(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+    app.state.credential_store.save({"email": "a@example.com", "password": "x"})
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "mindful_minutes" not in response.text  # Apple-only metric_type, not connected
+
+
+def test_dashboard_shows_apple_only_metrics_when_only_apple_health_connected(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    from core.storage import repository
+    from core.storage.db import connect
+    from datetime import date
+    conn = connect(app.state.db_path)
+    repository.set_checkpoint(conn, "apple_health", "mindful_minutes", date(2026, 1, 1))
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    # training_load is Garmin-only per PERSONA_METRIC_TYPES["full_overview"]; must not appear.
+    assert "training_load" not in response.text
+
+
 def test_dashboard_route_renders_widgets_for_completed_onboarding(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
     client.post("/onboarding/persona", data={"persona": "sleep_recovery_focus"})
