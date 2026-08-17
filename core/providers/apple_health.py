@@ -54,3 +54,50 @@ def aggregate_daily(readings_by_day: dict[date, list[float]], aggregation: str) 
     if aggregation == "mean":
         return {day: sum(values) / len(values) for day, values in readings_by_day.items()}
     raise ValueError(f"unknown aggregation: {aggregation!r}")
+
+
+SLEEP_ASLEEP_VALUES: set[str] = {
+    "HKCategoryValueSleepAnalysisAsleepCore",
+    "HKCategoryValueSleepAnalysisAsleepDeep",
+    "HKCategoryValueSleepAnalysisAsleepREM",
+}
+
+STAND_HOUR_STOOD_VALUE = "HKCategoryValueAppleStandHourStood"
+
+
+def aggregate_sleep_hours(stage_records: list[tuple[str, datetime, datetime]]) -> dict[date, float]:
+    """stage_records: (category value, startDate, endDate) per raw sleep-stage
+    record. Only Asleep* stages count; Awake/InBed are excluded. Bucketed by
+    endDate's calendar date, since a night's sleep is conventionally
+    attributed to the morning it ends."""
+    hours_by_day: dict[date, float] = {}
+    for value, start, end in stage_records:
+        if value not in SLEEP_ASLEEP_VALUES:
+            continue
+        day = end.date()
+        duration_hours = (end - start).total_seconds() / 3600
+        hours_by_day[day] = hours_by_day.get(day, 0.0) + duration_hours
+    return hours_by_day
+
+
+def aggregate_mindful_minutes(session_records: list[tuple[datetime, datetime]]) -> dict[date, float]:
+    """session_records: (startDate, endDate) per HKCategoryTypeIdentifierMindfulSession
+    record. Bucketed by startDate's calendar date."""
+    minutes_by_day: dict[date, float] = {}
+    for start, end in session_records:
+        day = start.date()
+        duration_minutes = (end - start).total_seconds() / 60
+        minutes_by_day[day] = minutes_by_day.get(day, 0.0) + duration_minutes
+    return minutes_by_day
+
+
+def aggregate_stand_hours(stand_records: list[tuple[str, datetime]]) -> dict[date, float]:
+    """stand_records: (category value, startDate) per HKCategoryTypeIdentifierAppleStandHour
+    record. Counts only hours marked Stood (not Idle)."""
+    counts_by_day: dict[date, float] = {}
+    for value, start in stand_records:
+        if value != STAND_HOUR_STOOD_VALUE:
+            continue
+        day = start.date()
+        counts_by_day[day] = counts_by_day.get(day, 0.0) + 1
+    return counts_by_day
