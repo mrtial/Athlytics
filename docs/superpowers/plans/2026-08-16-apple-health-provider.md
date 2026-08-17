@@ -1668,6 +1668,12 @@ def test_settings_page_shows_apple_health_card(client):
 
 
 def test_settings_shows_priority_picker_only_for_overlapping_metric_types(app, client):
+    # `name="priority_{{ mt }}"` (asserted below) lands on the wrapping
+    # <form> element itself in Step 3's HTML, not on a submitted <input> --
+    # a form's own name attribute isn't posted as data, so this satisfies
+    # the assertion without adding an unexpected field to what
+    # /settings/apple-health/priority receives (still just metric_type and
+    # preferred_source, per that route's Form(...) parameters).
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
     app.state.credential_store.save({"email": "a@example.com", "password": "x"})
 
@@ -1842,7 +1848,7 @@ In `app/templates/settings.html`, add a new card after the existing "Garmin Inte
       <div style="margin-top: 1.25rem;">
         <label class="form-label">Source Priority (metrics both providers report)</label>
         {% for mt in overlapping_metric_types %}
-        <form method="post" action="/settings/apple-health/priority" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+        <form method="post" action="/settings/apple-health/priority" name="priority_{{ mt }}" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
           <input type="hidden" name="metric_type" value="{{ mt }}">
           <span style="font-size: 0.82rem; flex: 1;">{{ mt.replace('_', ' ').title() }}</span>
           <select class="form-input" name="preferred_source" style="width: auto;" onchange="this.form.submit()">
