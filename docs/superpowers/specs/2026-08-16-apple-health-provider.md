@@ -108,29 +108,39 @@ New module implementing `ImportProvider`. Responsibilities:
 
 ### Metric Mapping
 
-Types already shared with Garmin's vocabulary (map onto the same `metric_type` string, so
-existing analytics/widgets/personas need no changes):
+Types already shared with Garmin's vocabulary (map onto the same `metric_type` string —
+**and the same unit string Garmin already uses for that type**, so a source-priority
+override or a mixed-source chart never juxtaposes two different unit labels for the same
+series; see `core/providers/garmin.py` for each type's existing unit literal):
 
-| HealthKit identifier | `metric_type` | Aggregation |
-| :--- | :--- | :--- |
-| `HKQuantityTypeIdentifierRestingHeartRate` | `resting_hr` | mean |
-| `HKQuantityTypeIdentifierHeartRateVariabilitySDNN` | `hrv` | mean |
-| `HKQuantityTypeIdentifierVO2Max` | `vo2max` | mean |
-| `HKQuantityTypeIdentifierBodyMass` | `weight` | mean |
-| `HKQuantityTypeIdentifierOxygenSaturation` | `spo2` | mean |
-| `HKQuantityTypeIdentifierRespiratoryRate` | `respiration` | mean |
-| `HKQuantityTypeIdentifierStepCount` | `steps` | sum |
-| `HKCategoryTypeIdentifierSleepAnalysis` (asleep stages) | `sleep_score` | sum hours asleep |
+| HealthKit identifier | `metric_type` | Unit (matches Garmin) | Aggregation |
+| :--- | :--- | :--- | :--- |
+| `HKQuantityTypeIdentifierRestingHeartRate` | `resting_hr` | `bpm` | mean |
+| `HKQuantityTypeIdentifierHeartRateVariabilitySDNN` | `hrv` | `ms` | mean |
+| `HKQuantityTypeIdentifierVO2Max` | `vo2max` | `ml/kg/min` | mean |
+| `HKQuantityTypeIdentifierBodyMass` | `weight` | `kg` | mean |
+| `HKQuantityTypeIdentifierOxygenSaturation` | `spo2` | `percent` | mean |
+| `HKQuantityTypeIdentifierRespiratoryRate` | `respiration` | `breaths_per_min` | mean |
+| `HKQuantityTypeIdentifierStepCount` | `steps` | `count` | sum |
+
+**Not shared:** Garmin's `sleep_score` is a 0-100 sleep-*quality* score (see
+`GarminProvider._parse_sleep`'s `unit="score"`); Apple Health's export exposes no
+comparable score, only raw sleep-stage intervals. Aggregating those intervals into hours
+asleep and writing them under the existing `sleep_score` metric_type would silently merge
+two different physical quantities into one series — a Garmin day of "78" and an Apple day
+of "7.5" in the same trend line. Sleep duration is therefore its own new metric_type,
+`sleep_duration`, in the Apple-only table below, not a shared one.
 
 New, Apple-Health-only types (no Garmin equivalent):
 
-| HealthKit identifier | `metric_type` | Aggregation |
-| :--- | :--- | :--- |
-| `HKCategoryTypeIdentifierMindfulSession` | `mindful_minutes` | sum duration |
-| `HKQuantityTypeIdentifierWalkingAsymmetryPercentage` | `walking_asymmetry` | mean |
-| `HKQuantityTypeIdentifierAppleWalkingSteadiness` | `walking_steadiness` | mean |
-| `HKCategoryTypeIdentifierAppleStandHour` | `stand_hours` | count of stood hours |
-| `HKQuantityTypeIdentifierAppleExerciseTime` | `exercise_minutes` | sum |
+| HealthKit identifier | `metric_type` | Unit | Aggregation |
+| :--- | :--- | :--- | :--- |
+| `HKCategoryTypeIdentifierSleepAnalysis` (asleep stages) | `sleep_duration` | `hr` | sum hours asleep |
+| `HKCategoryTypeIdentifierMindfulSession` | `mindful_minutes` | `min` | sum duration |
+| `HKQuantityTypeIdentifierWalkingAsymmetryPercentage` | `walking_asymmetry` | `percent` | mean |
+| `HKQuantityTypeIdentifierAppleWalkingSteadiness` | `walking_steadiness` | `percent` | mean |
+| `HKCategoryTypeIdentifierAppleStandHour` | `stand_hours` | `count` | count of stood hours |
+| `HKQuantityTypeIdentifierAppleExerciseTime` | `exercise_minutes` | `min` | sum |
 
 This table is the v1 whitelist; unlisted HealthKit types are silently skipped. It can grow
 later without any interface change — adding a row here is the entire cost of supporting a
@@ -138,8 +148,10 @@ new HealthKit type, since the mapping is data, not code.
 
 **Sleep aggregation detail:** Apple Health stores sleep as many per-night stage records
 (Core/Deep/REM/Awake/InBed). Only `Asleep*` stages count toward the day's total; `Awake`
-and `InBed` are excluded — matching Garmin's `sleep_score` semantics closely enough that
-existing analytics need no special-casing.
+and `InBed` are excluded. The result is stored as `sleep_duration` (hours), a distinct
+metric_type from Garmin's `sleep_score` per the note above — both remain independently
+visible; neither overwrites or reconciles against the other since they never overlap on
+the same metric_type.
 
 ## Timestamp Handling
 
@@ -280,13 +292,13 @@ provider was chosen during onboarding.
 ## New Canonical Metric Types
 
 Introduced by this spec (see Metric Mapping table for source/aggregation):
-`mindful_minutes`, `walking_asymmetry`, `walking_steadiness`, `stand_hours`,
-`exercise_minutes`.
+`sleep_duration`, `mindful_minutes`, `walking_asymmetry`, `walking_steadiness`,
+`stand_hours`, `exercise_minutes`.
 
-**Persona wiring** (`app/settings.py`'s `PERSONA_METRIC_TYPES`): `mindful_minutes` and
-`stand_hours` added to `sleep_recovery_focus` and `full_overview`; `exercise_minutes`,
-`walking_asymmetry`, and `walking_steadiness` added to `strength_general_fitness` and
-`full_overview`.
+**Persona wiring** (`app/settings.py`'s `PERSONA_METRIC_TYPES`): `sleep_duration`,
+`mindful_minutes`, and `stand_hours` added to `sleep_recovery_focus` and `full_overview`;
+`exercise_minutes`, `walking_asymmetry`, and `walking_steadiness` added to
+`strength_general_fitness` and `full_overview`.
 
 **Dashboard icons** (`dashboard.html`'s existing `feather_icon` elif chain): a matching
 branch per new metric_type, reusing existing icons already used elsewhere in the app

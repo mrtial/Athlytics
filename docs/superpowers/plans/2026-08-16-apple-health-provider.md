@@ -568,17 +568,24 @@ SOURCE = "apple_health"
 
 # HealthKit quantity-type identifier -> (metric_type, unit, aggregation).
 # aggregation is "sum" for cumulative daily totals, "mean" for point-in-time
-# readings averaged across the day's samples.
+# readings averaged across the day's samples. For metric_types Garmin also
+# reports (resting_hr, hrv, vo2max, weight, spo2, respiration, steps), the
+# unit string here MUST exactly match the literal GarminProvider already
+# uses for that metric_type (core/providers/garmin.py) -- same metric_type
+# with two different unit strings would corrupt MetricSummary.unit and any
+# UI/MCP text that assumes one unit per metric_type. walking_asymmetry and
+# walking_steadiness have no Garmin equivalent, so their unit is free to
+# choose ("percent", matching HealthKit's own percentage semantics).
 HK_QUANTITY_MAP: dict[str, tuple[str, str, str]] = {
     "HKQuantityTypeIdentifierRestingHeartRate": ("resting_hr", "bpm", "mean"),
     "HKQuantityTypeIdentifierHeartRateVariabilitySDNN": ("hrv", "ms", "mean"),
-    "HKQuantityTypeIdentifierVO2Max": ("vo2max", "mL/kg/min", "mean"),
+    "HKQuantityTypeIdentifierVO2Max": ("vo2max", "ml/kg/min", "mean"),
     "HKQuantityTypeIdentifierBodyMass": ("weight", "kg", "mean"),
-    "HKQuantityTypeIdentifierOxygenSaturation": ("spo2", "%", "mean"),
-    "HKQuantityTypeIdentifierRespiratoryRate": ("respiration", "brpm", "mean"),
+    "HKQuantityTypeIdentifierOxygenSaturation": ("spo2", "percent", "mean"),
+    "HKQuantityTypeIdentifierRespiratoryRate": ("respiration", "breaths_per_min", "mean"),
     "HKQuantityTypeIdentifierStepCount": ("steps", "count", "sum"),
-    "HKQuantityTypeIdentifierWalkingAsymmetryPercentage": ("walking_asymmetry", "%", "mean"),
-    "HKQuantityTypeIdentifierAppleWalkingSteadiness": ("walking_steadiness", "%", "mean"),
+    "HKQuantityTypeIdentifierWalkingAsymmetryPercentage": ("walking_asymmetry", "percent", "mean"),
+    "HKQuantityTypeIdentifierAppleWalkingSteadiness": ("walking_steadiness", "percent", "mean"),
     "HKQuantityTypeIdentifierAppleExerciseTime": ("exercise_minutes", "min", "sum"),
 }
 
@@ -624,7 +631,7 @@ git commit -m "feat: add Apple Health timestamp parsing and quantity-record mapp
 
 **Interfaces:**
 - Consumes: `parse_apple_health_timestamp` from Task 6.
-- Produces: `SLEEP_ASLEEP_VALUES: set[str]`, `aggregate_sleep_minutes(stage_records: list[tuple[str, datetime, datetime]]) -> dict[date, float]`, `aggregate_mindful_minutes(session_records: list[tuple[datetime, datetime]]) -> dict[date, float]`, `aggregate_stand_hours(stand_records: list[tuple[str, datetime]]) -> dict[date, float]`.
+- Produces: `SLEEP_ASLEEP_VALUES: set[str]`, `aggregate_sleep_hours(stage_records: list[tuple[str, datetime, datetime]]) -> dict[date, float]`, `aggregate_mindful_minutes(session_records: list[tuple[datetime, datetime]]) -> dict[date, float]`, `aggregate_stand_hours(stand_records: list[tuple[str, datetime]]) -> dict[date, float]`.
 
 **Context:** Category records don't carry a numeric `value` attribute the way quantity records do — sleep/mindful-session duration comes from `endDate - startDate`, and stand-hour is a per-hour marker (`value="HKCategoryValueAppleStandHourStood"` or `"...Idle"`) counted as 1 if stood, 0 if idle, summed per day.
 
@@ -637,7 +644,7 @@ from datetime import date, datetime
 from core.providers.apple_health import (
     SLEEP_ASLEEP_VALUES,
     aggregate_mindful_minutes,
-    aggregate_sleep_minutes,
+    aggregate_sleep_hours,
     aggregate_stand_hours,
 )
 
@@ -650,14 +657,14 @@ def test_sleep_asleep_values_excludes_awake_and_in_bed():
     assert "HKCategoryValueSleepAnalysisInBed" not in SLEEP_ASLEEP_VALUES
 
 
-def test_aggregate_sleep_minutes_sums_only_asleep_stages_as_hours():
+def test_aggregate_sleep_hours_sums_only_asleep_stages():
     stage_records = [
         ("HKCategoryValueSleepAnalysisAsleepCore", datetime(2026, 1, 1, 23, 0), datetime(2026, 1, 2, 1, 0)),
         ("HKCategoryValueSleepAnalysisAsleepDeep", datetime(2026, 1, 2, 1, 0), datetime(2026, 1, 2, 3, 0)),
         ("HKCategoryValueSleepAnalysisAwake", datetime(2026, 1, 2, 3, 0), datetime(2026, 1, 2, 3, 15)),
     ]
 
-    result = aggregate_sleep_minutes(stage_records)
+    result = aggregate_sleep_hours(stage_records)
 
     # Bucketed by the night's ending date (2026-01-02): 2h Core + 2h Deep = 4.0 hours.
     assert result == {date(2026, 1, 2): 4.0}
@@ -705,7 +712,7 @@ SLEEP_ASLEEP_VALUES: set[str] = {
 STAND_HOUR_STOOD_VALUE = "HKCategoryValueAppleStandHourStood"
 
 
-def aggregate_sleep_minutes(stage_records: list[tuple[str, datetime, datetime]]) -> dict[date, float]:
+def aggregate_sleep_hours(stage_records: list[tuple[str, datetime, datetime]]) -> dict[date, float]:
     """stage_records: (category value, startDate, endDate) per raw sleep-stage
     record. Only Asleep* stages count; Awake/InBed are excluded. Bucketed by
     endDate's calendar date, since a night's sleep is conventionally
@@ -814,7 +821,7 @@ def test_apple_health_metric_types_includes_shared_and_apple_only_types():
     assert "resting_hr" in APPLE_HEALTH_METRIC_TYPES
     assert "steps" in APPLE_HEALTH_METRIC_TYPES
     assert "mindful_minutes" in APPLE_HEALTH_METRIC_TYPES
-    assert "sleep_score" in APPLE_HEALTH_METRIC_TYPES
+    assert "sleep_duration" in APPLE_HEALTH_METRIC_TYPES
     assert "stand_hours" in APPLE_HEALTH_METRIC_TYPES
 
 
@@ -832,9 +839,22 @@ def test_ingest_yields_aggregated_daily_readings_from_zip():
 
     assert by_type["mindful_minutes"].value == 10.0
 
-    assert by_type["sleep_score"].value == 2.0  # 2 hours Core, Awake excluded
+    assert by_type["sleep_duration"].value == 2.0  # 2 hours Core, Awake excluded
+    assert by_type["sleep_duration"].unit == "hr"
 
     assert by_type["stand_hours"].value == 1.0
+
+
+def test_ingest_never_writes_sleep_data_under_garmins_sleep_score_type():
+    # Garmin's sleep_score is a 0-100 quality score; Apple Health's sleep data
+    # here is hours-asleep -- a different physical quantity that must never
+    # land under the same metric_type (see spec's Metric Mapping section).
+    provider = AppleHealthProvider()
+    readings = list(provider.ingest(_zip_payload(FIXTURE_XML)))
+
+    metric_types = {r.metric_type for r in readings}
+    assert "sleep_score" not in metric_types
+    assert "sleep_duration" in metric_types
 
 
 def test_ingest_skips_unrecognized_record_types_without_erroring():
@@ -878,7 +898,7 @@ STAND_HOUR_TYPE = "HKCategoryTypeIdentifierAppleStandHour"
 
 APPLE_HEALTH_METRIC_TYPES: list[str] = [
     *[metric_type for metric_type, _, _ in HK_QUANTITY_MAP.values()],
-    "sleep_score",
+    "sleep_duration",  # distinct from Garmin's sleep_score -- see HK_QUANTITY_MAP's comment above
     "mindful_minutes",
     "stand_hours",
 ]
@@ -939,9 +959,9 @@ class AppleHealthProvider:
                     unit=unit,
                 )
 
-        for day, hours in aggregate_sleep_minutes(sleep_stage_records).items():
+        for day, hours in aggregate_sleep_hours(sleep_stage_records).items():
             yield MetricReading(
-                source=SOURCE, metric_type="sleep_score", timestamp=datetime.combine(day, time.min),
+                source=SOURCE, metric_type="sleep_duration", timestamp=datetime.combine(day, time.min),
                 value=hours, unit=_SLEEP_UNIT,
             )
 
@@ -1060,6 +1080,21 @@ def test_apple_health_import_route_returns_400_for_invalid_zip(client):
     )
 
     assert response.status_code == 400
+
+
+def test_apple_health_import_route_returns_400_for_malformed_xml_inside_valid_zip(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", b"<HealthData><Record not closed")
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", buf.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 400
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1069,15 +1104,13 @@ Expected: FAIL — `import_apple_health` and the route don't exist yet.
 
 - [ ] **Step 3: Implement**
 
-In `app/data_sources.py`, add:
+In `app/data_sources.py`, add — **do not modify the existing `SUPPORTED_PROVIDERS = {"garmin"}` line.** That set gates the generic `POST /api/data-sources/{provider}/connect` route, which unconditionally calls `connect_garmin(...)` for any provider value that passes the check. Apple Health never uses that route (it gets its own dedicated import route below, which doesn't consult `SUPPORTED_PROVIDERS` at all) — adding `"apple_health"` to that set would let `POST /api/data-sources/apple_health/connect` slip past the 404 guard and wrongly attempt a Garmin login with whatever form fields were posted, and would break the existing test `test_connect_route_returns_404_for_unsupported_provider` in `tests/app/test_data_sources.py`. Leave that line exactly as it is; add only the following below it:
 
 ```python
 from collections import defaultdict
 
 from core.providers.apple_health import AppleHealthProvider
 from core.storage import repository
-
-SUPPORTED_PROVIDERS = {"garmin", "apple_health"}
 
 
 def import_apple_health(conn, payload: bytes, batch_size: int = 500) -> dict[str, str]:
@@ -1110,9 +1143,12 @@ def import_apple_health(conn, payload: bytes, batch_size: int = 500) -> dict[str
     return {metric_type: f"imported: {count}" for metric_type, count in counts.items()}
 ```
 
-In `app/routes/data_sources.py`, add (imports: `Depends`, `UploadFile`, `File` from `fastapi`; `import_apple_health` from `app.data_sources`):
+In `app/routes/data_sources.py`, add. The spec's Error Handling table requires malformed XML inside a valid zip to also return a clean 400, not a 500 — `xml.etree.ElementTree.iterparse` (used inside `AppleHealthProvider.ingest`, Task 8) raises `xml.etree.ElementTree.ParseError` on malformed XML, and `zipfile.ZipFile` raises `zipfile.BadZipFile` (a subclass of `OSError`, not `ValueError`) on an invalid zip — both must be caught alongside the `ValueError`/`KeyError` cases:
 
 ```python
+import xml.etree.ElementTree as ET
+import zipfile
+
 from fastapi import File, UploadFile
 
 
@@ -1125,19 +1161,17 @@ def import_apple_health_route(
     payload = export_file.file.read()
     try:
         result = import_apple_health(conn, payload)
-    except (ValueError, KeyError) as exc:
+    except (ValueError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:
         raise HTTPException(status_code=400, detail=f"could not import Apple Health export: {exc}") from exc
     return result
 ```
 
 (Add `import_apple_health` to the existing `from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin` line at the top of `app/routes/data_sources.py`.)
 
-Note: `zipfile.ZipFile` raises `zipfile.BadZipFile` (a subclass of `OSError`, not `ValueError`) on an invalid zip — add `zipfile.BadZipFile` to the except clause: `except (ValueError, KeyError, zipfile.BadZipFile) as exc:`, and add `import zipfile` to `app/routes/data_sources.py`.
-
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/app/test_data_sources.py -v`
-Expected: All PASS, including pre-existing Garmin tests (unaffected — `SUPPORTED_PROVIDERS` gained a member, didn't lose one).
+Expected: All PASS, including pre-existing Garmin tests and `test_connect_route_returns_404_for_unsupported_provider` (unaffected — `SUPPORTED_PROVIDERS` is untouched by this task).
 
 - [ ] **Step 5: Commit**
 
@@ -1481,7 +1515,7 @@ git commit -m "feat: filter dashboard widgets to connected data sources"
 - Test: `tests/app/test_settings.py` (updates a pre-existing test — see Context below)
 
 **Interfaces:**
-- Produces: `PERSONA_METRIC_TYPES["sleep_recovery_focus"]` and `["full_overview"]` gain `"mindful_minutes"`, `"stand_hours"`; `PERSONA_METRIC_TYPES["strength_general_fitness"]` and `["full_overview"]` gain `"exercise_minutes"`, `"walking_asymmetry"`, `"walking_steadiness"`.
+- Produces: `PERSONA_METRIC_TYPES["sleep_recovery_focus"]` and `["full_overview"]` gain `"sleep_duration"`, `"mindful_minutes"`, `"stand_hours"`; `PERSONA_METRIC_TYPES["strength_general_fitness"]` and `["full_overview"]` gain `"exercise_minutes"`, `"walking_asymmetry"`, `"walking_steadiness"`.
 
 **Context — pre-existing test conflict:** `tests/app/test_settings.py` has
 `test_full_overview_includes_all_eighteen_garmin_metric_types`, which asserts
@@ -1534,17 +1568,19 @@ PERSONA_METRIC_TYPES: dict[str, list[str]] = {
     ],
     "sleep_recovery_focus": [
         "sleep_score", "hrv", "body_battery", "stress", "resting_hr", "respiration",
-        "mindful_minutes", "stand_hours",
+        "sleep_duration", "mindful_minutes", "stand_hours",
     ],
     "full_overview": [
         "resting_hr", "hrv", "vo2max", "body_battery", "weight", "sleep_score", "steps", "stress",
         "respiration", "spo2", "training_load", "race_predictor_5k", "race_predictor_10k",
         "race_predictor_half_marathon", "race_predictor_marathon", "activity_duration",
         "activity_distance", "activity_calories",
-        "mindful_minutes", "stand_hours", "exercise_minutes", "walking_asymmetry", "walking_steadiness",
+        "sleep_duration", "mindful_minutes", "stand_hours", "exercise_minutes", "walking_asymmetry", "walking_steadiness",
     ],
 }
 ```
+
+`sleep_duration` (Apple Health's hours-asleep, aggregated in Task 7/8) is a distinct metric_type from Garmin's `sleep_score` (a 0-100 quality score) — both are listed here; they never overlap or reconcile against each other since Source-Priority Reconciliation (Task 4) only engages when two sources report the *same* metric_type. No dashboard icon change is needed for `sleep_duration` — `dashboard.html`'s existing `{% elif 'sleep' in metric_type %}{{ feather_icon('moon') }}` branch already matches it (the substring `"sleep"` is in `"sleep_duration"` too), so it automatically gets the same moon icon `sleep_score` already uses, with no code change required.
 
 In `app/templates/dashboard.html`, extend the existing `feather_icon` elif chain (around line 52-63) by adding branches before the final `{% else %}`:
 
@@ -1555,7 +1591,7 @@ In `app/templates/dashboard.html`, extend the existing `feather_icon` elif chain
 
 (Insert these two lines among the existing `{% elif %}` branches, before the final `{% else %}{{ feather_icon('bar-chart-2') }}{% endif %}`.)
 
-Update the pre-existing conflicting test in `tests/app/test_settings.py` — rename it and change its assertion from exact-equality to a superset check, since `full_overview` now includes the 5 new Apple-Health-only metric_types alongside all 18 Garmin ones:
+Update the pre-existing conflicting test in `tests/app/test_settings.py` — rename it and change its assertion from exact-equality to a superset check, since `full_overview` now includes 6 new Apple-Health-only metric_types alongside all 18 Garmin ones:
 
 ```python
 # in tests/app/test_settings.py, replace test_full_overview_includes_all_eighteen_garmin_metric_types with:
@@ -1566,7 +1602,10 @@ def test_full_overview_includes_all_eighteen_garmin_metric_types_plus_apple_heal
         "race_predictor_5k", "race_predictor_10k", "race_predictor_half_marathon",
         "race_predictor_marathon", "activity_duration", "activity_distance", "activity_calories",
     }
-    apple_health_only = {"mindful_minutes", "stand_hours", "exercise_minutes", "walking_asymmetry", "walking_steadiness"}
+    apple_health_only = {
+        "sleep_duration", "mindful_minutes", "stand_hours", "exercise_minutes",
+        "walking_asymmetry", "walking_steadiness",
+    }
 
     assert set(PERSONA_METRIC_TYPES["full_overview"]) == all_18_garmin | apple_health_only
 ```
