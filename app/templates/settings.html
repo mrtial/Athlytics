@@ -163,6 +163,59 @@
     </div>
   </div>
 
+  <!-- Card: Apple Health Import -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('heart') }}</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Apple Health</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Import from a Health app export</span>
+      </div>
+    </div>
+    <div style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
+      <div>
+        <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.45;">
+          Health app &rarr; Profile &rarr; Export All Health Data, then upload the resulting .zip here.
+          {% if apple_health_connected %}Status: connected.{% else %}Status: not yet connected.{% endif %}
+        </p>
+        <form method="post" action="/api/data-sources/apple-health/import" enctype="multipart/form-data" id="apple-health-settings-form">
+          <div class="form-group">
+            <input class="form-input" type="file" id="apple_export_file" name="export_file" accept=".zip" required>
+          </div>
+          <button type="submit" class="btn-primary" style="width: 100%; padding: 0.65rem 1rem;">Import Export</button>
+        </form>
+        <script>
+          document.getElementById("apple-health-settings-form").addEventListener("submit", async (evt) => {
+            evt.preventDefault();
+            const form = evt.target;
+            const response = await fetch(form.action, { method: "POST", body: new FormData(form) });
+            if (response.ok) { window.location.reload(); }
+            else {
+              const body = await response.json().catch(() => ({}));
+              alert(body.detail || "Import failed. Please check the file and try again.");
+            }
+          });
+        </script>
+
+        {% if overlapping_metric_types %}
+        <div style="margin-top: 1.25rem;">
+          <label class="form-label">Source Priority (metrics both providers report)</label>
+          {% for mt in overlapping_metric_types %}
+          <form method="post" action="/settings/apple-health/priority" name="priority_{{ mt }}" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+            <input type="hidden" name="metric_type" value="{{ mt }}">
+            <span style="font-size: 0.82rem; flex: 1;">{{ mt.replace('_', ' ').title() }}</span>
+            <select class="form-input" name="preferred_source" style="width: auto;" onchange="this.form.submit()">
+              <option value="garmin" {% if source_priority[mt] == 'garmin' %}selected{% endif %}>Garmin</option>
+              <option value="apple_health" {% if source_priority[mt] == 'apple_health' %}selected{% endif %}>Apple Health</option>
+            </select>
+          </form>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
   <!-- Card 6: Privacy & Data Security -->
   <div class="settings-card">
     <div class="settings-card-header">

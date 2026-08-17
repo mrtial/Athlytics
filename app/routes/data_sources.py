@@ -80,3 +80,15 @@ def import_apple_health_route(
     except (ValueError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:
         raise HTTPException(status_code=400, detail=f"could not import Apple Health export: {exc}") from exc
     return result
+
+
+@router.post("/settings/apple-health/priority")
+def set_apple_health_priority(
+    request: Request,
+    metric_type: str = Form(...),
+    preferred_source: str = Form(...),
+    conn=Depends(require_admin_page),
+):
+    from core.storage import repository
+    repository.set_source_priority(conn, metric_type, preferred_source)
+    return RedirectResponse(url="/settings", status_code=303)

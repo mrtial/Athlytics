@@ -241,3 +241,44 @@ def test_settings_post_profile_updates_and_redirects(app, client):
     conn = connect(app.state.db_path)
     assert get_athlete_name(conn) == "Charlie Yang"
     assert get_athlete_age(conn) == "28"
+
+
+def test_settings_page_shows_apple_health_card(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/settings")
+
+    assert "Apple Health" in response.text
+    assert 'action="/api/data-sources/apple-health/import"' in response.text
+
+
+def test_settings_shows_priority_picker_only_for_overlapping_metric_types(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    app.state.credential_store.save({"email": "a@example.com", "password": "x"})
+
+    from core.storage import repository
+    from core.storage.db import connect
+    from datetime import date
+    conn = connect(app.state.db_path)
+    repository.set_checkpoint(conn, "apple_health", "resting_hr", date(2026, 1, 1))  # overlaps Garmin
+    repository.set_checkpoint(conn, "apple_health", "mindful_minutes", date(2026, 1, 1))  # Apple-only
+
+    response = client.get("/settings")
+
+    assert 'name="priority_resting_hr"' in response.text
+    assert 'name="priority_mindful_minutes"' not in response.text  # no overlap, no picker row
+
+
+def test_set_source_priority_route_persists_choice(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/settings/apple-health/priority", data={"metric_type": "resting_hr", "preferred_source": "apple_health"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    from core.storage import repository
+    from core.storage.db import connect
+    conn = connect(app.state.db_path)
+    assert repository.get_source_priority(conn, "resting_hr") == "apple_health"
