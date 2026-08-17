@@ -20,9 +20,30 @@
   <div class="widget-card plan-card">
     <div class="card-top">
       <h3 class="plan-title">{{ item.plan.title }}</h3>
-      <span class="delta-badge {% if item.plan.status == 'active' %}delta-positive{% else %}delta-neutral{% endif %}">{{ item.plan.status.title() }}</span>
+      <span class="delta-badge {% if item.plan.status == 'active' %}delta-positive{% else %}delta-neutral{% endif %}">{% if item.plan.status == 'archived' %}Canceled{% else %}{{ item.plan.status.title() }}{% endif %}</span>
     </div>
     <p class="plan-goal-desc">{{ item.plan.goal_description }}</p>
+
+    <div class="plan-actions" style="display: flex; gap: 0.5rem; margin-bottom: 1rem;">
+      <form action="/training-plans/{{ item.plan.id }}/status" method="POST" style="margin: 0;">
+        <input type="hidden" name="status" value="active">
+        <button type="submit" {% if item.plan.status == 'active' %}disabled{% endif %}>Active</button>
+      </form>
+      <form action="/training-plans/{{ item.plan.id }}/status" method="POST" style="margin: 0;">
+        <input type="hidden" name="status" value="completed">
+        <button type="submit" {% if item.plan.status == 'completed' %}disabled{% endif %}>Complete</button>
+      </form>
+      <form action="/training-plans/{{ item.plan.id }}/status" method="POST" style="margin: 0;">
+        <input type="hidden" name="status" value="archived">
+        <button type="submit" {% if item.plan.status == 'archived' %}disabled{% endif %}>Cancel</button>
+      </form>
+      <form action="/training-plans/{{ item.plan.id }}/delete" method="POST" style="margin: 0;" onsubmit="return confirm('Are you sure you want to delete this plan?');">
+        <button type="submit">Delete</button>
+      </form>
+    </div>
+
+    <details {% if loop.first %}open{% endif %} class="plan-details-toggle">
+      <summary style="cursor: pointer; padding: 0.5rem 0; font-weight: 500;">Toggle Full Details</summary>
 
     {% if item.stats %}
     <div class="plan-stat-row">
@@ -126,6 +147,7 @@
       </table>
     </div>
     {% endif %}
+    </details>
   </div>
   {% endfor %}
   {% else %}

@@ -2,7 +2,8 @@ import json
 import re
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import RedirectResponse
 
 from app.dependencies import require_admin_page
 from app.settings import DEFAULT_SKIN, get_athlete_age, get_athlete_name, get_persona, get_skin, get_theme, get_unit
@@ -300,3 +301,22 @@ def training_plans_page(request: Request, conn=Depends(require_admin_page)):
             "active_page": "training_plans",
         },
     )
+
+
+@router.post("/training-plans/{plan_id}/status")
+def update_training_plan_status(
+    plan_id: str,
+    status: str = Form(...),
+    conn=Depends(require_admin_page),
+):
+    repository.update_plan_status(conn, plan_id, status)
+    return RedirectResponse(url="/training-plans", status_code=303)
+
+
+@router.post("/training-plans/{plan_id}/delete")
+def delete_training_plan(
+    plan_id: str,
+    conn=Depends(require_admin_page),
+):
+    repository.delete_training_plan(conn, plan_id)
+    return RedirectResponse(url="/training-plans", status_code=303)

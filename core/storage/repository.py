@@ -255,7 +255,7 @@ def get_training_plans(conn: sqlite3.Connection, status: str | None = None) -> l
             """
             SELECT id, title, goal_description, start_date, target_date, plan_json, status, created_at
             FROM training_plan
-            ORDER BY created_at DESC
+            ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC
             """
         ).fetchall()
     return [
@@ -305,6 +305,12 @@ def update_plan_status(conn: sqlite3.Connection, plan_id: str, status: str) -> T
     if cursor.rowcount == 0:
         return None
     return get_training_plan_by_id(conn, plan_id)
+
+
+def delete_training_plan(conn: sqlite3.Connection, plan_id: str) -> bool:
+    cursor = conn.execute("DELETE FROM training_plan WHERE id = ?", (plan_id,))
+    conn.commit()
+    return cursor.rowcount > 0
 
 
 def save_coach_note(conn: sqlite3.Connection, note: CoachNote) -> CoachNote:
