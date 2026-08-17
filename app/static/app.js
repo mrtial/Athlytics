@@ -338,6 +338,34 @@ function initThemeToggle() {
   });
 }
 
+// Accent color swatches on the Settings page: same instant-apply +
+// fire-and-forget persistence pattern as initThemeToggle above.
+function initSkinToggle() {
+  const row = document.getElementById("skin-swatch-row");
+  if (!row) return;
+
+  row.addEventListener("click", (evt) => {
+    const btn = evt.target.closest(".skin-swatch");
+    if (!btn) return;
+    const value = btn.dataset.skinValue;
+    if (value === document.documentElement.getAttribute("data-skin")) return;
+
+    document.documentElement.setAttribute("data-skin", value);
+    localStorage.setItem("athlytics_skin", value);
+    row.querySelectorAll(".skin-swatch").forEach((b) => {
+      const active = b === btn;
+      b.classList.toggle("is-active", active);
+      b.setAttribute("aria-pressed", String(active));
+    });
+
+    fetch("/settings/skin", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `skin=${encodeURIComponent(value)}`,
+    }).catch((err) => console.error("Failed to persist skin:", err));
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (document.getElementById("sync-status")) {
     refreshSyncStatus();
@@ -345,4 +373,5 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   initMetricCards();
   initThemeToggle();
+  initSkinToggle();
 });

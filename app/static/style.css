@@ -6,8 +6,8 @@
 :root {
   /* Colors - Light Theme */
   --bg: #f4f6fa;
-  --bg-gradient: radial-gradient(circle at 10% 10%, rgba(212, 255, 50, 0.15) 0%, transparent 40%),
-                 radial-gradient(circle at 90% 90%, rgba(212, 255, 50, 0.08) 0%, transparent 40%),
+  --bg-gradient: radial-gradient(circle at 10% 10%, color-mix(in srgb, var(--accent-primary) 15%, transparent) 0%, transparent 40%),
+                 radial-gradient(circle at 90% 90%, color-mix(in srgb, var(--accent-primary) 8%, transparent) 0%, transparent 40%),
                  #f4f6fa;
   --surface: #ffffff;
   --surface-secondary: #f8fafc;
@@ -21,10 +21,10 @@
   --fg-subtle: #94a3b8;
 
   /* Signature Accents (Electric Lime & Midnight) */
-  --accent-lime: #d4ff32;
-  --accent-lime-hover: #c4f000;
-  --accent-lime-fg: #0f172a;
-  --accent-lime-soft: rgba(212, 255, 50, 0.2);
+  --accent-primary: #d4ff32;
+  --accent-primary-hover: #c4f000;
+  --accent-primary-fg: #0f172a;
+  --accent-primary-soft: rgba(212, 255, 50, 0.2);
   --accent-dark: #0f172a;
   --accent-dark-fg: #ffffff;
   --accent-dark-soft: rgba(15, 23, 42, 0.08);
@@ -53,8 +53,8 @@
 html[data-theme="dark"] {
   /* Colors - Dark Theme */
   --bg: #0b0f17;
-  --bg-gradient: radial-gradient(circle at 10% 10%, rgba(212, 255, 50, 0.08) 0%, transparent 40%),
-                 radial-gradient(circle at 90% 90%, rgba(59, 130, 246, 0.05) 0%, transparent 40%),
+  --bg-gradient: radial-gradient(circle at 10% 10%, color-mix(in srgb, var(--accent-primary) 8%, transparent) 0%, transparent 40%),
+                 radial-gradient(circle at 90% 90%, color-mix(in srgb, var(--accent-primary) 5%, transparent) 0%, transparent 40%),
                  #0b0f17;
   --surface: #141a24;
   --surface-secondary: #1a2230;
@@ -68,10 +68,10 @@ html[data-theme="dark"] {
   --fg-subtle: #64748b;
 
   /* Signature Accents */
-  --accent-lime: #d4ff32;
-  --accent-lime-hover: #e2ff66;
-  --accent-lime-fg: #0b0f17;
-  --accent-lime-soft: rgba(212, 255, 50, 0.15);
+  --accent-primary: #d4ff32;
+  --accent-primary-hover: #e2ff66;
+  --accent-primary-fg: #0b0f17;
+  --accent-primary-soft: rgba(212, 255, 50, 0.15);
   --accent-dark: #f8fafc;
   --accent-dark-fg: #0b0f17;
   --accent-dark-soft: rgba(248, 250, 252, 0.12);
@@ -80,6 +80,102 @@ html[data-theme="dark"] {
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 10px 30px -5px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
+}
+
+/* ==========================================================================
+   Accent Skins -- override --accent-primary(-hover|-fg|-soft) per
+   html[data-skin]. "lime" is the :root default above and needs no block.
+   Bright hues (cyan, amber) pair with dark text like lime; saturated hues
+   (blue, violet, pink, coral, teal) pair with white text. Each skin's base
+   hue stays constant across themes -- only hover/fg/soft shift, same
+   pattern the lime default already uses (deepen on hover in light mode,
+   lighten on hover in dark mode).
+   ========================================================================== */
+
+html[data-skin="cyan"] {
+  --accent-primary: #22d3ee;
+  --accent-primary-hover: #06b6d4;
+  --accent-primary-fg: #0f172a;
+  --accent-primary-soft: rgba(34, 211, 238, 0.2);
+}
+
+html[data-theme="dark"][data-skin="cyan"] {
+  --accent-primary-hover: #67e8f9;
+  --accent-primary-fg: #0b0f17;
+  --accent-primary-soft: rgba(34, 211, 238, 0.15);
+}
+
+html[data-skin="amber"] {
+  --accent-primary: #fbbf24;
+  --accent-primary-hover: #f59e0b;
+  --accent-primary-fg: #0f172a;
+  --accent-primary-soft: rgba(251, 191, 36, 0.2);
+}
+
+html[data-theme="dark"][data-skin="amber"] {
+  --accent-primary-hover: #fcd34d;
+  --accent-primary-fg: #0b0f17;
+  --accent-primary-soft: rgba(251, 191, 36, 0.15);
+}
+
+html[data-skin="blue"] {
+  --accent-primary: #3b82f6;
+  --accent-primary-hover: #2f6fe0;
+  --accent-primary-fg: #ffffff;
+  --accent-primary-soft: rgba(59, 130, 246, 0.14);
+}
+
+html[data-theme="dark"][data-skin="blue"] {
+  --accent-primary-hover: #60a5fa;
+  --accent-primary-soft: rgba(59, 130, 246, 0.18);
+}
+
+html[data-skin="violet"] {
+  --accent-primary: #8b5cf6;
+  --accent-primary-hover: #7c3aed;
+  --accent-primary-fg: #ffffff;
+  --accent-primary-soft: rgba(139, 92, 246, 0.14);
+}
+
+html[data-theme="dark"][data-skin="violet"] {
+  --accent-primary-hover: #a78bfa;
+  --accent-primary-soft: rgba(139, 92, 246, 0.18);
+}
+
+html[data-skin="pink"] {
+  --accent-primary: #ec4899;
+  --accent-primary-hover: #db2777;
+  --accent-primary-fg: #ffffff;
+  --accent-primary-soft: rgba(236, 72, 153, 0.14);
+}
+
+html[data-theme="dark"][data-skin="pink"] {
+  --accent-primary-hover: #f472b6;
+  --accent-primary-soft: rgba(236, 72, 153, 0.18);
+}
+
+html[data-skin="coral"] {
+  --accent-primary: #ff6452;
+  --accent-primary-hover: #f04a37;
+  --accent-primary-fg: #ffffff;
+  --accent-primary-soft: rgba(255, 100, 82, 0.14);
+}
+
+html[data-theme="dark"][data-skin="coral"] {
+  --accent-primary-hover: #ff8a7a;
+  --accent-primary-soft: rgba(255, 100, 82, 0.18);
+}
+
+html[data-skin="teal"] {
+  --accent-primary: #14b8a6;
+  --accent-primary-hover: #0d9488;
+  --accent-primary-fg: #ffffff;
+  --accent-primary-soft: rgba(20, 184, 166, 0.14);
+}
+
+html[data-theme="dark"][data-skin="teal"] {
+  --accent-primary-hover: #5eead4;
+  --accent-primary-soft: rgba(20, 184, 166, 0.18);
 }
 
 /* ==========================================================================
@@ -159,8 +255,8 @@ body {
 .app-icon {
   width: 36px;
   height: 36px;
-  background: var(--accent-lime);
-  color: var(--accent-lime-fg);
+  background: var(--accent-primary);
+  color: var(--accent-primary-fg);
   border-radius: var(--radius-md);
   display: flex;
   align-items: center;
@@ -168,7 +264,7 @@ body {
   font-weight: 900;
   font-size: 1.25rem;
   line-height: 1;
-  box-shadow: 0 4px 12px rgba(212, 255, 50, 0.35);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-primary) 35%, transparent);
   transition: transform 0.2s ease;
 }
 
@@ -206,8 +302,8 @@ body {
 }
 
 .btn-nav-sync {
-  background: var(--accent-lime);
-  color: var(--accent-lime-fg);
+  background: var(--accent-primary);
+  color: var(--accent-primary-fg);
   border: none;
   font-weight: 700;
   font-size: 0.85rem;
@@ -217,12 +313,12 @@ body {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  box-shadow: 0 4px 12px rgba(212, 255, 50, 0.25);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--accent-primary) 25%, transparent);
   transition: all 0.15s ease;
 }
 
 .btn-nav-sync:hover {
-  background: var(--accent-lime-hover);
+  background: var(--accent-primary-hover);
   transform: translateY(-1px);
 }
 
@@ -261,7 +357,7 @@ body {
   height: 30px;
   border-radius: 50%;
   background: linear-gradient(135deg, #1e293b, #0f172a);
-  color: var(--accent-lime);
+  color: var(--accent-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -470,7 +566,7 @@ main {
   height: 38px;
   border-radius: 50%;
   background: linear-gradient(135deg, #1e293b, #0f172a);
-  color: var(--accent-lime);
+  color: var(--accent-primary);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -513,7 +609,7 @@ main {
 
 .welcome-brand-mark {
   font-size: 1.25rem;
-  color: var(--accent-lime);
+  color: var(--accent-primary);
   line-height: 1;
 }
 
@@ -578,9 +674,9 @@ main {
 }
 
 .persona-badge {
-  background: var(--accent-lime-soft);
+  background: var(--accent-primary-soft);
   color: var(--fg);
-  border: 1px solid var(--accent-lime);
+  border: 1px solid var(--accent-primary);
   padding: 0.2rem 0.65rem;
   border-radius: var(--radius-pill);
   font-size: 0.8rem;
@@ -787,16 +883,16 @@ main {
 }
 
 .metric-card:focus-visible {
-  outline: 2px solid var(--accent-lime-hover);
+  outline: 2px solid var(--accent-primary-hover);
   outline-offset: 2px;
 }
 
 /* Mirrors the mock's active-pill treatment ("Tracker" tab): lime fill + border. */
 .widget-card.metric-card--active,
 .widget-card.metric-card--active:hover {
-  border-color: var(--accent-lime-hover);
-  background: var(--accent-lime-soft);
-  box-shadow: 0 0 0 1px var(--accent-lime-hover);
+  border-color: var(--accent-primary-hover);
+  background: var(--accent-primary-soft);
+  box-shadow: 0 0 0 1px var(--accent-primary-hover);
 }
 
 .metric-detail-panel {
@@ -846,8 +942,8 @@ main {
 }
 
 .range-btn.is-active {
-  background: var(--accent-lime);
-  color: var(--accent-lime-fg);
+  background: var(--accent-primary);
+  color: var(--accent-primary-fg);
 }
 
 .metric-card-detail {
@@ -893,8 +989,8 @@ main {
    (saturated lime fill + dark ink), so it pops against the pale
    lime-soft card wash instead of blending into a plain white circle. */
 .widget-card.metric-card--active .metric-pill {
-  background: var(--accent-lime);
-  color: var(--accent-lime-fg);
+  background: var(--accent-primary);
+  color: var(--accent-primary-fg);
 }
 
 .metric-val-container {
@@ -1104,18 +1200,18 @@ main {
 .form-input:focus, select:focus {
   border-color: var(--accent-dark);
   background: var(--surface);
-  box-shadow: 0 0 0 3px var(--accent-lime-soft);
+  box-shadow: 0 0 0 3px var(--accent-primary-soft);
 }
 
 html[data-theme="dark"] .form-input:focus,
 html[data-theme="dark"] select:focus {
-  border-color: var(--accent-lime);
+  border-color: var(--accent-primary);
 }
 
 .btn-primary {
   width: 100%;
-  background: var(--accent-lime);
-  color: var(--accent-lime-fg);
+  background: var(--accent-primary);
+  color: var(--accent-primary-fg);
   border: none;
   font-weight: 800;
   font-size: 0.95rem;
@@ -1127,14 +1223,14 @@ html[data-theme="dark"] select:focus {
   justify-content: center;
   gap: 0.5rem;
   margin-top: 1.5rem;
-  box-shadow: 0 4px 16px rgba(212, 255, 50, 0.35);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent-primary) 35%, transparent);
   transition: all 0.15s ease;
 }
 
 .btn-primary:hover {
-  background: var(--accent-lime-hover);
+  background: var(--accent-primary-hover);
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(212, 255, 50, 0.45);
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--accent-primary) 45%, transparent);
 }
 
 .btn-primary:active {
@@ -1182,7 +1278,7 @@ html[data-theme="dark"] select:focus {
 
 .option-tile input[type="radio"] {
   margin-right: 1rem;
-  accent-color: var(--accent-lime-fg);
+  accent-color: var(--accent-primary-fg);
   width: 18px;
   height: 18px;
 }
@@ -1223,8 +1319,73 @@ html[data-theme="dark"] select:focus {
   margin-bottom: 0.5rem;
 }
 
+.settings-card-header .section-title {
+  padding-bottom: 0;
+}
+
 .settings-row {
   margin-bottom: 1.75rem;
+}
+
+/* ==========================================================================
+   Accent Color Swatches (Appearance settings card)
+   ========================================================================== */
+
+.skin-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  row-gap: 0.85rem;
+  column-gap: 0.65rem;
+}
+
+.skin-swatch {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease;
+}
+
+.skin-swatch:hover {
+  transform: translateY(-2px);
+}
+
+.skin-swatch:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
+
+.skin-swatch-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.skin-swatch.is-active .skin-swatch-ring {
+  border-color: var(--fg);
+}
+
+.skin-swatch-check {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.skin-swatch.is-active .skin-swatch-check {
+  opacity: 1;
+  transform: scale(1);
 }
 
 /* ==========================================================================
@@ -1295,7 +1456,7 @@ html[data-theme="dark"] select:focus {
    same "emphasis" treatment as the highlighted bar in the design mock. */
 .chart-bar.is-latest,
 .chart-bar.is-hovered {
-  fill: var(--accent-lime);
+  fill: var(--accent-primary);
 }
 
 .chart-bar.is-empty {
@@ -1310,8 +1471,8 @@ html[data-theme="dark"] select:focus {
 }
 
 .chart-dot.is-latest {
-  fill: var(--accent-lime);
-  stroke: var(--accent-lime-hover);
+  fill: var(--accent-primary);
+  stroke: var(--accent-primary-hover);
 }
 
 .chart-hit-target {
@@ -1451,7 +1612,7 @@ html[data-theme="dark"] select:focus {
 }
 
 .plan-stat-value.accent {
-  color: var(--accent-lime-hover);
+  color: var(--accent-primary-hover);
 }
 
 /* Weekly rhythm */
@@ -1479,8 +1640,8 @@ html[data-theme="dark"] select:focus {
 }
 
 .plan-rhythm-day.long {
-  border-color: var(--accent-lime-hover);
-  box-shadow: inset 0 0 0 1px var(--accent-lime-hover);
+  border-color: var(--accent-primary-hover);
+  box-shadow: inset 0 0 0 1px var(--accent-primary-hover);
 }
 
 .plan-rhythm-dname {
@@ -1533,7 +1694,7 @@ html[data-theme="dark"] select:focus {
 }
 
 .plan-timeline-seg.phase-1 {
-  background: var(--accent-lime-soft);
+  background: var(--accent-primary-soft);
   color: var(--fg);
 }
 
@@ -1568,7 +1729,7 @@ html[data-theme="dark"] select:focus {
   border-radius: 2px;
   margin-right: 0.4rem;
   vertical-align: middle;
-  background: var(--accent-lime-soft);
+  background: var(--accent-primary-soft);
 }
 
 .plan-legend-dot.phase-2 {
@@ -1673,11 +1834,11 @@ html[data-theme="dark"] select:focus {
 }
 
 .plan-race-row td {
-  background: var(--accent-lime-soft);
+  background: var(--accent-primary-soft);
 }
 
 .plan-race-cell .plan-day-mi {
-  color: var(--accent-lime-hover);
+  color: var(--accent-primary-hover);
   font-size: 0.95rem;
 }
 
@@ -1708,7 +1869,7 @@ html[data-theme="dark"] select:focus {
 
 .plan-flag.race,
 .plan-flag.transition {
-  background: var(--accent-lime-soft);
+  background: var(--accent-primary-soft);
   color: var(--fg);
 }
 

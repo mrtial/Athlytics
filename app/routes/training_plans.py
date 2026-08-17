@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Request
 
 from app.dependencies import require_admin_page
-from app.settings import get_athlete_age, get_athlete_name, get_persona, get_theme, get_unit
+from app.settings import DEFAULT_SKIN, get_athlete_age, get_athlete_name, get_persona, get_skin, get_theme, get_unit
 from core.storage import repository
 
 router = APIRouter()
@@ -291,6 +291,7 @@ def training_plans_page(request: Request, conn=Depends(require_admin_page)):
         context={
             "authenticated": True,
             "theme": get_theme(conn),
+            "skin": get_skin(conn) or DEFAULT_SKIN,
             "athlete_name": get_athlete_name(conn),
             "athlete_age": get_athlete_age(conn),
             "persona": get_persona(conn),

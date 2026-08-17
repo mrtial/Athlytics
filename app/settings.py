@@ -9,8 +9,11 @@ PERSONAS: list[str] = [
 
 THEMES: list[str] = ["light", "dark"]
 
+SKINS: list[str] = ["lime", "cyan", "amber", "blue", "violet", "pink", "coral", "teal"]
+
 DEFAULT_PERSONA = "full_overview"
 DEFAULT_THEME = "light"
+DEFAULT_SKIN = "lime"
 
 # Every metric_type string below is one of GarminProvider's 18 registered
 # canonical types (core/providers/garmin.py's _registry, verified directly
@@ -105,6 +108,17 @@ def set_theme(conn: sqlite3.Connection, theme: str) -> None:
     if theme not in THEMES:
         raise ValueError(f"unknown theme: {theme!r}")
     set_setting(conn, "theme", theme)
+
+
+def get_skin(conn: sqlite3.Connection) -> str | None:
+    """Same contract as get_theme: None until explicitly set."""
+    return get_setting(conn, "skin")
+
+
+def set_skin(conn: sqlite3.Connection, skin: str) -> None:
+    if skin not in SKINS:
+        raise ValueError(f"unknown skin: {skin!r}")
+    set_setting(conn, "skin", skin)
 
 
 UNITS: list[str] = ["km", "mi"]

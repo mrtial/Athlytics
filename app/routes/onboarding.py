@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from app.auth import create_admin
 from app.dependencies import get_conn, require_admin_page
 from app.session import SESSION_COOKIE_NAME, SESSION_LIFETIME, create_session
-from app.settings import DEFAULT_THEME, get_theme, set_persona, set_theme
+from app.settings import DEFAULT_SKIN, DEFAULT_THEME, get_skin, get_theme, set_persona, set_theme
 
 router = APIRouter()
 
@@ -13,8 +13,9 @@ router = APIRouter()
 def onboarding_admin_form(request: Request, conn=Depends(get_conn)):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_admin.html", context={"error": None, "theme": theme}
+        request=request, name="onboarding_admin.html", context={"error": None, "theme": theme, "skin": skin}
     )
 
 
@@ -27,13 +28,14 @@ def onboarding_admin_submit(
 ):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     try:
         create_admin(conn, username, password)
     except ValueError as exc:
         return templates.TemplateResponse(
             request=request,
             name="onboarding_admin.html",
-            context={"error": str(exc), "theme": theme},
+            context={"error": str(exc), "theme": theme, "skin": skin},
             status_code=400,
         )
 
@@ -54,8 +56,9 @@ def onboarding_admin_submit(
 def onboarding_persona_form(request: Request, conn=Depends(require_admin_page)):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_persona.html", context={"error": None, "theme": theme}
+        request=request, name="onboarding_persona.html", context={"error": None, "theme": theme, "skin": skin}
     )
 
 
@@ -65,13 +68,14 @@ def onboarding_persona_submit(
 ):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     try:
         set_persona(conn, persona)
     except ValueError as exc:
         return templates.TemplateResponse(
             request=request,
             name="onboarding_persona.html",
-            context={"error": str(exc), "theme": theme},
+            context={"error": str(exc), "theme": theme, "skin": skin},
             status_code=400,
         )
     return RedirectResponse(url="/onboarding/theme", status_code=303)
@@ -81,8 +85,9 @@ def onboarding_persona_submit(
 def onboarding_theme_form(request: Request, conn=Depends(require_admin_page)):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_theme.html", context={"error": None, "theme": theme}
+        request=request, name="onboarding_theme.html", context={"error": None, "theme": theme, "skin": skin}
     )
 
 
@@ -95,10 +100,11 @@ def onboarding_theme_submit(
         set_theme(conn, theme)
     except ValueError as exc:
         current_theme = get_theme(conn) or DEFAULT_THEME
+        skin = get_skin(conn) or DEFAULT_SKIN
         return templates.TemplateResponse(
             request=request,
             name="onboarding_theme.html",
-            context={"error": str(exc), "theme": current_theme},
+            context={"error": str(exc), "theme": current_theme, "skin": skin},
             status_code=400,
         )
     return RedirectResponse(url="/onboarding/connect", status_code=303)
@@ -108,8 +114,9 @@ def onboarding_theme_submit(
 def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_connect.html", context={"error": None, "theme": theme}
+        request=request, name="onboarding_connect.html", context={"error": None, "theme": theme, "skin": skin}
     )
 
 
@@ -119,6 +126,7 @@ def onboarding_connect_mfa_form(request: Request, conn=Depends(require_admin_pag
         return RedirectResponse(url="/onboarding/connect", status_code=303)
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_mfa.html", context={"error": None, "theme": theme}
+        request=request, name="onboarding_mfa.html", context={"error": None, "theme": theme, "skin": skin}
     )

@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from app.auth import authenticate_admin
 from app.dependencies import get_conn
 from app.session import SESSION_COOKIE_NAME, SESSION_LIFETIME, create_session, delete_session
-from app.settings import DEFAULT_THEME, get_theme
+from app.settings import DEFAULT_SKIN, DEFAULT_THEME, get_skin, get_theme
 
 router = APIRouter()
 
@@ -28,8 +28,9 @@ def clear_session_cookie(response) -> None:
 def login_form(request: Request, conn=Depends(get_conn)):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="login.html", context={"error": None, "theme": theme}
+        request=request, name="login.html", context={"error": None, "theme": theme, "skin": skin}
     )
 
 
@@ -42,11 +43,12 @@ def login_submit(
 ):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
     if not authenticate_admin(conn, username, password):
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"error": "Invalid username or password.", "theme": theme},
+            context={"error": "Invalid username or password.", "theme": theme, "skin": skin},
             status_code=401,
         )
 

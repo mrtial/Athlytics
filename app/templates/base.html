@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="{{ theme|default('light') }}">
+<html lang="en" data-theme="{{ theme|default('light') }}" data-skin="{{ skin|default('lime') }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -17,6 +17,15 @@
       } else {
         const localTheme = localStorage.getItem("athlytics_theme");
         if (localTheme) document.documentElement.setAttribute("data-theme", localTheme);
+      }
+
+      const serverSkin = "{{ skin|default('') }}";
+      if (serverSkin) {
+        document.documentElement.setAttribute("data-skin", serverSkin);
+        localStorage.setItem("athlytics_skin", serverSkin);
+      } else {
+        const localSkin = localStorage.getItem("athlytics_skin");
+        if (localSkin) document.documentElement.setAttribute("data-skin", localSkin);
       }
     })();
   </script>

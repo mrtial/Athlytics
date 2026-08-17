@@ -12,7 +12,7 @@
   <!-- Card 1: Athlete Profile -->
   <div class="settings-card">
     <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">👤</div>
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('user') }}</div>
       <div>
         <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Athlete Profile</h2>
         <span style="font-size: 0.78rem; color: var(--fg-muted);">Display name &amp; age on header</span>
@@ -37,7 +37,7 @@
   <!-- Card 2: Distance & Units -->
   <div class="settings-card">
     <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">📏</div>
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('sliders') }}</div>
       <div>
         <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Distance &amp; Units</h2>
         <span style="font-size: 0.78rem; color: var(--fg-muted);">Preferred measurement system</span>
@@ -64,13 +64,14 @@
   <!-- Card 3: Appearance & Theme -->
   <div class="settings-card">
     <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🎨</div>
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('monitor') }}</div>
       <div>
         <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Appearance</h2>
         <span style="font-size: 0.78rem; color: var(--fg-muted);">Light or dark visual theme</span>
       </div>
     </div>
     {% if theme_error %}<div class="error-banner">{{ theme_error }}</div>{% endif %}
+    {% if skin_error %}<div class="error-banner">{{ skin_error }}</div>{% endif %}
     <form method="post" action="/settings/theme" style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
       <div>
         <div class="form-group">
@@ -84,6 +85,27 @@
         <p style="font-size: 0.78rem; color: var(--fg-muted); margin-top: 0.5rem; line-height: 1.4;">
           Applies globally across all dashboard, settings, and authentication views.
         </p>
+        {% set skin_colors = {
+          'lime':   {'hex': '#d4ff32', 'fg': '#0f172a'},
+          'cyan':   {'hex': '#22d3ee', 'fg': '#0f172a'},
+          'amber':  {'hex': '#fbbf24', 'fg': '#0f172a'},
+          'blue':   {'hex': '#3b82f6', 'fg': '#ffffff'},
+          'violet': {'hex': '#8b5cf6', 'fg': '#ffffff'},
+          'pink':   {'hex': '#ec4899', 'fg': '#ffffff'},
+          'coral':  {'hex': '#ff6452', 'fg': '#ffffff'},
+          'teal':   {'hex': '#14b8a6', 'fg': '#ffffff'},
+        } %}
+        <div class="form-group">
+          <label class="form-label">Accent Color</label>
+          <div class="skin-swatch-row" id="skin-swatch-row">
+            {% for s in skins %}
+            <button type="button" class="skin-swatch{% if s == current_skin %} is-active{% endif %}" data-skin-value="{{ s }}" style="background: {{ skin_colors[s].hex }}; color: {{ skin_colors[s].fg }};" aria-label="{{ s.title() }}" aria-pressed="{% if s == current_skin %}true{% else %}false{% endif %}">
+              <span class="skin-swatch-ring"></span>
+              {{ feather_icon('check', 'skin-swatch-check') }}
+            </button>
+            {% endfor %}
+          </div>
+        </div>
       </div>
       <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.65rem 1rem;">Update Theme</button>
     </form>
@@ -92,7 +114,7 @@
   <!-- Card 4: Athlete Persona -->
   <div class="settings-card">
     <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🏃</div>
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('activity') }}</div>
       <div>
         <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Dashboard Persona</h2>
         <span style="font-size: 0.78rem; color: var(--fg-muted);">Focus area &amp; default widgets</span>
@@ -120,7 +142,7 @@
   <!-- Card 5: Garmin Integration -->
   <div class="settings-card">
     <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🔗</div>
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('link-2') }}</div>
       <div>
         <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Garmin Integration</h2>
         <span style="font-size: 0.78rem; color: var(--fg-muted);">Data connection &amp; auth</span>
@@ -144,7 +166,7 @@
   <!-- Card 6: Privacy & Data Security -->
   <div class="settings-card">
     <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; font-size: 1.05rem; border-radius: var(--radius-sm);">🔒</div>
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('shield') }}</div>
       <div>
         <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Data &amp; Security</h2>
         <span style="font-size: 0.78rem; color: var(--fg-muted);">Privacy-first storage architecture</span>

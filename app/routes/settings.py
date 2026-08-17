@@ -4,23 +4,50 @@ from fastapi.responses import RedirectResponse
 from app.dependencies import require_admin_page
 from app.settings import (
     DEFAULT_PERSONA,
+    DEFAULT_SKIN,
     DEFAULT_THEME,
     DEFAULT_UNIT,
     PERSONAS,
+    SKINS,
     THEMES,
     UNITS,
     get_athlete_age,
     get_athlete_name,
     get_persona,
+    get_skin,
     get_theme,
     get_unit,
     set_athlete_profile,
     set_persona,
+    set_skin,
     set_theme,
     set_unit,
 )
 
 router = APIRouter()
+
+
+def _settings_context(conn, *, theme, persona_error=None, theme_error=None, unit_error=None, skin_error=None, profile_error=None):
+    return {
+        "authenticated": True,
+        "personas": PERSONAS,
+        "themes": THEMES,
+        "skins": SKINS,
+        "units": UNITS,
+        "current_persona": get_persona(conn) or DEFAULT_PERSONA,
+        "current_theme": theme,
+        "theme": theme,
+        "current_skin": get_skin(conn) or DEFAULT_SKIN,
+        "skin": get_skin(conn) or DEFAULT_SKIN,
+        "current_unit": get_unit(conn) or DEFAULT_UNIT,
+        "athlete_name": get_athlete_name(conn),
+        "athlete_age": get_athlete_age(conn),
+        "persona_error": persona_error,
+        "theme_error": theme_error,
+        "unit_error": unit_error,
+        "skin_error": skin_error,
+        "profile_error": profile_error,
+    }
 
 
 @router.get("/settings")
@@ -30,22 +57,7 @@ def settings_page(request: Request, conn=Depends(require_admin_page)):
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
-        context={
-            "authenticated": True,
-            "personas": PERSONAS,
-            "themes": THEMES,
-            "units": UNITS,
-            "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-            "current_theme": theme,
-            "theme": theme,
-            "current_unit": get_unit(conn) or DEFAULT_UNIT,
-            "athlete_name": get_athlete_name(conn),
-            "athlete_age": get_athlete_age(conn),
-            "persona_error": None,
-            "theme_error": None,
-            "unit_error": None,
-            "profile_error": None,
-        },
+        context=_settings_context(conn, theme=theme),
     )
 
 
@@ -74,22 +86,7 @@ def settings_update_unit(
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
-            context={
-                "authenticated": True,
-                "personas": PERSONAS,
-                "themes": THEMES,
-                "units": UNITS,
-                "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-                "current_theme": theme,
-                "theme": theme,
-                "current_unit": get_unit(conn) or DEFAULT_UNIT,
-                "athlete_name": get_athlete_name(conn),
-                "athlete_age": get_athlete_age(conn),
-                "persona_error": None,
-                "theme_error": None,
-                "unit_error": str(exc),
-                "profile_error": None,
-            },
+            context=_settings_context(conn, theme=theme, unit_error=str(exc)),
             status_code=400,
         )
     return RedirectResponse(url="/settings", status_code=303)
@@ -105,22 +102,7 @@ def settings_update_persona(request: Request, persona: str = Form(...), conn=Dep
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
-            context={
-                "authenticated": True,
-                "personas": PERSONAS,
-                "themes": THEMES,
-                "units": UNITS,
-                "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-                "current_theme": theme,
-                "theme": theme,
-                "current_unit": get_unit(conn) or DEFAULT_UNIT,
-                "athlete_name": get_athlete_name(conn),
-                "athlete_age": get_athlete_age(conn),
-                "persona_error": str(exc),
-                "theme_error": None,
-                "unit_error": None,
-                "profile_error": None,
-            },
+            context=_settings_context(conn, theme=theme, persona_error=str(exc)),
             status_code=400,
         )
     return RedirectResponse(url="/settings", status_code=303)
@@ -136,22 +118,23 @@ def settings_update_theme(request: Request, theme: str = Form(...), conn=Depends
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
-            context={
-                "authenticated": True,
-                "personas": PERSONAS,
-                "themes": THEMES,
-                "units": UNITS,
-                "current_persona": get_persona(conn) or DEFAULT_PERSONA,
-                "current_theme": current_theme,
-                "theme": current_theme,
-                "current_unit": get_unit(conn) or DEFAULT_UNIT,
-                "athlete_name": get_athlete_name(conn),
-                "athlete_age": get_athlete_age(conn),
-                "persona_error": None,
-                "theme_error": str(exc),
-                "unit_error": None,
-                "profile_error": None,
-            },
+            context=_settings_context(conn, theme=current_theme, theme_error=str(exc)),
+            status_code=400,
+        )
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@router.post("/settings/skin")
+def settings_update_skin(request: Request, skin: str = Form(...), conn=Depends(require_admin_page)):
+    templates = request.app.state.templates
+    try:
+        set_skin(conn, skin)
+    except ValueError as exc:
+        theme = get_theme(conn) or DEFAULT_THEME
+        return templates.TemplateResponse(
+            request=request,
+            name="settings.html",
+            context=_settings_context(conn, theme=theme, skin_error=str(exc)),
             status_code=400,
         )
     return RedirectResponse(url="/settings", status_code=303)

@@ -4,10 +4,12 @@ from fastapi.responses import RedirectResponse
 
 from app.dependencies import onboarding_status, require_admin_page
 from app.settings import (
+    DEFAULT_SKIN,
     PERSONA_METRIC_TYPES,
     get_athlete_age,
     get_athlete_name,
     get_persona,
+    get_skin,
     get_theme,
     get_unit,
 )
@@ -24,6 +26,7 @@ def dashboard_page(request: Request, conn=Depends(require_admin_page)):
 
     persona = get_persona(conn)
     theme = get_theme(conn)
+    skin = get_skin(conn) or DEFAULT_SKIN
     unit = get_unit(conn)
     athlete_name = get_athlete_name(conn)
     athlete_age = get_athlete_age(conn)
@@ -43,6 +46,7 @@ def dashboard_page(request: Request, conn=Depends(require_admin_page)):
             "widgets": widgets,
             "persona": persona,
             "theme": theme,
+            "skin": skin,
             "unit": unit,
             "athlete_name": athlete_name,
             "athlete_first_name": first_name,
