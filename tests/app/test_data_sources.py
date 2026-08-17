@@ -1,3 +1,6 @@
+import zipfile
+from io import BytesIO
+
 import pytest
 from cryptography.fernet import Fernet
 
@@ -242,3 +245,79 @@ def test_mfa_submit_with_wrong_code_returns_400_and_keeps_pending_state(app, cli
     assert response.status_code == 400
     assert "mfa code" in response.json()["detail"].lower()
     assert app.state.pending_garmin_mfa is not None
+
+
+def _apple_health_zip() -> bytes:
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<HealthData>
+  <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-01 08:00:00 -0500" endDate="2026-01-01 09:00:00 -0500" value="1200"/>
+</HealthData>"""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", xml)
+    return buf.getvalue()
+
+
+def test_import_apple_health_upserts_readings_and_sets_checkpoint(tmp_path):
+    from app.data_sources import import_apple_health
+    from core.storage.db import connect
+    from core.storage import repository
+    from datetime import date
+
+    conn = connect(tmp_path / "test.db")
+
+    result = import_apple_health(conn, _apple_health_zip())
+
+    assert result["steps"] == "imported: 1"
+    readings = repository.get_readings(conn, "steps", date(2026, 1, 1), date(2026, 1, 1))
+    assert len(readings) == 1
+    assert readings[0].value == 1200.0
+    assert repository.has_synced_data(conn, "apple_health") is True
+
+
+def test_apple_health_import_route_requires_admin_login(client):
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", _apple_health_zip(), "application/zip")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+
+
+def test_apple_health_import_route_succeeds_and_returns_summary(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", _apple_health_zip(), "application/zip")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["steps"] == "imported: 1"
+
+
+def test_apple_health_import_route_returns_400_for_invalid_zip(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", b"not a zip", "application/zip")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_apple_health_import_route_returns_400_for_malformed_xml_inside_valid_zip(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", b"<HealthData><Record not closed")
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", buf.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 400

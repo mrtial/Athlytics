@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+import xml.etree.ElementTree as ET
+import zipfile
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 
-from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin
+from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin, import_apple_health
 from app.dependencies import require_admin_page
 from core.providers.garmin import GarminAuthError, GarminMfaRequired, complete_garmin_mfa
 
@@ -63,3 +66,17 @@ def submit_garmin_mfa(
     request.app.state.pending_garmin_mfa = None
     request.app.state.sync_scheduler.trigger()
     return RedirectResponse(url="/dashboard", status_code=303)
+
+
+@router.post("/api/data-sources/apple-health/import")
+def import_apple_health_route(
+    request: Request,
+    export_file: UploadFile = File(...),
+    conn=Depends(require_admin_page),
+):
+    payload = export_file.file.read()
+    try:
+        result = import_apple_health(conn, payload)
+    except (ValueError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:
+        raise HTTPException(status_code=400, detail=f"could not import Apple Health export: {exc}") from exc
+    return result
