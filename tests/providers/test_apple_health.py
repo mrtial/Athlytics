@@ -12,6 +12,7 @@ from core.providers.apple_health import (
     aggregate_mindful_minutes,
     aggregate_sleep_hours,
     aggregate_stand_hours,
+    apple_health_local_date,
     parse_apple_health_timestamp,
 )
 
@@ -76,23 +77,29 @@ def test_sleep_asleep_values_excludes_awake_and_in_bed():
     assert "HKCategoryValueSleepAnalysisInBed" not in SLEEP_ASLEEP_VALUES
 
 
+def test_sleep_asleep_values_includes_unspecified():
+    # Devices/apps without stage-specific sleep tracking (pre-Watch-Series-6,
+    # or third-party apps) record AsleepUnspecified rather than Core/Deep/REM.
+    assert "HKCategoryValueSleepAnalysisAsleepUnspecified" in SLEEP_ASLEEP_VALUES
+
+
 def test_aggregate_sleep_hours_sums_only_asleep_stages():
     stage_records = [
-        ("HKCategoryValueSleepAnalysisAsleepCore", datetime(2026, 1, 1, 23, 0), datetime(2026, 1, 2, 1, 0)),
-        ("HKCategoryValueSleepAnalysisAsleepDeep", datetime(2026, 1, 2, 1, 0), datetime(2026, 1, 2, 3, 0)),
-        ("HKCategoryValueSleepAnalysisAwake", datetime(2026, 1, 2, 3, 0), datetime(2026, 1, 2, 3, 15)),
+        ("HKCategoryValueSleepAnalysisAsleepCore", datetime(2026, 1, 1, 23, 0), datetime(2026, 1, 2, 1, 0), date(2026, 1, 2)),
+        ("HKCategoryValueSleepAnalysisAsleepDeep", datetime(2026, 1, 2, 1, 0), datetime(2026, 1, 2, 3, 0), date(2026, 1, 2)),
+        ("HKCategoryValueSleepAnalysisAwake", datetime(2026, 1, 2, 3, 0), datetime(2026, 1, 2, 3, 15), date(2026, 1, 2)),
     ]
 
     result = aggregate_sleep_hours(stage_records)
 
-    # Bucketed by the night's ending date (2026-01-02): 2h Core + 2h Deep = 4.0 hours.
+    # Bucketed by the night's local ending date (2026-01-02): 2h Core + 2h Deep = 4.0 hours.
     assert result == {date(2026, 1, 2): 4.0}
 
 
 def test_aggregate_mindful_minutes_sums_session_durations():
     session_records = [
-        (datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10)),
-        (datetime(2026, 1, 1, 20, 0), datetime(2026, 1, 1, 20, 5)),
+        (datetime(2026, 1, 1, 8, 0), datetime(2026, 1, 1, 8, 10), date(2026, 1, 1)),
+        (datetime(2026, 1, 1, 20, 0), datetime(2026, 1, 1, 20, 5), date(2026, 1, 1)),
     ]
 
     result = aggregate_mindful_minutes(session_records)
@@ -102,9 +109,9 @@ def test_aggregate_mindful_minutes_sums_session_durations():
 
 def test_aggregate_stand_hours_counts_only_stood_hours():
     stand_records = [
-        ("HKCategoryValueAppleStandHourStood", datetime(2026, 1, 1, 9, 0)),
-        ("HKCategoryValueAppleStandHourIdle", datetime(2026, 1, 1, 10, 0)),
-        ("HKCategoryValueAppleStandHourStood", datetime(2026, 1, 1, 11, 0)),
+        ("HKCategoryValueAppleStandHourStood", date(2026, 1, 1)),
+        ("HKCategoryValueAppleStandHourIdle", date(2026, 1, 1)),
+        ("HKCategoryValueAppleStandHourStood", date(2026, 1, 1)),
     ]
 
     result = aggregate_stand_hours(stand_records)
@@ -167,3 +174,33 @@ def test_ingest_produces_naive_utc_midnight_timestamps():
     for r in readings:
         assert r.timestamp.tzinfo is None
         assert r.timestamp.hour == 0 and r.timestamp.minute == 0
+
+
+def test_ingest_buckets_by_local_day_not_utc_day():
+    # 22:00 Eastern (-0500) converts to 03:00 UTC the *next* day. Bucketing
+    # must still attribute this reading to Jan 1 (the local day it
+    # happened), not Jan 2 (the UTC day) -- the bug this test guards
+    # against silently shifted every evening reading in negative-UTC-offset
+    # timezones onto the wrong day.
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<HealthData>
+  <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-01 22:00:00 -0500" endDate="2026-01-01 22:30:00 -0500" value="500"/>
+</HealthData>"""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", xml)
+
+    provider = AppleHealthProvider()
+    readings = list(provider.ingest(buf.getvalue()))
+
+    assert len(readings) == 1
+    assert readings[0].timestamp.date() == date(2026, 1, 1)
+
+
+def test_apple_health_local_date_uses_the_strings_own_offset_not_utc():
+    # Same instant as parse_apple_health_timestamp's UTC-conversion test,
+    # but the local calendar date must stay on the string's own day even
+    # though UTC conversion would land on the same day here -- exercised
+    # properly by test_ingest_buckets_by_local_day_not_utc_day above, which
+    # crosses the UTC day boundary.
+    assert apple_health_local_date("2026-05-01 07:30:00 -0400") == date(2026, 5, 1)

@@ -51,6 +51,19 @@ def parse_apple_health_timestamp(value: str) -> datetime:
     return ts_aware.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def apple_health_local_date(value: str) -> date:
+    """The calendar date in the source's own timezone, parsed directly
+    from the offset-aware string before any UTC conversion -- used for
+    day-bucketing so a reading is attributed to the day it happened
+    locally, matching how Garmin's own calendarDate already works.
+    Contrast with parse_apple_health_timestamp, which converts to UTC
+    and is used only for elapsed-duration math (sleep/mindful session
+    length), where local vs. UTC makes no difference since it's a
+    difference between two instants, not a calendar-day lookup.
+    """
+    return datetime.strptime(value, APPLE_HEALTH_TIMESTAMP_FMT).date()
+
+
 def aggregate_daily(readings_by_day: dict[date, list[float]], aggregation: str) -> dict[date, float]:
     """Reduce each day's raw sample list to a single value. "sum" for
     cumulative types (steps, exercise minutes); "mean" for point-in-time
@@ -66,46 +79,47 @@ SLEEP_ASLEEP_VALUES: set[str] = {
     "HKCategoryValueSleepAnalysisAsleepCore",
     "HKCategoryValueSleepAnalysisAsleepDeep",
     "HKCategoryValueSleepAnalysisAsleepREM",
+    "HKCategoryValueSleepAnalysisAsleepUnspecified",
 }
 
 STAND_HOUR_STOOD_VALUE = "HKCategoryValueAppleStandHourStood"
 
 
-def aggregate_sleep_hours(stage_records: list[tuple[str, datetime, datetime]]) -> dict[date, float]:
-    """stage_records: (category value, startDate, endDate) per raw sleep-stage
-    record. Only Asleep* stages count; Awake/InBed are excluded. Bucketed by
-    endDate's calendar date, since a night's sleep is conventionally
-    attributed to the morning it ends."""
+def aggregate_sleep_hours(stage_records: list[tuple[str, datetime, datetime, date]]) -> dict[date, float]:
+    """stage_records: (category value, startDate, endDate, local_end_date)
+    -- local_end_date is endDate's calendar date in the source's own
+    timezone (not UTC-derived), used for bucketing so a night's sleep is
+    attributed to the correct local morning it ends. Only Asleep* stages
+    count; Awake/InBed are excluded."""
     hours_by_day: dict[date, float] = {}
-    for value, start, end in stage_records:
+    for value, start, end, local_end_date in stage_records:
         if value not in SLEEP_ASLEEP_VALUES:
             continue
-        day = end.date()
         duration_hours = (end - start).total_seconds() / 3600
-        hours_by_day[day] = hours_by_day.get(day, 0.0) + duration_hours
+        hours_by_day[local_end_date] = hours_by_day.get(local_end_date, 0.0) + duration_hours
     return hours_by_day
 
 
-def aggregate_mindful_minutes(session_records: list[tuple[datetime, datetime]]) -> dict[date, float]:
-    """session_records: (startDate, endDate) per HKCategoryTypeIdentifierMindfulSession
-    record. Bucketed by startDate's calendar date."""
+def aggregate_mindful_minutes(session_records: list[tuple[datetime, datetime, date]]) -> dict[date, float]:
+    """session_records: (startDate, endDate, local_start_date) per
+    HKCategoryTypeIdentifierMindfulSession record. Bucketed by
+    local_start_date (the source's own timezone), not a UTC-derived date."""
     minutes_by_day: dict[date, float] = {}
-    for start, end in session_records:
-        day = start.date()
+    for start, end, local_start_date in session_records:
         duration_minutes = (end - start).total_seconds() / 60
-        minutes_by_day[day] = minutes_by_day.get(day, 0.0) + duration_minutes
+        minutes_by_day[local_start_date] = minutes_by_day.get(local_start_date, 0.0) + duration_minutes
     return minutes_by_day
 
 
-def aggregate_stand_hours(stand_records: list[tuple[str, datetime]]) -> dict[date, float]:
-    """stand_records: (category value, startDate) per HKCategoryTypeIdentifierAppleStandHour
-    record. Counts only hours marked Stood (not Idle)."""
+def aggregate_stand_hours(stand_records: list[tuple[str, date]]) -> dict[date, float]:
+    """stand_records: (category value, local_start_date) per
+    HKCategoryTypeIdentifierAppleStandHour record. Counts only hours
+    marked Stood (not Idle)."""
     counts_by_day: dict[date, float] = {}
-    for value, start in stand_records:
+    for value, local_day in stand_records:
         if value != STAND_HOUR_STOOD_VALUE:
             continue
-        day = start.date()
-        counts_by_day[day] = counts_by_day.get(day, 0.0) + 1
+        counts_by_day[local_day] = counts_by_day.get(local_day, 0.0) + 1
     return counts_by_day
 
 
@@ -132,9 +146,9 @@ class AppleHealthProvider:
         xml_bytes = self._extract_export_xml(payload)
 
         quantity_samples: dict[str, dict[date, list[float]]] = {}
-        sleep_stage_records: list[tuple[str, datetime, datetime]] = []
-        mindful_records: list[tuple[datetime, datetime]] = []
-        stand_records: list[tuple[str, datetime]] = []
+        sleep_stage_records: list[tuple[str, datetime, datetime, date]] = []
+        mindful_records: list[tuple[datetime, datetime, date]] = []
+        stand_records: list[tuple[str, date]] = []
 
         for _, elem in ET.iterparse(BytesIO(xml_bytes), events=("end",)):
             if elem.tag != "Record":
@@ -145,20 +159,22 @@ class AppleHealthProvider:
 
             if record_type in HK_QUANTITY_MAP:
                 metric_type, _, _ = HK_QUANTITY_MAP[record_type]
-                start = parse_apple_health_timestamp(elem.get("startDate"))
+                local_day = apple_health_local_date(elem.get("startDate"))
                 value = float(elem.get("value"))
-                quantity_samples.setdefault(metric_type, {}).setdefault(start.date(), []).append(value)
+                quantity_samples.setdefault(metric_type, {}).setdefault(local_day, []).append(value)
             elif record_type == SLEEP_TYPE:
                 start = parse_apple_health_timestamp(elem.get("startDate"))
                 end = parse_apple_health_timestamp(elem.get("endDate"))
-                sleep_stage_records.append((elem.get("value"), start, end))
+                local_end_date = apple_health_local_date(elem.get("endDate"))
+                sleep_stage_records.append((elem.get("value"), start, end, local_end_date))
             elif record_type == MINDFUL_TYPE:
                 start = parse_apple_health_timestamp(elem.get("startDate"))
                 end = parse_apple_health_timestamp(elem.get("endDate"))
-                mindful_records.append((start, end))
+                local_start_date = apple_health_local_date(elem.get("startDate"))
+                mindful_records.append((start, end, local_start_date))
             elif record_type == STAND_HOUR_TYPE:
-                start = parse_apple_health_timestamp(elem.get("startDate"))
-                stand_records.append((elem.get("value"), start))
+                local_start_date = apple_health_local_date(elem.get("startDate"))
+                stand_records.append((elem.get("value"), local_start_date))
             # else: unrecognized type -- skip silently, expected for a real export.
 
             elem.clear()

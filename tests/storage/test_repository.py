@@ -1,5 +1,7 @@
 from datetime import date, datetime
 
+import pytest
+
 from core.storage import repository
 from core.storage.db import connect
 from core.storage.models import MetricReading
@@ -282,6 +284,13 @@ def test_set_source_priority_overwrites_existing_value(tmp_path):
     repository.set_source_priority(conn, "resting_hr", "apple_health")
 
     assert repository.get_source_priority(conn, "resting_hr") == "apple_health"
+
+
+def test_set_source_priority_rejects_unknown_source(tmp_path):
+    conn = connect(tmp_path / "test.db")
+
+    with pytest.raises(ValueError):
+        repository.set_source_priority(conn, "resting_hr", "fitbit")
 
 
 def test_get_readings_prefers_garmin_by_default_on_overlap(tmp_path):

@@ -90,7 +90,7 @@ CREATE INDEX IF NOT EXISTS idx_activity_type ON activity(activity_type);
 
 CREATE TABLE IF NOT EXISTS metric_source_priority (
     metric_type TEXT PRIMARY KEY,
-    preferred_source TEXT NOT NULL
+    preferred_source TEXT NOT NULL CHECK (preferred_source IN ('garmin', 'apple_health'))
 );
 """
 

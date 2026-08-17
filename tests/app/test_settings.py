@@ -282,3 +282,13 @@ def test_set_source_priority_route_persists_choice(app, client):
     from core.storage.db import connect
     conn = connect(app.state.db_path)
     assert repository.get_source_priority(conn, "resting_hr") == "apple_health"
+
+
+def test_set_source_priority_route_rejects_unknown_source(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/settings/apple-health/priority", data={"metric_type": "resting_hr", "preferred_source": "fitbit"},
+    )
+
+    assert response.status_code == 400

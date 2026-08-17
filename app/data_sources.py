@@ -52,6 +52,8 @@ def import_apple_health(conn, payload: bytes, batch_size: int = 500) -> dict[str
         repository.upsert_readings(conn, batch)
 
     for metric_type, latest_date in latest_date_by_type.items():
-        repository.set_checkpoint(conn, provider.name, metric_type, latest_date)
+        existing = repository.get_checkpoint(conn, provider.name, metric_type)
+        if existing is None or latest_date > existing:
+            repository.set_checkpoint(conn, provider.name, metric_type, latest_date)
 
     return {metric_type: f"imported: {count}" for metric_type, count in counts.items()}

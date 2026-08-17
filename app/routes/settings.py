@@ -30,7 +30,8 @@ from core.storage.repository import get_source_priority, has_synced_data
 router = APIRouter()
 
 
-def _settings_context(conn, *, theme, garmin_connected, persona_error=None, theme_error=None, unit_error=None, skin_error=None, profile_error=None):
+def _settings_context(conn, request, *, theme, persona_error=None, theme_error=None, unit_error=None, skin_error=None, profile_error=None):
+    garmin_connected = request.app.state.credential_store.load() is not None
     apple_connected = has_synced_data(conn, "apple_health")
     overlapping_metric_types = []
     if garmin_connected and apple_connected:
@@ -69,9 +70,7 @@ def settings_page(request: Request, conn=Depends(require_admin_page)):
     return templates.TemplateResponse(
         request=request,
         name="settings.html",
-        context=_settings_context(
-            conn, theme=theme, garmin_connected=request.app.state.credential_store.load() is not None
-        ),
+        context=_settings_context(conn, request, theme=theme),
     )
 
 
@@ -100,10 +99,7 @@ def settings_update_unit(
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
-            context=_settings_context(
-                conn, theme=theme, unit_error=str(exc),
-                garmin_connected=request.app.state.credential_store.load() is not None,
-            ),
+            context=_settings_context(conn, request, theme=theme, unit_error=str(exc)),
             status_code=400,
         )
     return RedirectResponse(url="/settings", status_code=303)
@@ -119,10 +115,7 @@ def settings_update_persona(request: Request, persona: str = Form(...), conn=Dep
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
-            context=_settings_context(
-                conn, theme=theme, persona_error=str(exc),
-                garmin_connected=request.app.state.credential_store.load() is not None,
-            ),
+            context=_settings_context(conn, request, theme=theme, persona_error=str(exc)),
             status_code=400,
         )
     return RedirectResponse(url="/settings", status_code=303)
@@ -138,10 +131,7 @@ def settings_update_theme(request: Request, theme: str = Form(...), conn=Depends
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
-            context=_settings_context(
-                conn, theme=current_theme, theme_error=str(exc),
-                garmin_connected=request.app.state.credential_store.load() is not None,
-            ),
+            context=_settings_context(conn, request, theme=current_theme, theme_error=str(exc)),
             status_code=400,
         )
     return RedirectResponse(url="/settings", status_code=303)
@@ -157,10 +147,7 @@ def settings_update_skin(request: Request, skin: str = Form(...), conn=Depends(r
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
-            context=_settings_context(
-                conn, theme=theme, skin_error=str(exc),
-                garmin_connected=request.app.state.credential_store.load() is not None,
-            ),
+            context=_settings_context(conn, request, theme=theme, skin_error=str(exc)),
             status_code=400,
         )
     return RedirectResponse(url="/settings", status_code=303)

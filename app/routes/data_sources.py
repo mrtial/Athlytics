@@ -77,8 +77,13 @@ def import_apple_health_route(
     payload = export_file.file.read()
     try:
         result = import_apple_health(conn, payload)
-    except (ValueError, KeyError, zipfile.BadZipFile, ET.ParseError) as exc:
+    except (ValueError, KeyError, TypeError, zipfile.BadZipFile, ET.ParseError) as exc:
         raise HTTPException(status_code=400, detail=f"could not import Apple Health export: {exc}") from exc
+    if not result:
+        raise HTTPException(
+            status_code=400,
+            detail="No recognized Apple Health data found in this export.",
+        )
     return result
 
 
@@ -90,5 +95,8 @@ def set_apple_health_priority(
     conn=Depends(require_admin_page),
 ):
     from core.storage import repository
-    repository.set_source_priority(conn, metric_type, preferred_source)
+    try:
+        repository.set_source_priority(conn, metric_type, preferred_source)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return RedirectResponse(url="/settings", status_code=303)

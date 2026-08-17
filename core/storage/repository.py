@@ -118,6 +118,8 @@ def get_source_priority(conn: sqlite3.Connection, metric_type: str) -> str | Non
 
 
 def set_source_priority(conn: sqlite3.Connection, metric_type: str, source: str) -> None:
+    if source not in DEFAULT_SOURCE_PRIORITY:
+        raise ValueError(f"unknown source: {source!r}")
     conn.execute(
         """
         INSERT INTO metric_source_priority (metric_type, preferred_source)

@@ -323,6 +323,80 @@ def test_apple_health_import_route_returns_400_for_malformed_xml_inside_valid_zi
     assert response.status_code == 400
 
 
+def test_apple_health_import_route_returns_400_for_record_missing_value_attribute(client):
+    # A mapped record type missing its "value" attribute triggers
+    # float(None) -> TypeError deep in the provider; the route must
+    # translate that into a 400, not let it surface as an unhandled 500.
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<HealthData>
+  <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-01 08:00:00 -0500" endDate="2026-01-01 09:00:00 -0500"/>
+</HealthData>"""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", xml)
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", buf.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_apple_health_import_route_returns_400_when_no_recognized_records(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<HealthData>
+  <Record type="HKQuantityTypeIdentifierUVExposure" sourceName="iPhone" unit="count" startDate="2026-01-01 08:00:00 -0500" endDate="2026-01-01 09:00:00 -0500" value="3"/>
+</HealthData>"""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", xml)
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", buf.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 400
+    assert "no recognized" in response.json()["detail"].lower()
+
+
+def test_import_apple_health_checkpoint_does_not_regress_on_older_reupload(tmp_path):
+    from app.data_sources import import_apple_health
+    from core.storage.db import connect
+    from core.storage import repository
+    from datetime import date
+
+    conn = connect(tmp_path / "test.db")
+
+    later_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<HealthData>
+  <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-10 08:00:00 -0500" endDate="2026-01-10 09:00:00 -0500" value="1000"/>
+</HealthData>"""
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", later_xml)
+    import_apple_health(conn, buf.getvalue())
+
+    assert repository.get_checkpoint(conn, "apple_health", "steps") == date(2026, 1, 10)
+
+    earlier_xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<HealthData>
+  <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-01 08:00:00 -0500" endDate="2026-01-01 09:00:00 -0500" value="500"/>
+</HealthData>"""
+    buf2 = BytesIO()
+    with zipfile.ZipFile(buf2, "w") as zf:
+        zf.writestr("apple_health_export/export.xml", earlier_xml)
+    import_apple_health(conn, buf2.getvalue())
+
+    # Checkpoint must stay at the later date, not regress to the older upload's date.
+    assert repository.get_checkpoint(conn, "apple_health", "steps") == date(2026, 1, 10)
+
+
 def test_onboarding_connect_page_shows_both_provider_options(client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
 
