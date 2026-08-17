@@ -797,14 +797,14 @@ git commit -m "feat: add Apple Health sleep/mindful-minutes/stand-hours aggregat
 
 - [ ] **Step 1: Write the failing test**
 
-First, create the fixture:
+First, create the fixture. **Note:** the second `RestingHeartRate` sample uses `16:00:00 -0500` (not `19:00:00 -0500` as an earlier draft had it) — `19:00 -0500` converts to `2026-01-02 00:00:00` UTC, crossing the UTC calendar-day boundary the parser buckets by, which would land it on a different day than the `07:00 -0500` sample and break the mean-of-two-samples assertion below. `16:00 -0500` stays on `2026-01-01` UTC alongside it.
 
 ```xml
 <!-- tests/fixtures/apple_health_export.xml -->
 <?xml version="1.0" encoding="UTF-8"?>
 <HealthData>
   <Record type="HKQuantityTypeIdentifierRestingHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-01-01 07:00:00 -0500" endDate="2026-01-01 07:00:00 -0500" value="50"/>
-  <Record type="HKQuantityTypeIdentifierRestingHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-01-01 19:00:00 -0500" endDate="2026-01-01 19:00:00 -0500" value="54"/>
+  <Record type="HKQuantityTypeIdentifierRestingHeartRate" sourceName="Apple Watch" unit="count/min" startDate="2026-01-01 16:00:00 -0500" endDate="2026-01-01 16:00:00 -0500" value="54"/>
   <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-01 08:00:00 -0500" endDate="2026-01-01 09:00:00 -0500" value="1200"/>
   <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-01 12:00:00 -0500" endDate="2026-01-01 13:00:00 -0500" value="800"/>
   <Record type="HKCategoryTypeIdentifierMindfulSession" sourceName="iPhone" startDate="2026-01-01 08:00:00 -0500" endDate="2026-01-01 08:10:00 -0500" value="HKCategoryValueNotApplicable"/>
