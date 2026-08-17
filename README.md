@@ -4,6 +4,13 @@ A self-hosted personal health and fitness analytics platform and actionable AI C
 
 Athlytics gives you complete data ownership, local encrypted credential storage, and an evidence-based AI coach capable of reading recovery state and writing structured training plans and targets directly to your dashboard.
 
+<img width="1718" height="919" alt="Screenshot 2026-08-17 at 9 20 10 AM" src="https://github.com/user-attachments/assets/c1dd2795-1f56-4a20-b264-e6d94cf4b317" />
+
+<img width="1717" height="906" alt="Screenshot 2026-08-17 at 9 21 05 AM" src="https://github.com/user-attachments/assets/ed71a318-1858-43aa-97dc-92aa3831309d" />
+
+<img width="1719" height="914" alt="Screenshot 2026-08-17 at 9 21 41 AM" src="https://github.com/user-attachments/assets/9434db06-906b-4c18-a992-7458c7fdbbda" />
+
+
 ---
 
 ## Features
