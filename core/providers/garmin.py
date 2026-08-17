@@ -17,6 +17,27 @@ from core.storage.models import Activity, MetricReading
 
 logger = logging.getLogger(__name__)
 
+GARMIN_METRIC_TYPES: list[str] = [
+    "resting_hr",
+    "hrv",
+    "vo2max",
+    "body_battery",
+    "weight",
+    "sleep_score",
+    "steps",
+    "stress",
+    "respiration",
+    "spo2",
+    "training_load",
+    "race_predictor_5k",
+    "race_predictor_10k",
+    "race_predictor_half_marathon",
+    "race_predictor_marathon",
+    "activity_duration",
+    "activity_distance",
+    "activity_calories",
+]
+
 
 class GarminAuthError(Exception):
     """Raised when Garmin authentication fails, requires MFA this headless
@@ -689,7 +710,7 @@ class GarminProvider:
         return [r for r in self._activities_cache[cache_key] if r.metric_type == metric_type]
 
     def supported_metric_types(self) -> list[str]:
-        return list(self._registry.keys())
+        return list(GARMIN_METRIC_TYPES)
 
     def fetch(self, metric_type: str, start: date, end: date) -> list[MetricReading]:
         if metric_type not in self._registry:

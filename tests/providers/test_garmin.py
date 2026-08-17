@@ -4,7 +4,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from core.providers.base import RateLimitError
-from core.providers.garmin import GarminAuthError, GarminMfaRequired, GarminProvider, complete_garmin_mfa
+from core.providers.garmin import GARMIN_METRIC_TYPES, GarminAuthError, GarminMfaRequired, GarminProvider, complete_garmin_mfa
 from core.security.credentials import CredentialStore
 from core.storage.models import MetricReading
 
@@ -80,6 +80,23 @@ def _credential_store(tmp_path, credentials=None):
     if credentials is not None:
         store.save(credentials)
     return store
+
+
+def test_garmin_metric_types_constant_is_importable_without_instantiation():
+    # No CredentialStore, no login -- this must work as a bare import.
+    assert GARMIN_METRIC_TYPES == [
+        "resting_hr", "hrv", "vo2max", "body_battery", "weight", "sleep_score",
+        "steps", "stress", "respiration", "spo2", "training_load",
+        "race_predictor_5k", "race_predictor_10k", "race_predictor_half_marathon",
+        "race_predictor_marathon", "activity_duration", "activity_distance", "activity_calories",
+    ]
+
+
+def test_garmin_metric_types_constant_matches_live_registry(tmp_path):
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
+
+    assert GARMIN_METRIC_TYPES == list(provider._registry.keys())
 
 
 def test_init_raises_garmin_auth_error_when_no_credentials_saved(tmp_path):
