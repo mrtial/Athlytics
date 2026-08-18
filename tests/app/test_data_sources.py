@@ -282,7 +282,28 @@ def test_apple_health_import_route_requires_admin_login(client):
         follow_redirects=False,
     )
 
-    assert response.status_code == 303
+    assert response.status_code == 401
+
+
+def test_apple_health_import_route_accepts_bearer_token_without_cookie(app, client):
+    from app.settings import set_api_token
+    from core.storage.db import connect
+
+    conn = connect(app.state.db_path)
+    from app.db import ensure_app_schema
+
+    ensure_app_schema(conn)
+    set_api_token(conn, "shortcut-token")
+    conn.close()
+
+    response = client.post(
+        "/api/data-sources/apple-health/import",
+        files={"export_file": ("export.zip", _apple_health_zip(), "application/zip")},
+        headers={"Authorization": "Bearer shortcut-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["steps"] == "imported: 1"
 
 
 def test_apple_health_import_route_succeeds_and_returns_summary(client):

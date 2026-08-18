@@ -8,6 +8,7 @@ from app.auth import create_admin
 from app.db import ensure_app_schema
 from app.dependencies import onboarding_status, require_admin_api, require_admin_page
 from app.session import SESSION_LIFETIME, create_session, delete_session, is_valid_session
+from app.settings import set_api_token
 from core.storage.db import connect
 
 
@@ -101,6 +102,32 @@ def test_require_admin_page_allows_valid_session_cookie(tmp_path):
     response = client.get("/protected-page")
 
     assert response.status_code == 200
+
+
+def test_require_admin_api_allows_valid_bearer_token_without_cookie(tmp_path):
+    app = _tiny_app(tmp_path / "data")
+    client = TestClient(app)
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    set_api_token(conn, "shortcut-token")
+    conn.close()
+
+    response = client.get("/protected-api", headers={"Authorization": "Bearer shortcut-token"})
+
+    assert response.status_code == 200
+
+
+def test_require_admin_api_rejects_wrong_bearer_token(tmp_path):
+    app = _tiny_app(tmp_path / "data")
+    client = TestClient(app)
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    set_api_token(conn, "shortcut-token")
+    conn.close()
+
+    response = client.get("/protected-api", headers={"Authorization": "Bearer wrong-token"})
+
+    assert response.status_code == 401
 
 
 def test_onboarding_status_progresses_admin_then_persona(tmp_path):

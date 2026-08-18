@@ -11,12 +11,15 @@ from app.settings import (
     SKINS,
     THEMES,
     UNITS,
+    generate_api_token,
+    get_api_token,
     get_athlete_age,
     get_athlete_name,
     get_persona,
     get_skin,
     get_theme,
     get_unit,
+    set_api_token,
     set_athlete_profile,
     set_persona,
     set_skin,
@@ -37,6 +40,12 @@ def _settings_context(conn, request, *, theme, persona_error=None, theme_error=N
     overlapping_metric_types = []
     if garmin_connected and apple_connected:
         overlapping_metric_types = sorted(set(GARMIN_METRIC_TYPES) & set(APPLE_HEALTH_METRIC_TYPES))
+
+    api_token = get_api_token(conn)
+    if api_token is None:
+        api_token = generate_api_token()
+        set_api_token(conn, api_token)
+    apple_health_upload_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/import"
 
     return {
         "authenticated": True,
@@ -62,6 +71,8 @@ def _settings_context(conn, request, *, theme, persona_error=None, theme_error=N
         "strava_connected": strava_connected,
         "overlapping_metric_types": overlapping_metric_types,
         "source_priority": {mt: get_source_priority(conn, mt) or "garmin" for mt in overlapping_metric_types},
+        "api_token": api_token,
+        "apple_health_upload_url": apple_health_upload_url,
     }
 
 
@@ -152,4 +163,10 @@ def settings_update_skin(request: Request, skin: str = Form(...), conn=Depends(r
             context=_settings_context(conn, request, theme=theme, skin_error=str(exc)),
             status_code=400,
         )
+    return RedirectResponse(url="/settings", status_code=303)
+
+
+@router.post("/settings/api-token/regenerate")
+def settings_regenerate_api_token(request: Request, conn=Depends(require_admin_page)):
+    set_api_token(conn, generate_api_token())
     return RedirectResponse(url="/settings", status_code=303)

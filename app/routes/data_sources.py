@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import RedirectResponse
 
 from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin, import_apple_health
-from app.dependencies import require_admin_page
+from app.dependencies import require_admin_api, require_admin_page
 from core.providers.garmin import GarminAuthError, GarminMfaRequired, complete_garmin_mfa
 
 router = APIRouter()
@@ -72,7 +72,7 @@ def submit_garmin_mfa(
 def import_apple_health_route(
     request: Request,
     export_file: UploadFile = File(...),
-    conn=Depends(require_admin_page),
+    conn=Depends(require_admin_api),
 ):
     payload = export_file.file.read()
     try:

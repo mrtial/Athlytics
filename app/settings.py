@@ -1,3 +1,4 @@
+import secrets
 import sqlite3
 
 PERSONAS: list[str] = [
@@ -162,3 +163,20 @@ def get_athlete_age(conn: sqlite3.Connection) -> str:
 def set_athlete_profile(conn: sqlite3.Connection, name: str, age: str) -> None:
     set_setting(conn, "athlete_name", name.strip() or DEFAULT_ATHLETE_NAME)
     set_setting(conn, "athlete_age", age.strip())
+
+
+def generate_api_token() -> str:
+    """Same generation scheme as app.session.create_session's session
+    tokens -- url-safe so it drops into a Shortcuts header field or a
+    query string without escaping."""
+    return secrets.token_urlsafe(32)
+
+
+def get_api_token(conn: sqlite3.Connection) -> str | None:
+    """None until a token has been generated -- app/routes/settings.py
+    auto-generates one on first Settings page view."""
+    return get_setting(conn, "api_token")
+
+
+def set_api_token(conn: sqlite3.Connection, token: str) -> None:
+    set_setting(conn, "api_token", token)

@@ -216,6 +216,31 @@
     </div>
   </div>
 
+  <!-- Card: API Access (upload without a browser, e.g. from an iOS Shortcut) -->
+  <div class="settings-card">
+    <div class="settings-card-header">
+      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('key') }}</div>
+      <div>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">API Access</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Upload Apple Health exports from your phone</span>
+      </div>
+    </div>
+    <div style="margin-top: 1rem;">
+      <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
+        Use this token to build an iOS Shortcut that exports and uploads your Health data without opening a browser.
+      </p>
+      <label class="form-label">Token</label>
+      <input class="form-input" type="text" readonly value="{{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+      <label class="form-label">Upload URL</label>
+      <input class="form-input" type="text" readonly value="{{ apple_health_upload_url }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+      <label class="form-label">Header (Shortcuts "Get Contents of URL" &rarr; Headers)</label>
+      <input class="form-input" type="text" readonly value="Authorization: Bearer {{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+      <form method="post" action="/settings/api-token/regenerate" onsubmit="return confirm('Regenerating invalidates the current token -- any Shortcut using it will need updating. Continue?');">
+        <button type="submit" class="btn-logout" style="padding: 0.5rem 0.85rem; font-size: 0.8rem;">Regenerate Token</button>
+      </form>
+    </div>
+  </div>
+
   <!-- Card 6: Privacy & Data Security -->
   <div class="settings-card">
     <div class="settings-card-header">

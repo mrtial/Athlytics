@@ -7,9 +7,12 @@ from app.settings import (
     PERSONA_METRIC_TYPES,
     PERSONAS,
     THEMES,
+    generate_api_token,
+    get_api_token,
     get_persona,
     get_setting,
     get_theme,
+    set_api_token,
     set_persona,
     set_setting,
     set_theme,
@@ -65,6 +68,24 @@ def test_get_theme_none_until_set_then_roundtrips(conn):
 def test_set_theme_rejects_unknown_value(conn):
     with pytest.raises(ValueError, match="unknown theme"):
         set_theme(conn, "sepia")
+
+
+def test_get_api_token_returns_none_when_unset(conn):
+    assert get_api_token(conn) is None
+
+
+def test_set_then_get_api_token_roundtrips(conn):
+    set_api_token(conn, "a-token-value")
+
+    assert get_api_token(conn) == "a-token-value"
+
+
+def test_generate_api_token_produces_distinct_url_safe_tokens():
+    first = generate_api_token()
+    second = generate_api_token()
+
+    assert first != second
+    assert len(first) > 20
 
 
 def test_all_four_personas_defined():
@@ -282,6 +303,61 @@ def test_set_source_priority_route_persists_choice(app, client):
     from core.storage.db import connect
     conn = connect(app.state.db_path)
     assert repository.get_source_priority(conn, "resting_hr") == "apple_health"
+
+
+def test_settings_get_auto_generates_api_token_and_shows_it(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/settings")
+
+    assert response.status_code == 200
+    conn = connect(app.state.db_path)
+    token = get_api_token(conn)
+    assert token is not None
+    assert token in response.text
+
+
+def test_settings_get_reuses_existing_api_token_across_requests(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    client.get("/settings")
+    conn = connect(app.state.db_path)
+    first_token = get_api_token(conn)
+
+    client.get("/settings")
+    second_token = get_api_token(conn)
+
+    assert first_token == second_token
+
+
+def test_settings_page_shows_apple_health_upload_url_and_auth_header_snippet(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/settings")
+
+    assert "/api/data-sources/apple-health/import" in response.text
+    assert "Authorization: Bearer" in response.text
+
+
+def test_settings_regenerate_api_token_route_requires_admin_login(client):
+    response = client.post("/settings/api-token/regenerate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_settings_regenerate_api_token_route_issues_a_new_token(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.get("/settings")
+    conn = connect(app.state.db_path)
+    original_token = get_api_token(conn)
+
+    response = client.post("/settings/api-token/regenerate", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/settings"
+    new_token = get_api_token(conn)
+    assert new_token != original_token
 
 
 def test_set_source_priority_route_rejects_unknown_source(app, client):
