@@ -1,3 +1,4 @@
+import re
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from mcp.server import MCPServer
 from core.storage import repository
 from core.storage.db import connect
 from core.storage.models import Activity, CoachNote, MetricReading, Target, TrainingPlan
-from mcp_server.server import DB_PATH_ENV_VAR, _db_path, mcp
+from mcp_server.server import DB_PATH_ENV_VAR, _db_path, _with_utc_tzinfo, mcp
 
 
 def test_server_instance_is_an_mcp_server():
@@ -20,6 +21,54 @@ def test_db_path_respects_environment_override(monkeypatch, tmp_path):
     custom_db = tmp_path / "custom.db"
     monkeypatch.setenv(DB_PATH_ENV_VAR, str(custom_db))
     assert _db_path() == custom_db
+
+
+# RFC 3339 `date-time` requires an explicit UTC offset -- e.g. trailing "Z"
+# or "+00:00" -- unlike naive datetime.isoformat() output. See
+# mcp_server.server._with_utc_tzinfo.
+_RFC3339_DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+
+
+def test_with_utc_tzinfo_attaches_offset_without_mutating_source():
+    from datetime import timezone
+
+    reading = MetricReading("garmin", "steps", datetime(2026, 1, 2), 8000.0, "count")
+    wired = _with_utc_tzinfo(reading)
+
+    assert wired.timestamp == datetime(2026, 1, 2, tzinfo=timezone.utc)
+    # The naive-only invariant enforced by MetricReading.__post_init__ must
+    # still hold for the original, internally-used instance.
+    assert reading.timestamp.tzinfo is None
+
+
+def test_with_utc_tzinfo_bypasses_activity_naive_only_post_init():
+    """Activity.__post_init__ rejects tz-aware start_time/created_at when
+    constructed normally; _with_utc_tzinfo must attach tzinfo via a copy
+    that doesn't re-run that validation, not via dataclasses.replace."""
+    now = datetime(2026, 1, 1, 12, 0)
+    activity = Activity(
+        "garmin:101", "garmin", "101", "Morning 5K", "running", "running",
+        now, 1800.0, 5000.0, 350.0, 150.0, 165.0, 2.78, 3.2, 30.0, 30.0, now,
+    )
+
+    wired = _with_utc_tzinfo(activity)
+
+    from datetime import timezone
+
+    assert wired.start_time.tzinfo is timezone.utc
+    assert wired.created_at.tzinfo is timezone.utc
+    assert activity.start_time.tzinfo is None
+    assert activity.created_at.tzinfo is None
+
+
+def test_with_utc_tzinfo_is_a_noop_for_date_only_fields():
+    target = Target(
+        "t-1", "hrv", 65.0, "gte", "daily", date(2026, 1, 1), None, "active", None,
+        datetime(2026, 1, 1, 12, 0),
+    )
+    wired = _with_utc_tzinfo(target)
+    assert wired.start_date == date(2026, 1, 1)
+    assert wired.end_date is None
 
 
 @pytest.mark.anyio
@@ -71,6 +120,10 @@ async def test_get_metric_series_tool_contract(tmp_path, monkeypatch):
     assert result.is_error is not True
     assert len(result.structured_content["result"]) == 1
     assert result.structured_content["result"][0]["value"] == 8000.0
+    # Regression: timestamp must carry an explicit UTC offset (RFC 3339
+    # `date-time`), not a naive isoformat() string -- see
+    # mcp_server.server._with_utc_tzinfo.
+    assert result.structured_content["result"][0]["timestamp"] == "2026-01-02T00:00:00Z"
 
 
 @pytest.mark.anyio
@@ -164,30 +217,41 @@ async def test_actionable_read_tools_contract(tmp_path, monkeypatch):
     )
     conn.close()
 
+    # Regression: every created_at/start_time below must carry an explicit
+    # UTC offset (RFC 3339 `date-time`), not a naive isoformat() string --
+    # see mcp_server.server._with_utc_tzinfo.
+    expected_timestamp = "2026-01-01T12:00:00Z"
+
     async with Client(mcp) as client:
         # get_report
         res_rep = await client.call_tool("get_report", {"id": rep_id})
         assert res_rep.structured_content["title"] == "Report 1"
+        assert res_rep.structured_content["created_at"] == expected_timestamp
 
         # get_targets
         res_tar = await client.call_tool("get_targets", {"status": "active"})
         assert len(res_tar.structured_content["result"]) == 1
         assert res_tar.structured_content["result"][0]["metric_type"] == "hrv"
+        assert res_tar.structured_content["result"][0]["created_at"] == expected_timestamp
 
         # get_training_plans
         res_plan = await client.call_tool("get_training_plans", {"status": "active"})
         assert len(res_plan.structured_content["result"]) == 1
         assert res_plan.structured_content["result"][0]["title"] == "Base"
+        assert res_plan.structured_content["result"][0]["created_at"] == expected_timestamp
 
         # get_coach_notes
         res_notes = await client.call_tool("get_coach_notes", {"limit": 5})
         assert len(res_notes.structured_content["result"]) == 1
         assert res_notes.structured_content["result"][0]["category"] == "feeling"
+        assert res_notes.structured_content["result"][0]["created_at"] == expected_timestamp
 
         # get_activities
         res_acts = await client.call_tool("get_activities", {"activity_type": "running"})
         assert len(res_acts.structured_content["result"]) == 1
         assert res_acts.structured_content["result"][0]["activity_name"] == "Morning 5K"
+        assert res_acts.structured_content["result"][0]["start_time"] == expected_timestamp
+        assert res_acts.structured_content["result"][0]["created_at"] == expected_timestamp
 
 
 
@@ -213,6 +277,7 @@ async def test_action_write_tools_contract(tmp_path, monkeypatch):
         assert res_tar.is_error is not True
         target_id = res_tar.structured_content["id"]
         assert res_tar.structured_content["target_value"] == 10000.0
+        assert _RFC3339_DATETIME.match(res_tar.structured_content["created_at"])
 
         # delete_target
         res_del = await client.call_tool("delete_target", {"target_id": target_id})
@@ -233,6 +298,7 @@ async def test_action_write_tools_contract(tmp_path, monkeypatch):
         assert res_plan.is_error is not True
         plan_id = res_plan.structured_content["id"]
         assert res_plan.structured_content["title"] == "Marathon Build"
+        assert _RFC3339_DATETIME.match(res_plan.structured_content["created_at"])
 
         # update_plan_status
         res_up = await client.call_tool(
@@ -240,6 +306,7 @@ async def test_action_write_tools_contract(tmp_path, monkeypatch):
         )
         assert res_up.is_error is not True
         assert res_up.structured_content["status"] == "paused"
+        assert _RFC3339_DATETIME.match(res_up.structured_content["created_at"])
 
         # log_coach_note
         res_note = await client.call_tool(
@@ -253,6 +320,7 @@ async def test_action_write_tools_contract(tmp_path, monkeypatch):
         )
         assert res_note.is_error is not True
         assert res_note.structured_content["category"] == "injury"
+        assert _RFC3339_DATETIME.match(res_note.structured_content["created_at"])
 
 
 @pytest.mark.anyio

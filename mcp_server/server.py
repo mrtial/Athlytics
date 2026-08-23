@@ -3,6 +3,8 @@
 Provides bidirectional tools (reading metrics/trends, writing targets and plans),
 living dynamic context resources (athlytics://), and evidence-based workflow prompts.
 """
+import copy
+import dataclasses
 import json
 import os
 import uuid
@@ -47,6 +49,35 @@ def _connection():
         conn.close()
 
 
+def _with_utc_tzinfo(obj):
+    """Attach UTC tzinfo to a dataclass instance's naive datetime fields.
+
+    Storage/repository code intentionally keeps datetimes naive (see the
+    timezone contract in core/storage/models.py) so SQLite's date() and
+    Python's .date() agree on calendar-day boundaries. MCP clients validate
+    `datetime`-typed fields against strict RFC 3339, which requires a UTC
+    offset -- naive `isoformat()` output lacks one and fails validation. This
+    attaches the (already-UTC) offset only at the outward-facing tool
+    boundary, leaving the naive values used internally untouched.
+
+    Some models (MetricReading, Activity) enforce naive-only timestamps in
+    `__post_init__`, so the copy is built via copy.copy + object.__setattr__
+    rather than dataclasses.replace, which would re-run that constructor
+    validation against the very tzinfo it's designed to reject.
+    """
+    updates = {
+        f.name: value.replace(tzinfo=timezone.utc)
+        for f in dataclasses.fields(obj)
+        if isinstance(value := getattr(obj, f.name), datetime) and value.tzinfo is None
+    }
+    if not updates:
+        return obj
+    new_obj = copy.copy(obj)
+    for name, value in updates.items():
+        object.__setattr__(new_obj, name, value)
+    return new_obj
+
+
 # ---------------------------------------------------------------------------
 # Read Tools
 # ---------------------------------------------------------------------------
@@ -65,7 +96,7 @@ def get_metric_series(metric_type: str, start: str, end: str) -> list[MetricRead
     start_date = date.fromisoformat(start)
     end_date = date.fromisoformat(end)
     with _connection() as conn:
-        return repository.get_readings(conn, metric_type, start_date, end_date)
+        return [_with_utc_tzinfo(r) for r in repository.get_readings(conn, metric_type, start_date, end_date)]
 
 
 @mcp.tool()
@@ -81,7 +112,7 @@ def get_anomalies(since: str | None = None) -> list[Anomaly]:
     since_date = date.fromisoformat(since) if since is not None else None
     with _connection() as conn:
         metric_types = [s.metric_type for s in repository.list_metric_summaries(conn)]
-        return detect_anomalies_for_metrics(conn, metric_types, since=since_date)
+        return [_with_utc_tzinfo(a) for a in detect_anomalies_for_metrics(conn, metric_types, since=since_date)]
 
 
 @mcp.tool()
@@ -91,28 +122,28 @@ def get_report(id: int) -> Report:
         report = repository.get_report(conn, id)
         if report is None:
             raise ValueError(f"no report found with id={id}")
-        return report
+        return _with_utc_tzinfo(report)
 
 
 @mcp.tool()
 def get_targets(status: str = "active") -> list[Target]:
     """Fetch active or historical athlete targets (status: 'active', 'completed', 'abandoned')."""
     with _connection() as conn:
-        return repository.get_targets(conn, status=status)
+        return [_with_utc_tzinfo(t) for t in repository.get_targets(conn, status=status)]
 
 
 @mcp.tool()
 def get_training_plans(status: str = "active") -> list[TrainingPlan]:
     """Fetch structured training plans (status: 'active', 'paused', 'completed', 'archived')."""
     with _connection() as conn:
-        return repository.get_training_plans(conn, status=status)
+        return [_with_utc_tzinfo(p) for p in repository.get_training_plans(conn, status=status)]
 
 
 @mcp.tool()
 def get_coach_notes(limit: int = 10, category: str | None = None) -> list[CoachNote]:
     """Fetch recent qualitative coach notes, injury logs, or athlete feedback."""
     with _connection() as conn:
-        return repository.get_coach_notes(conn, limit=limit, category=category)
+        return [_with_utc_tzinfo(n) for n in repository.get_coach_notes(conn, limit=limit, category=category)]
 
 
 @mcp.tool()
@@ -126,9 +157,10 @@ def get_activities(
     s_date = date.fromisoformat(start_date) if start_date else None
     e_date = date.fromisoformat(end_date) if end_date else None
     with _connection() as conn:
-        return repository.get_activities(
+        activities = repository.get_activities(
             conn, start_date=s_date, end_date=e_date, activity_type=activity_type, limit=limit
         )
+        return [_with_utc_tzinfo(a) for a in activities]
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +201,7 @@ def set_target(
         created_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     with _connection() as conn:
-        return repository.save_target(conn, target)
+        return _with_utc_tzinfo(repository.save_target(conn, target))
 
 
 @mcp.tool()
@@ -205,7 +237,7 @@ def save_training_plan(
         created_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     with _connection() as conn:
-        return repository.save_training_plan(conn, plan)
+        return _with_utc_tzinfo(repository.save_training_plan(conn, plan))
 
 
 @mcp.tool()
@@ -217,7 +249,7 @@ def update_plan_status(plan_id: str, status: str) -> TrainingPlan:
         updated = repository.update_plan_status(conn, plan_id, status)
         if updated is None:
             raise ValueError(f"Training plan with id '{plan_id}' not found")
-        return updated
+        return _with_utc_tzinfo(updated)
 
 
 @mcp.tool()
@@ -244,7 +276,7 @@ def log_coach_note(
         created_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     with _connection() as conn:
-        return repository.save_coach_note(conn, coach_note)
+        return _with_utc_tzinfo(repository.save_coach_note(conn, coach_note))
 
 
 @mcp.tool()
