@@ -97,10 +97,11 @@
           <tr>
             <th>Wk</th>
             <th>Dates</th>
-            {% for day in item.week_table.training_days %}
+            {% for day in item.week_table.days %}
             <th>{{ day }}</th>
             {% endfor %}
             <th>Total</th>
+            <th>Actual Total</th>
             <th>Flag</th>
           </tr>
         </thead>
@@ -108,21 +109,29 @@
           {% for row in item.week_table.rows %}
           {% if row.kind == 'divider' %}
           <tr class="plan-phase-row">
-            <td colspan="{{ item.week_table.training_days|length + 4 }}">
+            <td colspan="{{ item.week_table.days|length + 5 }}">
               {{ row.phase_name }}
               {% if row.date_range_label %}<span class="plan-phase-dates">&middot; {{ row.date_range_label }}</span>{% endif %}
             </td>
           </tr>
           {% else %}
-          <tr class="{% if row.is_race_week %}plan-race-row{% endif %}{% if row.is_current %} plan-current-row{% endif %}">
+          {% set actual_row_id = "actual-" ~ item.plan.id ~ "-" ~ row.week %}
+          <tr class="{% if row.is_race_week %}plan-race-row{% endif %}{% if row.is_current %} plan-current-row{% endif %}{% if row.has_actual %} plan-week-row-toggle{% endif %}"
+            {% if row.has_actual %}
+            onclick="toggleActualRow('{{ actual_row_id }}')"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleActualRow('{{ actual_row_id }}');}"
+            tabindex="0" role="button" aria-expanded="false" aria-controls="{{ actual_row_id }}"
+            {% endif %}>
             <td class="plan-week-num">
               {{ row.week }}
               {% if row.is_current %}<span class="plan-day-note">This week</span>{% endif %}
             </td>
             <td class="plan-week-dates">{{ row.dates_label }}</td>
             {% for cell in row.cells %}
-            <td class="plan-day-cell{% if row.is_race_week and cell.day == 'Sun' %} plan-race-cell{% endif %}">
-              {% if cell.value is not none %}
+            <td class="plan-day-cell{% if cell.is_rest %} plan-rest-cell{% endif %}{% if row.is_race_week and cell.day == 'Sun' %} plan-race-cell{% endif %}">
+              {% if cell.is_rest %}
+              <span class="plan-day-rest">Rest</span>
+              {% elif cell.value is not none %}
               <span class="plan-day-mi">{{ cell.value }}</span>
               {% if cell.note %}<span class="plan-day-note">{{ cell.note }}</span>{% endif %}
               {% else %}&mdash;{% endif %}
@@ -131,16 +140,39 @@
             <td class="plan-day-cell plan-total-cell">
               <span class="plan-day-mi">{{ row.total if row.total is not none else "—" }}</span>
               {% if row.total_extra_label %}<span class="plan-day-note">{{ row.total_extra_label }}</span>{% endif %}
+            </td>
+            <td class="plan-day-cell plan-actual-total-cell">
               {% if row.actual_total is not none %}
-              <span class="plan-day-note">Actual: {{ row.actual_total }} mi</span>
-              {% endif %}
-              {% if row.actual_note %}<span class="plan-day-note">{{ row.actual_note }}</span>{% endif %}
+              <span class="plan-day-mi">{{ row.actual_total }}</span>
+              {% else %}&mdash;{% endif %}
             </td>
             <td>
               {% if row.flag_label %}<span class="plan-flag {{ row.flag }}">{{ row.flag_label }}</span>{% endif %}
               {% if row.verdict_label %}<span class="plan-flag {{ row.verdict_class }}">{{ row.verdict_label }}</span>{% endif %}
             </td>
           </tr>
+          {% if row.has_actual %}
+          <tr id="{{ actual_row_id }}" class="plan-actual-row" hidden>
+            <td class="plan-week-num plan-actual-label">Actual</td>
+            <td class="plan-week-dates"></td>
+            {% for cell in row.actual_cells %}
+            <td class="plan-day-cell{% if cell.is_rest %} plan-rest-cell{% endif %}{% if cell.is_unplanned %} plan-unplanned-cell{% endif %}">
+              {% if cell.value %}
+              <span class="plan-day-mi">{{ cell.value }}</span>
+              {% if cell.is_unplanned %}<span class="plan-day-note">Unplanned</span>{% endif %}
+              {% else %}&mdash;{% endif %}
+            </td>
+            {% endfor %}
+            <td class="plan-day-cell plan-total-cell">&mdash;</td>
+            <td class="plan-day-cell plan-actual-total-cell">
+              <span class="plan-day-mi">{{ row.actual_total }}</span>
+            </td>
+            <td>
+              {% if row.verdict_label %}<span class="plan-flag {{ row.verdict_class }}">{{ row.verdict_label }}</span>{% endif %}
+              {% if row.actual_note %}<span class="plan-day-note">{{ row.actual_note }}</span>{% endif %}
+            </td>
+          </tr>
+          {% endif %}
           {% endif %}
           {% endfor %}
         </tbody>
@@ -156,4 +188,15 @@
   </div>
   {% endif %}
 </section>
+
+<script>
+function toggleActualRow(id) {
+  var row = document.getElementById(id);
+  if (!row) return;
+  var willShow = row.hidden;
+  row.hidden = !willShow;
+  var trigger = document.querySelector('[aria-controls="' + id + '"]');
+  if (trigger) trigger.setAttribute('aria-expanded', willShow ? 'true' : 'false');
+}
+</script>
 {% endblock %}

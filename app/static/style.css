@@ -1833,6 +1833,53 @@ html[data-theme="dark"] select:focus {
   font-size: 0.88rem;
 }
 
+.plan-actual-total-cell .plan-day-mi {
+  color: var(--fg);
+  font-size: 0.88rem;
+}
+
+.plan-rest-cell {
+  background: var(--surface-secondary);
+}
+
+.plan-day-rest {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.plan-week-row-toggle {
+  cursor: pointer;
+}
+
+.plan-week-row-toggle:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+.plan-actual-row td {
+  background: var(--surface-secondary);
+}
+
+.plan-actual-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.plan-unplanned-cell {
+  background: var(--warning-soft);
+}
+
+.plan-unplanned-cell .plan-day-mi {
+  color: var(--warning);
+}
+
 .plan-race-row td {
   background: var(--accent-primary-soft);
 }
@@ -1871,6 +1918,11 @@ html[data-theme="dark"] select:focus {
 .plan-flag.transition {
   background: var(--accent-primary-soft);
   color: var(--fg);
+}
+
+.plan-flag.travel {
+  background: var(--accent-dark-soft);
+  color: var(--accent-dark);
 }
 
 .plan-flag.on-track {

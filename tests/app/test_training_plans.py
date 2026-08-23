@@ -190,10 +190,10 @@ def _plan_data_with_schedule():
     return data
 
 
-def test_week_table_uses_non_rest_days_as_columns_in_week_order():
+def test_week_table_uses_all_days_as_columns_in_week_order():
     result = _week_table(_plan_data_with_schedule())
 
-    assert result["training_days"] == ["Tue", "Wed", "Thu", "Sat", "Sun"]
+    assert result["days"] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def test_week_table_inserts_divider_row_on_phase_change_only():
@@ -218,16 +218,30 @@ def test_week_table_divider_includes_subphase_date_range():
     assert dividers[0]["date_range_label"] == "Aug 17 – Sep 13, 2026"
 
 
-def test_week_table_week_row_has_cells_matching_training_days():
+def test_week_table_week_row_has_cells_for_every_day_including_rest():
     result = _week_table(_plan_data_with_schedule())
 
     first_week = next(r for r in result["rows"] if r["kind"] == "week")
-    assert [c["day"] for c in first_week["cells"]] == ["Tue", "Wed", "Thu", "Sat", "Sun"]
-    assert [c["value"] for c in first_week["cells"]] == [2, 2, 2, 1, 5]
-    assert first_week["cells"][1]["note"] == "Easy"
+    assert [c["day"] for c in first_week["cells"]] == ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    assert [c["value"] for c in first_week["cells"]] == [None, 2, 2, 2, None, 1, 5]
+    assert [c["is_rest"] for c in first_week["cells"]] == [True, False, False, False, True, False, False]
+    assert first_week["cells"][2]["note"] == "Easy"
     assert first_week["dates_label"] == "Aug 17 – Aug 23"
     assert first_week["total"] == 12
     assert first_week["flag_label"] is None
+    assert first_week["has_actual"] is False
+
+
+def test_week_table_marks_has_actual_when_week_has_a_checked_in_actual():
+    data = _plan_data_with_schedule()
+    data["weekly_schedule"][0]["actual"] = {"total": 14.8, "verdict": "ahead", "note": "Ran extra"}
+
+    result = _week_table(data)
+
+    first_week = next(r for r in result["rows"] if r["kind"] == "week")
+    assert first_week["has_actual"] is True
+    assert first_week["actual_total"] == 14.8
+    assert first_week["verdict_label"] == "Ahead"
 
 
 def test_week_table_falls_back_to_total_training_for_race_week():

@@ -25,6 +25,7 @@ _FLAG_LABELS = {
     "taper": "Taper",
     "race": "Race week",
     "transition": "Transition",
+    "travel": "Travel",
 }
 _VERDICT_LABELS = {
     "on_track": "On track",
@@ -193,8 +194,7 @@ def _week_table(plan_data: dict, today: date | None = None) -> dict:
     today = today or date.today()
     schedule = plan_data.get("weekly_schedule") or []
     rest_days = set(plan_data.get("rest_days") or [])
-    training_days = [day for day in _DAY_ORDER if day not in rest_days]
-    day_keys = [day[:3].lower() for day in training_days]
+    day_keys = [day[:3].lower() for day in _DAY_ORDER]
     subphase_dates = _subphase_date_ranges(plan_data)
 
     rows = []
@@ -211,9 +211,16 @@ def _week_table(plan_data: dict, today: date | None = None) -> dict:
 
         flag = week.get("flag")
         cells = []
-        for day, key in zip(training_days, day_keys):
+        for day, key in zip(_DAY_ORDER, day_keys):
             value = week.get(key)
-            cells.append({"day": day, "value": value, "note": week.get(f"{key}_note")})
+            cells.append(
+                {
+                    "day": day,
+                    "value": value,
+                    "note": week.get(f"{key}_note"),
+                    "is_rest": day in rest_days,
+                }
+            )
 
         week_start = date.fromisoformat(week["start_date"]) if week.get("start_date") else None
         is_current = bool(week_start and week_start <= today <= week_start + timedelta(days=6))
@@ -221,9 +228,21 @@ def _week_table(plan_data: dict, today: date | None = None) -> dict:
         # Weekly check-ins write an "actual" object onto the week entry after
         # reviewing that week (see marathon-weekly-checkin skill) — it's absent
         # until a check-in has happened for that week, which is expected for
-        # future weeks and simply renders as no progress info.
+        # future weeks and simply renders as no progress info. "days" is an
+        # optional per-day mileage breakdown keyed the same as the prescribed
+        # day columns, so a run can be attributed to a rest day.
         actual = week.get("actual") or {}
         verdict = actual.get("verdict")
+        actual_days = actual.get("days") or {}
+        actual_cells = [
+            {
+                "day": day,
+                "value": actual_days.get(key),
+                "is_rest": day in rest_days,
+                "is_unplanned": bool(day in rest_days and actual_days.get(key)),
+            }
+            for day, key in zip(_DAY_ORDER, day_keys)
+        ]
 
         rows.append(
             {
@@ -237,14 +256,16 @@ def _week_table(plan_data: dict, today: date | None = None) -> dict:
                 "flag_label": _FLAG_LABELS.get(flag),
                 "is_race_week": flag == "race",
                 "is_current": is_current,
+                "actual_cells": actual_cells,
                 "actual_total": actual.get("total"),
                 "actual_note": actual.get("note"),
                 "verdict_label": _VERDICT_LABELS.get(verdict),
                 "verdict_class": _VERDICT_CLASSES.get(verdict),
+                "has_actual": bool(actual),
             }
         )
 
-    return {"training_days": training_days, "rows": rows}
+    return {"days": _DAY_ORDER, "rows": rows}
 
 
 @router.get("/training-plans")
