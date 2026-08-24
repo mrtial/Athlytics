@@ -1,0 +1,245 @@
+{# app/templates/partials/connect_sources.html
+
+Shared radio-select + detail-panel data-source picker, included from both
+onboarding_connect.html and connections.html. Expects in context:
+  - providers: list of {id, display_name, connected} (from PROVIDER_REGISTRY)
+  - id_prefix: string, unique per including page ("onboarding" / "connections") --
+    keeps DOM ids from colliding if this partial is ever on a page twice
+  - api_token, apple_health_upload_url: for the Apple Health Shortcut section
+  - apple_health_success_redirect: URL to navigate to after a successful Apple
+    Health import, or omit/None to just reload the current page in place
+  - mi_fitness_success_url: URL to navigate to after Mi Fitness QR login
+    succeeds, or omit/None to just reload
+  - overlapping_metric_types, source_priority: optional, only meaningful once
+    two sources report the same metric_type -- omit to hide the picker
+  - show_regenerate_token: optional bool, shows the "Regenerate Token" action
+    (Connections page only -- onboarding has no prior token to invalidate)
+  - sync_status_by_id: optional dict of provider_id -> {last_run_display,
+    auth_error, metrics}, from app.sync.get_sync_status -- only present for
+    connected, non-file-import providers (Connections page only)
+#}
+{% macro sync_status_block(provider_id) %}
+{% set status = (sync_status_by_id or {}).get(provider_id) %}
+{% if status %}
+<div style="margin-bottom: 1.25rem; padding: 0.85rem 1rem; background: var(--surface-secondary); border: 1px solid var(--border); border-radius: var(--radius-md);">
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+    <span style="font-size: 0.7rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-muted);">Sync Status</span>
+    {% if status.auth_error %}
+    <span style="background: var(--danger-soft); color: var(--danger); font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);">Needs attention</span>
+    {% else %}
+    <span style="background: var(--success-soft); color: var(--success); font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);">Healthy</span>
+    {% endif %}
+  </div>
+  {% if status.auth_error %}
+  <p style="font-size: 0.78rem; color: var(--danger); margin: 0 0 0.5rem; line-height: 1.4;">{{ status.auth_error }}</p>
+  {% endif %}
+  <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0 0 0.6rem;">
+    Last synced: {{ status.last_run_display or "never yet" }}
+  </p>
+  {% if status.metrics %}
+  <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+    {% for m in status.metrics %}
+    <span style="background: {% if m.status in ('complete', 'up_to_date') %}var(--success-soft){% else %}var(--warning-soft){% endif %}; color: {% if m.status in ('complete', 'up_to_date') %}var(--success){% else %}var(--warning){% endif %}; font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: var(--radius-pill);">{{ m.metric_type.replace('_', ' ') }}: {{ m.status }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endmacro %}
+<div class="connect-picker" id="{{ id_prefix }}-connect-picker">
+  <div class="connect-picker-list" role="radiogroup" aria-label="Data source">
+    {% for provider in providers %}
+    <label class="connect-picker-item{% if loop.first %} is-active{% endif %}" for="{{ id_prefix }}-radio-{{ provider.id }}">
+      <input
+        type="radio"
+        id="{{ id_prefix }}-radio-{{ provider.id }}"
+        name="{{ id_prefix }}-connect-source"
+        value="{{ provider.id }}"
+        {% if loop.first %}checked{% endif %}
+        onchange="selectConnectSource(this, '{{ id_prefix }}')"
+      >
+      <span class="connect-picker-item-label">
+        <span class="connect-picker-item-name">{{ provider.display_name }}</span>
+        <span class="connect-picker-item-status{% if provider.connected %} is-connected{% endif %}">
+          {% if provider.connected %}<span class="status-dot"></span>Connected{% else %}Not connected{% endif %}
+        </span>
+      </span>
+    </label>
+    {% endfor %}
+  </div>
+
+  <div class="connect-picker-detail">
+    {% for provider in providers %}
+
+    {% if provider.id == "garmin" %}
+    <div class="connect-picker-panel{% if loop.first %} is-active{% endif %}" data-source="garmin">
+      {{ sync_status_block("garmin") }}
+      <form method="post" action="/api/data-sources/garmin/connect">
+        <div class="form-group">
+          <label class="form-label" for="{{ id_prefix }}-garmin-email">Garmin Account Email</label>
+          <input class="form-input" type="email" id="{{ id_prefix }}-garmin-email" name="email" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="{{ id_prefix }}-garmin-password">Garmin Password</label>
+          <input class="form-input" type="password" id="{{ id_prefix }}-garmin-password" name="password" placeholder="••••••••••••" required>
+        </div>
+        <button type="submit" class="btn-primary">
+          <span>{% if provider.connected %}Reconnect{% else %}Connect{% endif %} Garmin &amp; Begin Sync</span>
+        </button>
+      </form>
+      {% if show_full_history_sync and provider.connected %}
+      <div style="margin-top: 1.25rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+        <p style="font-size: 0.8rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
+          Regular syncs only fetch new data since your last sync. Use Full History Sync to re-pull each metric's entire history instead (can take several minutes).
+        </p>
+        <button type="button" class="btn-toggle-sync" id="btn-full-history-sync" onclick="triggerFullHistorySync(event)" style="width: 100%; justify-content: center; padding: 0.65rem 1rem; font-size: 0.85rem;">Full History Sync</button>
+        <p id="full-history-sync-status" style="font-size: 0.72rem; color: var(--fg-muted); margin: 0.5rem 0 0; line-height: 1.4; display: none;"></p>
+      </div>
+      {% endif %}
+    </div>
+
+    {% elif provider.id == "apple_health" %}
+    <div class="connect-picker-panel{% if loop.first %} is-active{% endif %}" data-source="apple_health">
+      <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.45;">
+        Health app &rarr; Profile &rarr; Export All Health Data, then upload the resulting .zip here.
+        {% if provider.connected %} Status: connected.{% endif %}
+      </p>
+      <form method="post" action="/api/data-sources/apple-health/import" enctype="multipart/form-data" id="{{ id_prefix }}-apple-health-form">
+        <div class="form-group">
+          <label class="form-label" for="{{ id_prefix }}-apple-export-file">Health App Export (.zip)</label>
+          <input class="form-input" type="file" id="{{ id_prefix }}-apple-export-file" name="export_file" accept=".zip" required>
+        </div>
+        <button type="submit" class="btn-primary">
+          <span>Import Apple Health{% if apple_health_success_redirect %} &amp; Continue{% endif %}</span>
+        </button>
+      </form>
+      <script>
+        document.getElementById("{{ id_prefix }}-apple-health-form").addEventListener("submit", async (evt) => {
+          evt.preventDefault();
+          const form = evt.target;
+          const response = await fetch(form.action, { method: "POST", body: new FormData(form) });
+          if (response.ok) {
+            {% if apple_health_success_redirect %}
+            window.location.href = "{{ apple_health_success_redirect }}";
+            {% else %}
+            window.location.reload();
+            {% endif %}
+          } else {
+            const body = await response.json().catch(() => ({}));
+            alert(body.detail || "Import failed. Please check the file and try again.");
+          }
+        });
+      </script>
+
+      {% if overlapping_metric_types %}
+      <div style="margin-top: 1.25rem;">
+        <label class="form-label">Source Priority (metrics both providers report)</label>
+        {% for mt in overlapping_metric_types %}
+        <form method="post" action="/settings/apple-health/priority" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
+          <input type="hidden" name="metric_type" value="{{ mt }}">
+          <span style="font-size: 0.82rem; flex: 1;">{{ mt.replace('_', ' ').title() }}</span>
+          <select class="form-input" name="preferred_source" style="width: auto;" onchange="this.form.submit()">
+            <option value="garmin" {% if source_priority[mt] == 'garmin' %}selected{% endif %}>Garmin</option>
+            <option value="apple_health" {% if source_priority[mt] == 'apple_health' %}selected{% endif %}>Apple Health</option>
+          </select>
+        </form>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if api_token %}
+      <details style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+        <summary style="cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--fg);">Set up automatic sync via iOS Shortcut</summary>
+        <div style="margin-top: 1rem;">
+          <p style="font-size: 0.8rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
+            Build a Shortcut that exports and uploads Health data in one tap, instead of doing it manually here each time.
+          </p>
+          <label class="form-label">Token</label>
+          <input class="form-input" type="text" readonly value="{{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+          <label class="form-label">Upload URL</label>
+          <input class="form-input" type="text" readonly value="{{ apple_health_upload_url }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+          <label class="form-label">Header (Shortcuts "Get Contents of URL" &rarr; Headers)</label>
+          <input class="form-input" type="text" readonly value="Authorization: Bearer {{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 1rem;">
+
+          {% if apple_health_shortcut_qr %}
+          <div style="display: flex; align-items: center; gap: 1rem; padding: 0.85rem; background: var(--surface-secondary); border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 1rem; flex-wrap: wrap;">
+            <div class="qr-code-box">{{ apple_health_shortcut_qr | safe }}</div>
+            <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0; line-height: 1.45; flex: 1; min-width: 180px;">
+              On your phone, easier than typing: scan with the Camera app, tap the text preview, then <strong>Copy</strong> &mdash; it carries both the URL and the Authorization header in one block.
+            </p>
+          </div>
+          {% endif %}
+
+          <ol style="font-size: 0.8rem; color: var(--fg-muted); line-height: 1.6; padding-left: 1.2rem; margin: 0 0 0.75rem;">
+            <li>In the Shortcuts app: <strong>+</strong> &rarr; Add Action &rarr; <strong>Export Health Data</strong>.</li>
+            <li>Add Action &rarr; <strong>Get Contents of URL</strong> &rarr; URL from above, Method <strong>POST</strong>, Headers as above, Request Body <strong>Form</strong> with a field named exactly <code>export_file</code> (Type: File) set to the Export Health Data output.</li>
+            <li>Optional: add a <strong>Show Notification</strong> action for confirmation, then rename the Shortcut (e.g. "Sync to Athlytics").</li>
+            <li>Run it by tapping it, saying "Hey Siri, Sync to Athlytics," or set a daily <strong>Time of Day</strong> personal automation to prompt you.</li>
+          </ol>
+          <p style="font-size: 0.75rem; color: var(--fg-muted); margin: 0;">
+            iOS requires a one-tap confirmation each time it reads Health data — this is a one-tap daily action, not silent background sync.
+          </p>
+          {% if show_regenerate_token %}
+          <form method="post" action="/settings/api-token/regenerate" onsubmit="return confirm('Regenerating invalidates the current token -- any Shortcut using it will need updating. Continue?');" style="margin-top: 0.75rem;">
+            <button type="submit" class="btn-logout" style="padding: 0.5rem 0.85rem; font-size: 0.8rem;">Regenerate Token</button>
+          </form>
+          {% endif %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
+
+    {% elif provider.id == "strava" %}
+    <div class="connect-picker-panel{% if loop.first %} is-active{% endif %}" data-source="strava">
+      {{ sync_status_block("strava") }}
+      <div style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--warning-soft); border: 1px solid var(--warning); border-radius: var(--radius-md); font-size: 0.8rem; color: var(--fg); line-height: 1.45;">
+        <strong>Requires an active Strava subscription.</strong> Since June 2026, Strava requires a paid Strava membership (~$12/mo, varies by country) to create a developer API app — this is Strava's own policy, not an Athlytics requirement.
+        <a href="https://communityhub.strava.com/insider-journal-9/an-update-to-our-developer-program-13428" target="_blank" rel="noopener" style="color: inherit; text-decoration: underline;">Read Strava's announcement</a>.
+      </div>
+      <form method="post" action="/oauth/strava/authorize">
+        <div class="form-group">
+          <label class="form-label" for="{{ id_prefix }}-strava-client-id">Strava API Client ID</label>
+          <input class="form-input" type="text" id="{{ id_prefix }}-strava-client-id" name="client_id" placeholder="12345" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="{{ id_prefix }}-strava-client-secret">Strava API Client Secret</label>
+          <input class="form-input" type="password" id="{{ id_prefix }}-strava-client-secret" name="client_secret" placeholder="••••••••••••" required>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0.25rem 0 1rem;">
+          Create an API application at <a href="https://www.strava.com/settings/api" target="_blank" rel="noopener">strava.com/settings/api</a>, then continue here to authorize Athlytics.
+        </p>
+        <button type="submit" class="btn-primary">
+          <span>{% if provider.connected %}Reconnect{% else %}Connect{% endif %} Strava</span>
+        </button>
+      </form>
+    </div>
+
+    {% elif provider.id == "mi_fitness" %}
+    <div class="connect-picker-panel{% if loop.first %} is-active{% endif %}" data-source="mi_fitness">
+      {{ sync_status_block("mi_fitness") }}
+      <div id="{{ id_prefix }}-mi-fitness" data-mi-fitness-status>
+        <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0 0 0.75rem;">
+          Connect your Xiaomi Mi Fitness account by scanning a QR code.
+        </p>
+        <img data-mi-fitness-qr style="display: none; width: 200px; height: 200px; margin-bottom: 0.75rem;" alt="Mi Fitness login QR code">
+        <p data-mi-fitness-status style="font-size: 0.78rem; color: var(--fg-muted); margin-bottom: 0.75rem;"></p>
+        <button type="button" class="btn-primary" data-mi-fitness-start>{% if provider.connected %}Reconnect{% else %}Connect{% endif %} Mi Fitness</button>
+      </div>
+      <script src="/static/mi_fitness_qr.js?v={{ static_version }}"></script>
+      <script>startMiFitnessLogin("{{ id_prefix }}-mi-fitness"{% if mi_fitness_success_url %}, "{{ mi_fitness_success_url }}"{% endif %});</script>
+    </div>
+    {% endif %}
+
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+  function selectConnectSource(radio, idPrefix) {
+    const root = document.getElementById(idPrefix + "-connect-picker");
+    root.querySelectorAll(".connect-picker-item").forEach((el) => el.classList.remove("is-active"));
+    radio.closest(".connect-picker-item").classList.add("is-active");
+    root.querySelectorAll(".connect-picker-panel").forEach((el) => el.classList.remove("is-active"));
+    root.querySelector('.connect-picker-panel[data-source="' + radio.value + '"]').classList.add("is-active");
+  }
+</script>

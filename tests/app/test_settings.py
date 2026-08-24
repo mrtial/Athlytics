@@ -123,6 +123,52 @@ def test_defaults_are_valid_members():
     assert DEFAULT_THEME in THEMES
 
 
+def test_onboarding_profile_get_requires_admin_login(client):
+    response = client.get("/onboarding/profile", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
+
+
+def test_onboarding_profile_post_sets_profile_and_redirects_to_persona(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/onboarding/profile", data={"athlete_name": "Jamie Rivera", "athlete_dob": "1995-06-15"}, follow_redirects=False
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/persona"
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    from datetime import date
+    from app.settings import calculate_age, get_athlete_age, get_athlete_dob, get_athlete_name
+    assert get_athlete_name(conn) == "Jamie Rivera"
+    assert get_athlete_dob(conn) == "1995-06-15"
+    assert get_athlete_age(conn) == str(calculate_age(date(1995, 6, 15)))
+
+
+def test_onboarding_profile_dob_is_optional(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post("/onboarding/profile", data={"athlete_name": "Jamie Rivera"}, follow_redirects=False)
+
+    assert response.status_code == 303
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    from app.settings import get_athlete_age, get_athlete_name
+    assert get_athlete_name(conn) == "Jamie Rivera"
+    assert get_athlete_age(conn) == ""
+
+
+def test_root_redirects_to_profile_step_right_after_admin_creation(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/", follow_redirects=False)
+
+    assert response.headers["location"] == "/onboarding/profile"
+
+
 def test_onboarding_persona_get_requires_admin_login(client):
     response = client.get("/onboarding/persona", follow_redirects=False)
 
@@ -231,10 +277,28 @@ def test_unit_settings_roundtrips(conn):
 
 
 def test_athlete_profile_settings_roundtrips(conn):
-    from app.settings import get_athlete_age, get_athlete_name, set_athlete_profile
-    set_athlete_profile(conn, "Charlie Yang", "28")
+    from datetime import date
+    from app.settings import calculate_age, get_athlete_age, get_athlete_dob, get_athlete_name, set_athlete_profile
+    set_athlete_profile(conn, "Charlie Yang", "1995-06-15")
     assert get_athlete_name(conn) == "Charlie Yang"
-    assert get_athlete_age(conn) == "28"
+    assert get_athlete_dob(conn) == "1995-06-15"
+    assert get_athlete_age(conn) == str(calculate_age(date(1995, 6, 15)))
+
+
+def test_calculate_age_before_and_after_birthday_this_year():
+    from datetime import date
+    from app.settings import calculate_age
+    # Born 1995-06-15; as of 2026-06-14 (day before birthday) they're still 30.
+    assert calculate_age(date(1995, 6, 15), today=date(2026, 6, 14)) == 30
+    # As of 2026-06-15 (birthday) or later, they're 31.
+    assert calculate_age(date(1995, 6, 15), today=date(2026, 6, 15)) == 31
+    assert calculate_age(date(1995, 6, 15), today=date(2026, 12, 1)) == 31
+
+
+def test_get_athlete_age_returns_empty_string_for_malformed_dob(conn):
+    from app.settings import get_athlete_age, set_setting
+    set_setting(conn, "athlete_dob", "not-a-date")
+    assert get_athlete_age(conn) == ""
 
 
 def test_settings_post_unit_updates_and_redirects(app, client):
@@ -255,39 +319,14 @@ def test_settings_post_profile_updates_and_redirects(app, client):
     client.post("/onboarding/theme", data={"theme": "light"})
 
     response = client.post(
-        "/settings/profile", data={"athlete_name": "Charlie Yang", "athlete_age": "28"}, follow_redirects=False
+        "/settings/profile", data={"athlete_name": "Charlie Yang", "athlete_dob": "1995-06-15"}, follow_redirects=False
     )
     assert response.status_code == 303
-    from app.settings import get_athlete_age, get_athlete_name
+    from datetime import date
+    from app.settings import calculate_age, get_athlete_age, get_athlete_name
     conn = connect(app.state.db_path)
     assert get_athlete_name(conn) == "Charlie Yang"
-    assert get_athlete_age(conn) == "28"
-
-
-def test_settings_page_shows_apple_health_card(client):
-    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
-
-    response = client.get("/settings")
-
-    assert "Apple Health" in response.text
-    assert 'action="/api/data-sources/apple-health/import"' in response.text
-
-
-def test_settings_shows_priority_picker_only_for_overlapping_metric_types(app, client):
-    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
-    app.state.credential_store.save({"email": "a@example.com", "password": "x"})
-
-    from core.storage import repository
-    from core.storage.db import connect
-    from datetime import date
-    conn = connect(app.state.db_path)
-    repository.set_checkpoint(conn, "apple_health", "resting_hr", date(2026, 1, 1))  # overlaps Garmin
-    repository.set_checkpoint(conn, "apple_health", "mindful_minutes", date(2026, 1, 1))  # Apple-only
-
-    response = client.get("/settings")
-
-    assert 'name="priority_resting_hr"' in response.text
-    assert 'name="priority_mindful_minutes"' not in response.text  # no overlap, no picker row
+    assert get_athlete_age(conn) == str(calculate_age(date(1995, 6, 15)))
 
 
 def test_set_source_priority_route_persists_choice(app, client):
@@ -305,59 +344,11 @@ def test_set_source_priority_route_persists_choice(app, client):
     assert repository.get_source_priority(conn, "resting_hr") == "apple_health"
 
 
-def test_settings_get_auto_generates_api_token_and_shows_it(app, client):
-    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
-
-    response = client.get("/settings")
-
-    assert response.status_code == 200
-    conn = connect(app.state.db_path)
-    token = get_api_token(conn)
-    assert token is not None
-    assert token in response.text
-
-
-def test_settings_get_reuses_existing_api_token_across_requests(app, client):
-    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
-
-    client.get("/settings")
-    conn = connect(app.state.db_path)
-    first_token = get_api_token(conn)
-
-    client.get("/settings")
-    second_token = get_api_token(conn)
-
-    assert first_token == second_token
-
-
-def test_settings_page_shows_apple_health_upload_url_and_auth_header_snippet(client):
-    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
-
-    response = client.get("/settings")
-
-    assert "/api/data-sources/apple-health/import" in response.text
-    assert "Authorization: Bearer" in response.text
-
-
 def test_settings_regenerate_api_token_route_requires_admin_login(client):
     response = client.post("/settings/api-token/regenerate", follow_redirects=False)
 
     assert response.status_code == 303
     assert response.headers["location"] == "/login"
-
-
-def test_settings_regenerate_api_token_route_issues_a_new_token(app, client):
-    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
-    client.get("/settings")
-    conn = connect(app.state.db_path)
-    original_token = get_api_token(conn)
-
-    response = client.post("/settings/api-token/regenerate", follow_redirects=False)
-
-    assert response.status_code == 303
-    assert response.headers["location"] == "/settings"
-    new_token = get_api_token(conn)
-    assert new_token != original_token
 
 
 def test_set_source_priority_route_rejects_unknown_source(app, client):

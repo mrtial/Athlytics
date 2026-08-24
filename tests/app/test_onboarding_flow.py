@@ -14,6 +14,10 @@ def test_root_redirects_through_each_onboarding_step_in_order(client):
 
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
     response = client.get("/", follow_redirects=False)
+    assert response.headers["location"] == "/onboarding/profile"
+
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
+    response = client.get("/", follow_redirects=False)
     assert response.headers["location"] == "/onboarding/persona"
 
     client.post("/onboarding/persona", data={"persona": "full_overview"})
@@ -27,6 +31,7 @@ def test_root_redirects_through_each_onboarding_step_in_order(client):
 
 def test_root_redirects_to_dashboard_once_onboarding_complete_and_logged_in(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
     app.state.credential_store.save({"email": "a@example.com", "password": "x"})
@@ -38,6 +43,7 @@ def test_root_redirects_to_dashboard_once_onboarding_complete_and_logged_in(app,
 
 def test_root_redirects_to_login_when_onboarding_complete_but_not_logged_in(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
     app.state.credential_store.save({"email": "a@example.com", "password": "x"})
@@ -58,6 +64,7 @@ class _E2EStubGarminClient:
 
 def test_root_redirects_to_dashboard_when_only_apple_health_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
 
@@ -74,6 +81,7 @@ def test_root_redirects_to_dashboard_when_only_apple_health_connected(app, clien
 
 def test_root_redirects_to_dashboard_when_only_strava_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
 
@@ -88,6 +96,7 @@ def test_root_redirects_to_dashboard_when_only_strava_connected(app, client):
 
 def test_root_still_redirects_to_connect_when_neither_source_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
 
@@ -96,11 +105,34 @@ def test_root_still_redirects_to_connect_when_neither_source_connected(app, clie
     assert response.headers["location"] == "/onboarding/connect"
 
 
+def test_step_tracker_lets_athlete_navigate_back_to_a_completed_step(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+
+    response = client.get("/onboarding/theme")
+
+    assert response.status_code == 200
+    assert 'href="/onboarding/profile"' in response.text
+    assert 'href="/onboarding/persona"' in response.text
+
+
+def test_step_tracker_does_not_link_future_steps(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/onboarding/profile")
+
+    assert response.status_code == 200
+    assert 'href="/onboarding/persona"' not in response.text
+    assert 'href="/onboarding/theme"' not in response.text
+    assert 'href="/onboarding/connect"' not in response.text
+
+
 def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
     """Walks the entire design-doc Onboarding Flow through the real running
-    app: admin creation -> persona -> theme -> connect -> dashboard usable,
-    with a background sync pass triggered and completing before the
-    dashboard is checked.
+    app: admin creation -> profile -> persona -> theme -> connect ->
+    dashboard usable, with a background sync pass triggered and completing
+    before the dashboard is checked.
     """
     app.state.garmin_client_factory = _E2EStubGarminClient
 
@@ -124,15 +156,21 @@ def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
     assert response.status_code == 303
     assert client.cookies.get(SESSION_COOKIE_NAME) is not None
 
-    # Step 2: choose a persona.
+    # Step 2: fill in the athlete profile.
+    response = client.post(
+        "/onboarding/profile", data={"athlete_name": "Jamie Rivera", "athlete_dob": "1995-06-15"}, follow_redirects=False
+    )
+    assert response.headers["location"] == "/onboarding/persona"
+
+    # Step 3: choose a persona.
     response = client.post("/onboarding/persona", data={"persona": "endurance_runner"}, follow_redirects=False)
     assert response.headers["location"] == "/onboarding/theme"
 
-    # Step 3: choose a theme.
+    # Step 4: choose a theme.
     response = client.post("/onboarding/theme", data={"theme": "dark"}, follow_redirects=False)
     assert response.headers["location"] == "/onboarding/connect"
 
-    # Step 4: connect a data source (Garmin).
+    # Step 5: connect a data source (Garmin).
     response = client.post(
         "/api/data-sources/garmin/connect",
         data={"email": "athlete@example.com", "password": "hunter2"},
@@ -141,13 +179,14 @@ def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
     assert response.status_code == 303
     assert response.headers["location"] == "/dashboard"
 
-    # Step 5: backfill starts in the background immediately (triggered by
+    # Step 6: backfill starts in the background immediately (triggered by
     # the connect handler) -- wait for the triggered pass to complete.
     assert pass_finished.wait(timeout=5), "background sync pass should run promptly after connect"
 
     # The dashboard is usable now.
     dashboard_response = client.get("/dashboard")
     assert dashboard_response.status_code == 200
+    assert "Jamie Rivera" in dashboard_response.text
 
     # The sync-status panel reflects the completed pass.
     status_response = client.get("/api/sync-status")

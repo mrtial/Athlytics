@@ -13,6 +13,7 @@ from app.settings import (
     get_unit,
 )
 from app.widgets import build_recent_activities
+from core.providers.registry import PROVIDER_REGISTRY
 
 router = APIRouter()
 
@@ -20,8 +21,12 @@ router = APIRouter()
 @router.get("/activities")
 def activities_page(request: Request, conn=Depends(require_admin_page)):
     status = onboarding_status(conn, request.app.state)
-    if status != "complete":
+    # See dashboard_page's comment: "connect" still renders the page, with
+    # an empty state pointing at Connections, rather than redirecting away.
+    if status not in ("connect", "complete"):
         return RedirectResponse(url=f"/onboarding/{status}", status_code=303)
+
+    has_connected_source = any(p.is_connected(conn, request.app.state) for p in PROVIDER_REGISTRY)
 
     persona = get_persona(conn)
     theme = get_theme(conn)
@@ -72,6 +77,7 @@ def activities_page(request: Request, conn=Depends(require_admin_page)):
             "athlete_first_name": first_name,
             "athlete_age": athlete_age,
             "today_formatted": today_formatted,
+            "has_connected_source": has_connected_source,
             "authenticated": True,
             "active_page": "activities",
         },

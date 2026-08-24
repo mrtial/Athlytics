@@ -23,7 +23,6 @@ async function refreshSyncStatus() {
     const connectedEntries = entries.filter(([, s]) => s.connected);
     const errorEntries = connectedEntries.filter(([, s]) => s.auth_error);
     const connectedCount = connectedEntries.length;
-    const totalCount = entries.length;
 
     const parts = [];
     parts.push("<div class='sync-status-pill'>");
@@ -42,13 +41,10 @@ async function refreshSyncStatus() {
       const lastRun = lastRunTimes.length
         ? new Date(lastRunTimes[lastRunTimes.length - 1]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         : "Live";
-      parts.push(`<div class='sync-pill-text'><strong>${connectedCount} of ${totalCount} sources connected</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)} &middot; ${escapeHtml(lastRun)}</span></div>`);
+      parts.push(`<div class='sync-pill-text'><strong>Connected</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)} &middot; ${escapeHtml(lastRun)}</span></div>`);
 
-      const anyMetrics = connectedEntries.some(([, s]) => s.metrics && s.metrics.length > 0);
-      if (anyMetrics) {
-        const chevron = syncDetailsVisible ? ICONS.chevronUp : ICONS.chevronDown;
-        parts.push(`<button type='button' class='btn-toggle-sync' onclick='toggleSyncDetails(event)' id='btn-sync-toggle'>Details ${chevron}</button>`);
-      }
+      const chevron = syncDetailsVisible ? ICONS.chevronUp : ICONS.chevronDown;
+      parts.push(`<button type='button' class='btn-toggle-sync' onclick='toggleSyncDetails(event)' id='btn-sync-toggle'>Details ${chevron}</button>`);
       parts.push("<button type='button' class='btn-nav-sync' onclick='triggerManualSync(event)' id='btn-sync-trigger' style='font-size: 0.76rem; padding: 0.35rem 0.85rem;'>");
       parts.push(`${ICONS.zap} Sync`);
       parts.push("</button>");
@@ -56,19 +52,20 @@ async function refreshSyncStatus() {
 
     parts.push("</div>");
 
-    // Collapsible drawer: only ever lists metrics for CONNECTED providers.
-    const anyMetrics = connectedEntries.some(([, s]) => s.metrics && s.metrics.length > 0);
-    if (anyMetrics) {
+    // Collapsible drawer: which sources are connected, not the full
+    // per-metric breakdown -- that level of detail lives on /connections
+    // now (each source's own panel there shows its own Sync Status block).
+    if (connectedCount > 0) {
       const displayStyle = syncDetailsVisible ? "display: flex;" : "display: none;";
       parts.push(`<div id='sync-pills-drawer' class='sync-header-drawer' style='${displayStyle}'>`);
       for (const [providerId, status] of connectedEntries) {
-        for (const m of status.metrics) {
-          const isComplete = m.status === 'complete' || m.status === 'up_to_date';
-          const bg = isComplete ? 'var(--success-soft)' : 'var(--warning-soft)';
-          const fg = isComplete ? 'var(--success)' : 'var(--warning)';
-          parts.push(`<span style='background: ${bg}; color: ${fg}; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: var(--radius-pill);'>${escapeHtml(providerId)}/${escapeHtml(m.metric_type)}: ${escapeHtml(m.status)}</span>`);
-        }
+        const label = providerId.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const hasIssue = !!status.auth_error;
+        const bg = hasIssue ? "var(--danger-soft)" : "var(--success-soft)";
+        const fg = hasIssue ? "var(--danger)" : "var(--success)";
+        parts.push(`<span style='background: ${bg}; color: ${fg}; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: var(--radius-pill);'>${escapeHtml(label)}</span>`);
       }
+      parts.push("<a href='/connections' style='font-size: 0.72rem; font-weight: 700; color: var(--accent-blue); text-decoration: none; align-self: center;'>View details &rarr;</a>");
       parts.push("</div>");
     }
 

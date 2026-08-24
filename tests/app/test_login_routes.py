@@ -19,7 +19,7 @@ def test_onboarding_admin_post_creates_admin_and_logs_in(app, client):
     )
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/onboarding/persona"
+    assert response.headers["location"] == "/onboarding/profile"
 
     conn = connect(app.state.db_path)
     ensure_app_schema(conn)

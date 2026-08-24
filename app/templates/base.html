@@ -37,32 +37,40 @@
       <span class="app-title">Athlytics</span>
     </a>
     {% if authenticated %}
-    <nav class="header-nav">
+    {% macro nav_links() %}
       <a href="/dashboard" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
-      <a href="/connections" class="nav-link{% if active_page == 'connections' %} active{% endif %}">Connections</a>
       <a href="/activities" class="nav-link{% if active_page == 'activities' %} active{% endif %}">Activities</a>
       <a href="/coach" class="nav-link{% if active_page == 'coach' %} active{% endif %}">Coach</a>
       <a href="/training-plans" class="nav-link{% if active_page == 'training_plans' %} active{% endif %}">Training Plans</a>
+    {% endmacro %}
+    <nav class="header-nav">
+      <div class="nav-links-group">
+        {{ nav_links() }}
+      </div>
 
       <div class="range-toggle nav-theme-toggle" id="theme-toggle-group">
         <button type="button" class="range-btn theme-toggle-btn{% if theme != 'dark' %} is-active{% endif %}" data-theme-value="light" aria-label="Light mode">{{ feather_icon('sun') }}</button>
         <button type="button" class="range-btn theme-toggle-btn{% if theme == 'dark' %} is-active{% endif %}" data-theme-value="dark" aria-label="Dark mode">{{ feather_icon('moon') }}</button>
       </div>
 
-      <!-- Athlete User Chip Dropdown Menu -->
+      <!-- Athlete User Chip Dropdown Menu (doubles as the mobile nav trigger) -->
       <div class="user-chip-dropdown-wrapper">
         <button type="button" class="athlete-nav-chip" onclick="toggleUserDropdown(event)" id="user-chip-btn" aria-haspopup="true" aria-expanded="false">
           <div class="athlete-avatar-mini">
-            {{ (athlete_name[:2] if athlete_name else 'CY')|upper }}
+            {{ (athlete_name[:2] if athlete_name else 'A')|upper }}
           </div>
           <div class="athlete-nav-meta">
-            <span class="athlete-nav-name">{{ athlete_name|default('Charlie Yang') }}</span>
+            <span class="athlete-nav-name">{{ athlete_name|default('Athlete') }}</span>
             <span class="athlete-nav-sub">{% if athlete_age %}Age {{ athlete_age }} &bull; {% endif %}{{ (persona or current_persona or 'Athlete')|replace('_', ' ')|title }}</span>
           </div>
           {{ feather_icon('chevron-down', 'dropdown-chevron') }}
         </button>
 
         <div class="user-dropdown-menu" id="user-dropdown-menu">
+          <div class="dropdown-nav-links">
+            {{ nav_links() }}
+            <div class="dropdown-divider"></div>
+          </div>
           <a href="/settings" class="dropdown-item">Settings</a>
           <div class="dropdown-divider"></div>
           <form method="post" action="/logout" class="dropdown-form">

@@ -1,0 +1,12 @@
+{# app/templates/partials/onboarding_steps.html
+Expects `onboarding_steps` in context (from app.dependencies.onboarding_progress). #}
+<div class="onboarding-steps">
+  {% for step in onboarding_steps %}
+  {% if step.is_reachable %}
+  <a href="{{ step.url }}" class="onboarding-step{% if step.is_current %} is-current{% endif %}">{{ loop.index }}. {{ step.label }}</a>
+  {% else %}
+  <span class="onboarding-step is-future">{{ loop.index }}. {{ step.label }}</span>
+  {% endif %}
+  {% if not loop.last %}<span class="onboarding-step-sep">&rsaquo;</span>{% endif %}
+  {% endfor %}
+</div>

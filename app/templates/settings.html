@@ -23,11 +23,12 @@
       <div>
         <div class="form-group">
           <label class="form-label" for="athlete-name">Full Name</label>
-          <input class="form-input" type="text" id="athlete-name" name="athlete_name" value="{{ athlete_name }}" placeholder="Charlie Yang" required>
+          <input class="form-input" type="text" id="athlete-name" name="athlete_name" value="{{ athlete_name }}" placeholder="e.g. Jamie Rivera" required>
         </div>
         <div class="form-group">
-          <label class="form-label" for="athlete-age">Age</label>
-          <input class="form-input" type="number" id="athlete-age" name="athlete_age" value="{{ athlete_age }}" placeholder="28" min="1" max="120">
+          <label class="form-label" for="athlete-dob">Date of Birth</label>
+          <input class="form-input" type="date" id="athlete-dob" name="athlete_dob" value="{{ athlete_dob }}" min="{{ dob_min }}" max="{{ dob_max }}">
+          <p style="font-size: 0.72rem; color: var(--fg-muted); margin-top: 0.35rem;">Age is calculated from this automatically{% if athlete_age %} &mdash; currently {{ athlete_age }}{% endif %}.</p>
         </div>
       </div>
       <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem; padding: 0.65rem 1rem;">Save Profile</button>
@@ -139,105 +140,22 @@
     </form>
   </div>
 
-  <!-- Card 5: Garmin Integration -->
+  <!-- Card: Manage Connections -->
   <div class="settings-card">
     <div class="settings-card-header">
       <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('link-2') }}</div>
       <div>
-        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Garmin Integration</h2>
-        <span style="font-size: 0.78rem; color: var(--fg-muted);">Data connection &amp; auth</span>
+        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Connections</h2>
+        <span style="font-size: 0.78rem; color: var(--fg-muted);">Garmin, Strava, Apple Health &amp; Mi Fitness</span>
       </div>
     </div>
     <div style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
       <div>
         <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.45;">
-          Monitor real-time background synchronization health, check metric checkpoints, or reconnect with updated credentials. Regular syncs only fetch new data since your last sync -- use Full History Sync to re-pull each metric's entire history (can take several minutes).
+          Connect or reconnect a data source, check sync status, or manage the iOS Shortcut API token &mdash; all moved to their own page since each source has its own setup flow.
         </p>
       </div>
-      <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-        <button type="button" class="btn-toggle-sync" id="btn-full-history-sync" onclick="triggerFullHistorySync(event)" style="width: 100%; justify-content: center; padding: 0.65rem 1rem; font-size: 0.85rem;">Full History Sync</button>
-        <p id="full-history-sync-status" style="font-size: 0.72rem; color: var(--fg-muted); margin: 0; line-height: 1.4; display: none;"></p>
-        <a href="/onboarding/connect" class="btn-logout" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; font-size: 0.85rem;">Reconnect Garmin Account</a>
-        <a href="/dashboard" class="btn-primary" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; margin: 0;">View Dashboard Sync</a>
-      </div>
-    </div>
-  </div>
-
-  <!-- Card: Apple Health Import -->
-  <div class="settings-card">
-    <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('heart') }}</div>
-      <div>
-        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">Apple Health</h2>
-        <span style="font-size: 0.78rem; color: var(--fg-muted);">Import from a Health app export</span>
-      </div>
-    </div>
-    <div style="margin-top: 1rem; display: flex; flex-direction: column; flex: 1; justify-content: space-between;">
-      <div>
-        <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.45;">
-          Health app &rarr; Profile &rarr; Export All Health Data, then upload the resulting .zip here.
-          {% if apple_health_connected %}Status: connected.{% else %}Status: not yet connected.{% endif %}
-        </p>
-        <form method="post" action="/api/data-sources/apple-health/import" enctype="multipart/form-data" id="apple-health-settings-form">
-          <div class="form-group">
-            <input class="form-input" type="file" id="apple_export_file" name="export_file" accept=".zip" required>
-          </div>
-          <button type="submit" class="btn-primary" style="width: 100%; padding: 0.65rem 1rem;">Import Export</button>
-        </form>
-        <script>
-          document.getElementById("apple-health-settings-form").addEventListener("submit", async (evt) => {
-            evt.preventDefault();
-            const form = evt.target;
-            const response = await fetch(form.action, { method: "POST", body: new FormData(form) });
-            if (response.ok) { window.location.reload(); }
-            else {
-              const body = await response.json().catch(() => ({}));
-              alert(body.detail || "Import failed. Please check the file and try again.");
-            }
-          });
-        </script>
-
-        {% if overlapping_metric_types %}
-        <div style="margin-top: 1.25rem;">
-          <label class="form-label">Source Priority (metrics both providers report)</label>
-          {% for mt in overlapping_metric_types %}
-          <form method="post" action="/settings/apple-health/priority" name="priority_{{ mt }}" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem;">
-            <input type="hidden" name="metric_type" value="{{ mt }}">
-            <span style="font-size: 0.82rem; flex: 1;">{{ mt.replace('_', ' ').title() }}</span>
-            <select class="form-input" name="preferred_source" style="width: auto;" onchange="this.form.submit()">
-              <option value="garmin" {% if source_priority[mt] == 'garmin' %}selected{% endif %}>Garmin</option>
-              <option value="apple_health" {% if source_priority[mt] == 'apple_health' %}selected{% endif %}>Apple Health</option>
-            </select>
-          </form>
-          {% endfor %}
-        </div>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-
-  <!-- Card: API Access (upload without a browser, e.g. from an iOS Shortcut) -->
-  <div class="settings-card">
-    <div class="settings-card-header">
-      <div class="app-icon" style="width: 34px; height: 34px; border-radius: var(--radius-sm);">{{ feather_icon('key') }}</div>
-      <div>
-        <h2 class="section-title" style="margin: 0; font-size: 1.15rem;">API Access</h2>
-        <span style="font-size: 0.78rem; color: var(--fg-muted);">Upload Apple Health exports from your phone</span>
-      </div>
-    </div>
-    <div style="margin-top: 1rem;">
-      <p style="font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
-        Use this token to build an iOS Shortcut that exports and uploads your Health data without opening a browser.
-      </p>
-      <label class="form-label">Token</label>
-      <input class="form-input" type="text" readonly value="{{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
-      <label class="form-label">Upload URL</label>
-      <input class="form-input" type="text" readonly value="{{ apple_health_upload_url }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
-      <label class="form-label">Header (Shortcuts "Get Contents of URL" &rarr; Headers)</label>
-      <input class="form-input" type="text" readonly value="Authorization: Bearer {{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
-      <form method="post" action="/settings/api-token/regenerate" onsubmit="return confirm('Regenerating invalidates the current token -- any Shortcut using it will need updating. Continue?');">
-        <button type="submit" class="btn-logout" style="padding: 0.5rem 0.85rem; font-size: 0.8rem;">Regenerate Token</button>
-      </form>
+      <a href="/connections" class="btn-primary" style="text-align: center; text-decoration: none; padding: 0.65rem 1rem; margin: 0;">Manage Connections</a>
     </div>
   </div>
 

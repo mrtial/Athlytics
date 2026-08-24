@@ -1,10 +1,27 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
 from app.auth import create_admin
-from app.dependencies import get_conn, require_admin_page
+from app.dependencies import get_conn, onboarding_progress, require_admin_page
+from app.qr import apple_health_shortcut_qr_svg
 from app.session import SESSION_COOKIE_NAME, SESSION_LIFETIME, create_session
-from app.settings import DEFAULT_SKIN, DEFAULT_THEME, get_skin, get_theme, set_persona, set_theme
+from app.settings import (
+    DEFAULT_SKIN,
+    DEFAULT_THEME,
+    generate_api_token,
+    get_api_token,
+    get_athlete_dob,
+    get_athlete_name,
+    get_skin,
+    get_theme,
+    set_api_token,
+    set_athlete_profile,
+    set_persona,
+    set_theme,
+)
+from core.providers.registry import PROVIDER_REGISTRY
 
 router = APIRouter()
 
@@ -15,7 +32,14 @@ def onboarding_admin_form(request: Request, conn=Depends(get_conn)):
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_admin.html", context={"error": None, "theme": theme, "skin": skin}
+        request=request,
+        name="onboarding_admin.html",
+        context={
+            "error": None,
+            "theme": theme,
+            "skin": skin,
+            "onboarding_steps": onboarding_progress(conn, request.app.state, "admin"),
+        },
     )
 
 
@@ -35,12 +59,17 @@ def onboarding_admin_submit(
         return templates.TemplateResponse(
             request=request,
             name="onboarding_admin.html",
-            context={"error": str(exc), "theme": theme, "skin": skin},
+            context={
+                "error": str(exc),
+                "theme": theme,
+                "skin": skin,
+                "onboarding_steps": onboarding_progress(conn, request.app.state, "admin"),
+            },
             status_code=400,
         )
 
     token = create_session(conn)
-    response = RedirectResponse(url="/onboarding/persona", status_code=303)
+    response = RedirectResponse(url="/onboarding/profile", status_code=303)
     response.set_cookie(
         SESSION_COOKIE_NAME,
         token,
@@ -52,13 +81,53 @@ def onboarding_admin_submit(
     return response
 
 
+@router.get("/onboarding/profile")
+def onboarding_profile_form(request: Request, conn=Depends(require_admin_page)):
+    templates = request.app.state.templates
+    theme = get_theme(conn) or DEFAULT_THEME
+    skin = get_skin(conn) or DEFAULT_SKIN
+    today = date.today()
+    return templates.TemplateResponse(
+        request=request,
+        name="onboarding_profile.html",
+        context={
+            "error": None,
+            "theme": theme,
+            "skin": skin,
+            "athlete_name": get_athlete_name(conn),
+            "athlete_dob": get_athlete_dob(conn),
+            "dob_min": today.replace(year=today.year - 120).isoformat(),
+            "dob_max": today.isoformat(),
+            "onboarding_steps": onboarding_progress(conn, request.app.state, "profile"),
+        },
+    )
+
+
+@router.post("/onboarding/profile")
+def onboarding_profile_submit(
+    request: Request,
+    athlete_name: str = Form(...),
+    athlete_dob: str = Form(""),
+    conn=Depends(require_admin_page),
+):
+    set_athlete_profile(conn, athlete_name, athlete_dob)
+    return RedirectResponse(url="/onboarding/persona", status_code=303)
+
+
 @router.get("/onboarding/persona")
 def onboarding_persona_form(request: Request, conn=Depends(require_admin_page)):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_persona.html", context={"error": None, "theme": theme, "skin": skin}
+        request=request,
+        name="onboarding_persona.html",
+        context={
+            "error": None,
+            "theme": theme,
+            "skin": skin,
+            "onboarding_steps": onboarding_progress(conn, request.app.state, "persona"),
+        },
     )
 
 
@@ -75,7 +144,12 @@ def onboarding_persona_submit(
         return templates.TemplateResponse(
             request=request,
             name="onboarding_persona.html",
-            context={"error": str(exc), "theme": theme, "skin": skin},
+            context={
+                "error": str(exc),
+                "theme": theme,
+                "skin": skin,
+                "onboarding_steps": onboarding_progress(conn, request.app.state, "persona"),
+            },
             status_code=400,
         )
     return RedirectResponse(url="/onboarding/theme", status_code=303)
@@ -87,7 +161,14 @@ def onboarding_theme_form(request: Request, conn=Depends(require_admin_page)):
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_theme.html", context={"error": None, "theme": theme, "skin": skin}
+        request=request,
+        name="onboarding_theme.html",
+        context={
+            "error": None,
+            "theme": theme,
+            "skin": skin,
+            "onboarding_steps": onboarding_progress(conn, request.app.state, "theme"),
+        },
     )
 
 
@@ -104,7 +185,12 @@ def onboarding_theme_submit(
         return templates.TemplateResponse(
             request=request,
             name="onboarding_theme.html",
-            context={"error": str(exc), "theme": current_theme, "skin": skin},
+            context={
+                "error": str(exc),
+                "theme": current_theme,
+                "skin": skin,
+                "onboarding_steps": onboarding_progress(conn, request.app.state, "theme"),
+            },
             status_code=400,
         )
     return RedirectResponse(url="/onboarding/connect", status_code=303)
@@ -115,8 +201,40 @@ def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN
+
+    providers = [
+        {
+            "id": p.id,
+            "display_name": p.display_name,
+            "flow_type": p.flow_type,
+            "connected": p.is_connected(conn, request.app.state),
+        }
+        for p in PROVIDER_REGISTRY
+    ]
+
+    api_token = get_api_token(conn)
+    if api_token is None:
+        api_token = generate_api_token()
+        set_api_token(conn, api_token)
+    apple_health_upload_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/import"
+    apple_health_shortcut_qr = apple_health_shortcut_qr_svg(api_token, apple_health_upload_url)
+
     return templates.TemplateResponse(
-        request=request, name="onboarding_connect.html", context={"error": None, "theme": theme, "skin": skin}
+        request=request,
+        name="onboarding_connect.html",
+        context={
+            "error": None,
+            "theme": theme,
+            "skin": skin,
+            "providers": providers,
+            "id_prefix": "onboarding",
+            "api_token": api_token,
+            "apple_health_upload_url": apple_health_upload_url,
+            "apple_health_shortcut_qr": apple_health_shortcut_qr,
+            "apple_health_success_redirect": "/dashboard",
+            "mi_fitness_success_url": "/dashboard",
+            "onboarding_steps": onboarding_progress(conn, request.app.state, "connect"),
+        },
     )
 
 
@@ -128,5 +246,12 @@ def onboarding_connect_mfa_form(request: Request, conn=Depends(require_admin_pag
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN
     return templates.TemplateResponse(
-        request=request, name="onboarding_mfa.html", context={"error": None, "theme": theme, "skin": skin}
+        request=request,
+        name="onboarding_mfa.html",
+        context={
+            "error": None,
+            "theme": theme,
+            "skin": skin,
+            "onboarding_steps": onboarding_progress(conn, request.app.state, "connect"),
+        },
     )

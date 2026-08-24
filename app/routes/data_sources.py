@@ -126,4 +126,4 @@ def set_apple_health_priority(
         repository.set_source_priority(conn, metric_type, preferred_source)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url="/connections", status_code=303)

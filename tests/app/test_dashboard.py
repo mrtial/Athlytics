@@ -100,17 +100,44 @@ def test_dashboard_route_requires_admin_login(client):
     assert response.headers["location"] == "/login"
 
 
-def test_dashboard_route_redirects_to_persona_step_when_onboarding_incomplete(client):
+def test_dashboard_route_redirects_to_profile_step_when_onboarding_incomplete(client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
 
     response = client.get("/dashboard", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/onboarding/persona"
+    assert response.headers["location"] == "/onboarding/profile"
+
+
+def test_dashboard_renders_empty_state_instead_of_redirecting_when_no_source_connected(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.get("/dashboard", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No Data Source Connected Yet" in response.text
+    assert 'href="/connections"' in response.text
+
+
+def test_activities_renders_empty_state_instead_of_redirecting_when_no_source_connected(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.get("/activities", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "No Data Source Connected Yet" in response.text
+    assert 'href="/connections"' in response.text
 
 
 def test_dashboard_shows_only_garmin_metrics_when_only_garmin_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
     app.state.credential_store.save({"email": "a@example.com", "password": "x"})
@@ -123,6 +150,7 @@ def test_dashboard_shows_only_garmin_metrics_when_only_garmin_connected(app, cli
 
 def test_dashboard_shows_apple_only_metrics_when_only_apple_health_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
 
@@ -141,6 +169,7 @@ def test_dashboard_shows_apple_only_metrics_when_only_apple_health_connected(app
 
 def test_dashboard_route_renders_widgets_for_completed_onboarding(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "sleep_recovery_focus"})
     client.post("/onboarding/theme", data={"theme": "dark"})
     conn = connect(app.state.db_path)
@@ -202,6 +231,7 @@ def test_activities_route_requires_admin_and_renders(app, client):
 
     # Complete onboarding
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "dark"})
     app.state.credential_store.save({"email": "a@example.com", "password": "x"})
@@ -240,6 +270,7 @@ def test_activities_route_requires_admin_and_renders(app, client):
 
 def test_dashboard_shows_strava_metrics_when_only_strava_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
     app.state.strava_credential_store.save(
@@ -260,6 +291,7 @@ def test_dashboard_shows_strava_metrics_when_only_strava_connected(app, client):
 
 def test_dashboard_shows_mindful_minutes_widget_for_sleep_recovery_persona_when_apple_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "sleep_recovery_focus"})
     client.post("/onboarding/theme", data={"theme": "light"})
 

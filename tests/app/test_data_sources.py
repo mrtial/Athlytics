@@ -447,6 +447,7 @@ def test_onboarding_connect_page_shows_both_provider_options(client):
 
 def test_completing_onboarding_via_apple_health_upload_reaches_dashboard(client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
     client.post("/onboarding/persona", data={"persona": "full_overview"})
     client.post("/onboarding/theme", data={"theme": "light"})
 

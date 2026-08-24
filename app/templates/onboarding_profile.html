@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Your Profile — Athlytics{% endblock %}
+{% block content %}
+<div class="auth-wrapper auth-wrapper-onboarding">
+  <div class="auth-card">
+    {% include "partials/onboarding_steps.html" %}
+    <div class="auth-content-narrow">
+      <div class="auth-header">
+        <div class="app-icon">👤</div>
+        <h1 class="auth-title">Your Profile</h1>
+        <p class="auth-subtitle">Step 2 of 5 &bull; Shown in the header and on your dashboard</p>
+      </div>
+
+      {% if error %}
+      <div class="error-banner">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/onboarding/profile">
+        <div class="form-group">
+          <label class="form-label" for="athlete-name">Full Name</label>
+          <input class="form-input" type="text" id="athlete-name" name="athlete_name" value="{{ athlete_name }}" placeholder="e.g. Jamie Rivera" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="athlete-dob">Date of Birth</label>
+          <input class="form-input" type="date" id="athlete-dob" name="athlete_dob" value="{{ athlete_dob }}" min="{{ dob_min }}" max="{{ dob_max }}">
+          <p style="font-size: 0.72rem; color: var(--fg-muted); margin-top: 0.35rem;">Used to age-calibrate recovery and performance analysis &mdash; kept up to date automatically, no need to update it yourself each year.</p>
+        </div>
+
+        <button type="submit" class="btn-primary">
+          <span>Continue to Persona</span>
+          <span>→</span>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

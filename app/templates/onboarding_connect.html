@@ -1,94 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Connect a Data Source — Athlytics{% endblock %}
 {% block content %}
-<div class="auth-wrapper">
+<div class="auth-wrapper auth-wrapper-onboarding">
   <div class="auth-card">
+    {% include "partials/onboarding_steps.html" %}
     <div class="auth-header">
       <div class="app-icon">🔗</div>
       <h1 class="auth-title">Connect a Data Source</h1>
-      <p class="auth-subtitle">Step 4 of 4 &bull; Choose Garmin, Apple Health, or both (you can connect the other later from Settings)</p>
+      <p class="auth-subtitle">Step 5 of 5 &bull; Pick one to get started &mdash; you can connect the others later from Connections</p>
     </div>
 
     {% if error %}
     <div class="error-banner">{{ error }}</div>
     {% endif %}
 
-    <h2 class="section-title" style="font-size: 1rem; margin: 1.5rem 0 0.75rem;">Garmin</h2>
-    <form method="post" action="/api/data-sources/garmin/connect">
-      <div class="form-group">
-        <label class="form-label" for="email">Garmin Account Email</label>
-        <input class="form-input" type="email" id="email" name="email" placeholder="you@example.com" required>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label" for="password">Garmin Password</label>
-        <input class="form-input" type="password" id="password" name="password" placeholder="••••••••••••" required>
-      </div>
-
-      <button type="submit" class="btn-primary">
-        <span>Connect Garmin &amp; Begin Sync</span>
-      </button>
-    </form>
-
-    <h2 class="section-title" style="font-size: 1rem; margin: 1.75rem 0 0.75rem;">Apple Health</h2>
-    <form method="post" action="/api/data-sources/apple-health/import" enctype="multipart/form-data" id="apple-health-onboarding-form">
-      <div class="form-group">
-        <label class="form-label" for="export_file">Health App Export (.zip)</label>
-        <input class="form-input" type="file" id="export_file" name="export_file" accept=".zip" required>
-      </div>
-      <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0.25rem 0 1rem;">
-        Health app &rarr; Profile &rarr; Export All Health Data.
-      </p>
-      <button type="submit" class="btn-primary">
-        <span>Import Apple Health &amp; Continue</span>
-      </button>
-    </form>
-
-    <script>
-      document.getElementById("apple-health-onboarding-form").addEventListener("submit", async (evt) => {
-        evt.preventDefault();
-        const form = evt.target;
-        const response = await fetch(form.action, { method: "POST", body: new FormData(form) });
-        if (response.ok) {
-          window.location.href = "/dashboard";
-        } else {
-          const body = await response.json().catch(() => ({}));
-          alert(body.detail || "Import failed. Please check the file and try again.");
-        }
-      });
-    </script>
-
-    <h2 class="section-title" style="font-size: 1rem; margin: 1.75rem 0 0.75rem;">Strava</h2>
-    <form method="post" action="/oauth/strava/authorize">
-      <div class="form-group">
-        <label class="form-label" for="strava_client_id">Strava API Client ID</label>
-        <input class="form-input" type="text" id="strava_client_id" name="client_id" placeholder="12345" required>
-      </div>
-
-      <div class="form-group">
-        <label class="form-label" for="strava_client_secret">Strava API Client Secret</label>
-        <input class="form-input" type="password" id="strava_client_secret" name="client_secret" placeholder="••••••••••••" required>
-      </div>
-      <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0.25rem 0 1rem;">
-        Create an API application at strava.com/settings/api to get these, then continue here to authorize Athlytics.
-      </p>
-
-      <button type="submit" class="btn-primary">
-        <span>Connect Strava</span>
-      </button>
-    </form>
-
-    <h2 class="section-title" style="font-size: 1rem; margin: 1.75rem 0 0.75rem;">Mi Fitness</h2>
-    <div id="mi-fitness-onboarding" data-mi-fitness-status>
-      <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0 0 0.75rem;">
-        Connect your Xiaomi Mi Fitness account by scanning a QR code.
-      </p>
-      <img data-mi-fitness-qr style="display: none; width: 200px; height: 200px; margin-bottom: 0.75rem;" alt="Mi Fitness login QR code">
-      <p data-mi-fitness-status style="font-size: 0.78rem; color: var(--fg-muted); margin-bottom: 0.75rem;"></p>
-      <button type="button" class="btn-primary" data-mi-fitness-start>Connect Mi Fitness</button>
-    </div>
-    <script src="/static/mi_fitness_qr.js?v={{ static_version }}"></script>
-    <script>startMiFitnessLogin("mi-fitness-onboarding", "/dashboard");</script>
+    {% include "partials/connect_sources.html" %}
 
     <div style="margin-top: 1.5rem; padding: 0.85rem 1rem; background: var(--surface-secondary); border-radius: var(--radius-md); border: 1px solid var(--border); font-size: 0.78rem; color: var(--fg-muted); display: flex; align-items: center; gap: 0.5rem;">
       <span>🔒</span>

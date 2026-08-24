@@ -1,42 +1,45 @@
 {% extends "base.html" %}
 {% block title %}Choose a Theme — Athlytics{% endblock %}
 {% block content %}
-<div class="auth-wrapper">
+<div class="auth-wrapper auth-wrapper-onboarding">
   <div class="auth-card">
-    <div class="auth-header">
-      <div class="app-icon">🎨</div>
-      <h1 class="auth-title">Visual Appearance</h1>
-      <p class="auth-subtitle">Step 3 of 4 &bull; Choose your preferred interface theme</p>
-    </div>
-
-    {% if error %}
-    <div class="error-banner">{{ error }}</div>
-    {% endif %}
-
-    <form method="post" action="/onboarding/theme">
-      <div class="option-tiles-group">
-        <label class="option-tile">
-          <input type="radio" name="theme" value="light" required>
-          <div>
-            <div style="font-weight: 700; font-size: 0.95rem;">☀️ Light Mode</div>
-            <div style="font-size: 0.8rem; color: var(--fg-muted); margin-top: 0.15rem;">Clean neo-glass aesthetic with soft slate &amp; electric lime</div>
-          </div>
-        </label>
-
-        <label class="option-tile">
-          <input type="radio" name="theme" value="dark">
-          <div>
-            <div style="font-weight: 700; font-size: 0.95rem;">🌙 Dark Obsidian</div>
-            <div style="font-size: 0.8rem; color: var(--fg-muted); margin-top: 0.15rem;">Deep midnight canvas with luminous neon accents</div>
-          </div>
-        </label>
+    {% include "partials/onboarding_steps.html" %}
+    <div class="auth-content-narrow">
+      <div class="auth-header">
+        <div class="app-icon">🎨</div>
+        <h1 class="auth-title">Visual Appearance</h1>
+        <p class="auth-subtitle">Step 4 of 5 &bull; Choose your preferred interface theme</p>
       </div>
 
-      <button type="submit" class="btn-primary">
-        <span>Continue to Data Source</span>
-        <span>→</span>
-      </button>
-    </form>
+      {% if error %}
+      <div class="error-banner">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" action="/onboarding/theme">
+        <div class="option-tiles-group">
+          <label class="option-tile">
+            <input type="radio" name="theme" value="light" required>
+            <div>
+              <div style="font-weight: 700; font-size: 0.95rem;">☀️ Light Mode</div>
+              <div style="font-size: 0.8rem; color: var(--fg-muted); margin-top: 0.15rem;">Clean neo-glass aesthetic with soft slate &amp; electric lime</div>
+            </div>
+          </label>
+
+          <label class="option-tile">
+            <input type="radio" name="theme" value="dark">
+            <div>
+              <div style="font-weight: 700; font-size: 0.95rem;">🌙 Dark Obsidian</div>
+              <div style="font-size: 0.8rem; color: var(--fg-muted); margin-top: 0.15rem;">Deep midnight canvas with luminous neon accents</div>
+            </div>
+          </label>
+        </div>
+
+        <button type="submit" class="btn-primary">
+          <span>Continue to Data Source</span>
+          <span>→</span>
+        </button>
+      </form>
+    </div>
   </div>
 </div>
 {% endblock %}

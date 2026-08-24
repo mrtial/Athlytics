@@ -3,76 +3,15 @@
 {% block title %}Connections — Athlytics{% endblock %}
 {% block content %}
 <div class="settings-page">
-  <h1 class="section-title">Connections</h1>
-  <p style="color: var(--fg-muted); margin-bottom: 1.5rem;">Manage which data sources sync into Athlytics.</p>
-
-  {% for provider in providers %}
-  <div class="widget-card" style="margin-bottom: 1rem; padding: 1.25rem;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-      <h2 class="section-title" style="margin: 0; font-size: 1.1rem;">{{ provider.display_name }}</h2>
-      <span style="font-size: 0.78rem; font-weight: 700; color: {% if provider.connected %}var(--success){% else %}var(--fg-muted){% endif %};">
-        {% if provider.connected %}Connected{% else %}Not connected{% endif %}
-      </span>
+  <div class="dashboard-hero">
+    <div>
+      <h1 class="dashboard-hero-title">Connections</h1>
+      <p class="dashboard-hero-subtitle">Manage which data sources sync into Athlytics.</p>
     </div>
-
-    {% if provider.id == "garmin" %}
-    <form method="post" action="/api/data-sources/garmin/connect">
-      <div class="form-group">
-        <label class="form-label" for="garmin-email">Garmin Account Email</label>
-        <input class="form-input" type="email" id="garmin-email" name="email" placeholder="you@example.com" required>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="garmin-password">Garmin Password</label>
-        <input class="form-input" type="password" id="garmin-password" name="password" placeholder="••••••••••••" required>
-      </div>
-      <button type="submit" class="btn-primary">{% if provider.connected %}Reconnect{% else %}Connect{% endif %} Garmin</button>
-    </form>
-    {% elif provider.id == "strava" %}
-    <form method="post" action="/oauth/strava/authorize">
-      <div class="form-group">
-        <label class="form-label" for="strava-client-id">Strava API Client ID</label>
-        <input class="form-input" type="text" id="strava-client-id" name="client_id" placeholder="12345" required>
-      </div>
-      <div class="form-group">
-        <label class="form-label" for="strava-client-secret">Strava API Client Secret</label>
-        <input class="form-input" type="password" id="strava-client-secret" name="client_secret" placeholder="••••••••••••" required>
-      </div>
-      <button type="submit" class="btn-primary">{% if provider.connected %}Reconnect{% else %}Connect{% endif %} Strava</button>
-    </form>
-    {% elif provider.id == "apple_health" %}
-    <form method="post" action="/api/data-sources/apple-health/import" enctype="multipart/form-data" id="apple-health-connections-form">
-      <div class="form-group">
-        <label class="form-label" for="apple-export-file">Health App Export (.zip)</label>
-        <input class="form-input" type="file" id="apple-export-file" name="export_file" accept=".zip" required>
-      </div>
-      <button type="submit" class="btn-primary">Import Apple Health</button>
-    </form>
-    <script>
-      document.getElementById("apple-health-connections-form").addEventListener("submit", async (evt) => {
-        evt.preventDefault();
-        const form = evt.target;
-        const response = await fetch(form.action, { method: "POST", body: new FormData(form) });
-        if (response.ok) {
-          window.location.reload();
-        } else {
-          const body = await response.json().catch(() => ({}));
-          alert(body.detail || "Import failed. Please check the file and try again.");
-        }
-      });
-    </script>
-    {% elif provider.id == "mi_fitness" %}
-    <div id="mi-fitness-connections-{{ loop.index }}" data-mi-fitness-status>
-      <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0 0 0.75rem;">
-        Connect your Xiaomi Mi Fitness account by scanning a QR code.
-      </p>
-      <img data-mi-fitness-qr style="display: none; width: 200px; height: 200px; margin-bottom: 0.75rem;" alt="Mi Fitness login QR code">
-      <p data-mi-fitness-status style="font-size: 0.78rem; color: var(--fg-muted); margin-bottom: 0.75rem;"></p>
-      <button type="button" class="btn-primary" data-mi-fitness-start>{% if provider.connected %}Reconnect{% else %}Connect{% endif %} Mi Fitness</button>
-    </div>
-    <script src="/static/mi_fitness_qr.js?v={{ static_version }}"></script>
-    <script>startMiFitnessLogin("mi-fitness-connections-{{ loop.index }}");</script>
-    {% endif %}
   </div>
-  {% endfor %}
+
+  <div class="widget-card" style="padding: 1.5rem;">
+    {% include "partials/connect_sources.html" %}
+  </div>
 </div>
 {% endblock %}

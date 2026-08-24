@@ -1,5 +1,6 @@
 import secrets
 import sqlite3
+from datetime import date
 
 PERSONAS: list[str] = [
     "endurance_runner",
@@ -138,8 +139,6 @@ def set_skin(conn: sqlite3.Connection, skin: str) -> None:
 
 UNITS: list[str] = ["km", "mi"]
 DEFAULT_UNIT = "km"
-DEFAULT_ATHLETE_NAME = "Charlie Yang"
-DEFAULT_ATHLETE_AGE = "28"
 
 
 def get_unit(conn: sqlite3.Connection) -> str:
@@ -153,16 +152,38 @@ def set_unit(conn: sqlite3.Connection, unit: str) -> None:
 
 
 def get_athlete_name(conn: sqlite3.Connection) -> str:
-    return get_setting(conn, "athlete_name") or DEFAULT_ATHLETE_NAME
+    return get_setting(conn, "athlete_name") or ""
+
+
+def get_athlete_dob(conn: sqlite3.Connection) -> str:
+    """ISO date string (YYYY-MM-DD), or "" if never set."""
+    return get_setting(conn, "athlete_dob") or ""
+
+
+def calculate_age(dob: date, today: date | None = None) -> int:
+    today = today or date.today()
+    years = today.year - dob.year
+    had_birthday_this_year = (today.month, today.day) >= (dob.month, dob.day)
+    return years if had_birthday_this_year else years - 1
 
 
 def get_athlete_age(conn: sqlite3.Connection) -> str:
-    return get_setting(conn, "athlete_age") or DEFAULT_ATHLETE_AGE
+    """Computed from the stored date of birth so it's never stale -- there's
+    no separate "age" setting to fall out of sync with reality. "" if no
+    DOB is on file yet."""
+    dob_str = get_athlete_dob(conn)
+    if not dob_str:
+        return ""
+    try:
+        dob = date.fromisoformat(dob_str)
+    except ValueError:
+        return ""
+    return str(calculate_age(dob))
 
 
-def set_athlete_profile(conn: sqlite3.Connection, name: str, age: str) -> None:
-    set_setting(conn, "athlete_name", name.strip() or DEFAULT_ATHLETE_NAME)
-    set_setting(conn, "athlete_age", age.strip())
+def set_athlete_profile(conn: sqlite3.Connection, name: str, dob: str) -> None:
+    set_setting(conn, "athlete_name", name.strip())
+    set_setting(conn, "athlete_dob", dob.strip())
 
 
 def generate_api_token() -> str:

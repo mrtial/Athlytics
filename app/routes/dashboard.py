@@ -22,7 +22,13 @@ router = APIRouter()
 @router.get("/dashboard")
 def dashboard_page(request: Request, conn=Depends(require_admin_page)):
     status = onboarding_status(conn, request.app.state)
-    if status != "complete":
+    # "connect" (admin/profile/persona/theme done, no data source yet) still
+    # renders the page -- the dashboard itself is the right place to show
+    # that empty state and point at Connections, rather than yanking the
+    # athlete away from a page they deliberately navigated to. Every earlier
+    # step is a real prerequisite the page can't render without, so those
+    # still redirect.
+    if status not in ("connect", "complete"):
         return RedirectResponse(url=f"/onboarding/{status}", status_code=303)
 
     persona = get_persona(conn)
@@ -33,8 +39,10 @@ def dashboard_page(request: Request, conn=Depends(require_admin_page)):
     athlete_age = get_athlete_age(conn)
 
     connected_metric_types: set[str] = set()
+    has_connected_source = False
     for provider in PROVIDER_REGISTRY:
         if provider.is_connected(conn, request.app.state):
+            has_connected_source = True
             connected_metric_types.update(provider.metric_types)
 
     metric_types = [mt for mt in PERSONA_METRIC_TYPES[persona] if mt in connected_metric_types]
@@ -61,6 +69,7 @@ def dashboard_page(request: Request, conn=Depends(require_admin_page)):
             "athlete_first_name": first_name,
             "athlete_age": athlete_age,
             "today_formatted": today_formatted,
+            "has_connected_source": has_connected_source,
             "authenticated": True,
             "active_page": "dashboard",
         },

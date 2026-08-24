@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
@@ -12,8 +14,8 @@ from app.settings import (
     THEMES,
     UNITS,
     generate_api_token,
-    get_api_token,
     get_athlete_age,
+    get_athlete_dob,
     get_athlete_name,
     get_persona,
     get_skin,
@@ -26,27 +28,12 @@ from app.settings import (
     set_theme,
     set_unit,
 )
-from core.providers.apple_health import APPLE_HEALTH_METRIC_TYPES
-from core.providers.garmin import GARMIN_METRIC_TYPES
-from core.storage.repository import get_source_priority, has_synced_data
 
 router = APIRouter()
 
 
 def _settings_context(conn, request, *, theme, persona_error=None, theme_error=None, unit_error=None, skin_error=None, profile_error=None):
-    garmin_connected = request.app.state.credential_store.load() is not None
-    apple_connected = has_synced_data(conn, "apple_health")
-    strava_connected = request.app.state.strava_credential_store.load() is not None
-    overlapping_metric_types = []
-    if garmin_connected and apple_connected:
-        overlapping_metric_types = sorted(set(GARMIN_METRIC_TYPES) & set(APPLE_HEALTH_METRIC_TYPES))
-
-    api_token = get_api_token(conn)
-    if api_token is None:
-        api_token = generate_api_token()
-        set_api_token(conn, api_token)
-    apple_health_upload_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/import"
-
+    today = date.today()
     return {
         "authenticated": True,
         "personas": PERSONAS,
@@ -60,19 +47,15 @@ def _settings_context(conn, request, *, theme, persona_error=None, theme_error=N
         "skin": get_skin(conn) or DEFAULT_SKIN,
         "current_unit": get_unit(conn) or DEFAULT_UNIT,
         "athlete_name": get_athlete_name(conn),
+        "athlete_dob": get_athlete_dob(conn),
         "athlete_age": get_athlete_age(conn),
+        "dob_min": today.replace(year=today.year - 120).isoformat(),
+        "dob_max": today.isoformat(),
         "persona_error": persona_error,
         "theme_error": theme_error,
         "unit_error": unit_error,
         "skin_error": skin_error,
         "profile_error": profile_error,
-        "garmin_connected": garmin_connected,
-        "apple_health_connected": apple_connected,
-        "strava_connected": strava_connected,
-        "overlapping_metric_types": overlapping_metric_types,
-        "source_priority": {mt: get_source_priority(conn, mt) or "garmin" for mt in overlapping_metric_types},
-        "api_token": api_token,
-        "apple_health_upload_url": apple_health_upload_url,
     }
 
 
@@ -91,10 +74,10 @@ def settings_page(request: Request, conn=Depends(require_admin_page)):
 def settings_update_profile(
     request: Request,
     athlete_name: str = Form(""),
-    athlete_age: str = Form(""),
+    athlete_dob: str = Form(""),
     conn=Depends(require_admin_page),
 ):
-    set_athlete_profile(conn, athlete_name, athlete_age)
+    set_athlete_profile(conn, athlete_name, athlete_dob)
     return RedirectResponse(url="/settings", status_code=303)
 
 
@@ -169,4 +152,4 @@ def settings_update_skin(request: Request, skin: str = Form(...), conn=Depends(r
 @router.post("/settings/api-token/regenerate")
 def settings_regenerate_api_token(request: Request, conn=Depends(require_admin_page)):
     set_api_token(conn, generate_api_token())
-    return RedirectResponse(url="/settings", status_code=303)
+    return RedirectResponse(url="/connections", status_code=303)

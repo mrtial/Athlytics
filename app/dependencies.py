@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, Request, status
 
 from app.db import ensure_app_schema
 from app.session import SESSION_COOKIE_NAME, is_valid_session
-from app.settings import get_api_token, get_persona, get_theme
+from app.settings import get_api_token, get_persona, get_setting, get_theme
 from core.storage.db import connect
 
 
@@ -53,15 +53,17 @@ def require_admin_api(request: Request, conn: sqlite3.Connection = Depends(get_c
 
 
 def onboarding_status(conn: sqlite3.Connection, state: object) -> str:
-    """One of "admin"/"persona"/"theme"/"connect"/"complete" -- how far
-    onboarding has progressed. "connect" completes as soon as any one
-    PROVIDER_REGISTRY entry's is_connected(conn, state) is true.
+    """One of "admin"/"profile"/"persona"/"theme"/"connect"/"complete" --
+    how far onboarding has progressed. "connect" completes as soon as any
+    one PROVIDER_REGISTRY entry's is_connected(conn, state) is true.
     """
     from app.auth import admin_exists
     from core.providers.registry import PROVIDER_REGISTRY
 
     if not admin_exists(conn):
         return "admin"
+    if get_setting(conn, "athlete_name") is None:
+        return "profile"
     if get_persona(conn) is None:
         return "persona"
     if get_theme(conn) is None:
@@ -69,3 +71,35 @@ def onboarding_status(conn: sqlite3.Connection, state: object) -> str:
     if not any(p.is_connected(conn, state) for p in PROVIDER_REGISTRY):
         return "connect"
     return "complete"
+
+
+ONBOARDING_STEPS = [
+    ("admin", "Account", "/onboarding/admin"),
+    ("profile", "Profile", "/onboarding/profile"),
+    ("persona", "Persona", "/onboarding/persona"),
+    ("theme", "Theme", "/onboarding/theme"),
+    ("connect", "Connect", "/onboarding/connect"),
+]
+_ONBOARDING_STEP_ORDER = [step_id for step_id, _, _ in ONBOARDING_STEPS]
+
+
+def onboarding_progress(conn: sqlite3.Connection, state: object, current: str) -> list[dict]:
+    """The step tracker shown at the top of every onboarding page: each
+    step the athlete has already completed (or is currently on) becomes a
+    link back to revisit and change it; steps not reached yet stay inert --
+    nothing here enforces order server-side (each step route only ever
+    required require_admin_page, same as before this tracker existed), this
+    just decides what's worth surfacing as a clickable link.
+    """
+    status = onboarding_status(conn, state)
+    current_index = _ONBOARDING_STEP_ORDER.index(status) if status in _ONBOARDING_STEP_ORDER else len(_ONBOARDING_STEP_ORDER)
+    return [
+        {
+            "id": step_id,
+            "label": label,
+            "url": url,
+            "is_current": step_id == current,
+            "is_reachable": _ONBOARDING_STEP_ORDER.index(step_id) <= current_index,
+        }
+        for step_id, label, url in ONBOARDING_STEPS
+    ]

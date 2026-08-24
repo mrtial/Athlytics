@@ -2,6 +2,7 @@
 import json
 from datetime import date, timedelta
 from pathlib import Path
+from app.settings import get_athlete_age, get_athlete_name
 from core.storage import repository
 from core.analytics import get_trend
 
@@ -9,11 +10,19 @@ _COACH_PLAYBOOK_PATH = Path(__file__).resolve().parent.parent / "skills" / "athl
 
 
 def build_athlete_snapshot(conn) -> str:
-    """Builds the 7-day health snapshot resource: RHR, HRV, Sleep, and Load."""
+    """Builds the 7-day health snapshot resource: athlete identity (name,
+    age -- computed from date of birth, so it's never stale), then RHR,
+    HRV, Sleep, and Load."""
     today = date.today()
     metrics = ["resting_hr", "hrv", "sleep_score", "training_load"]
+    name = get_athlete_name(conn)
+    age = get_athlete_age(conn)
+    identity_bits = [b for b in [name, f"age {age}" if age else None] if b]
+    identity_line = f"**Athlete:** {', '.join(identity_bits)}" if identity_bits else "**Athlete:** profile not set"
     lines = [
         f"# Athlytics 7-Day Health Snapshot ({today.isoformat()})",
+        "",
+        identity_line,
         "",
         "| Metric | 7-Day Average | Delta vs Prior Week | Status |",
         "| :--- | :--- | :--- | :--- |",

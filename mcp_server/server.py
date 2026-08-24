@@ -14,6 +14,7 @@ from pathlib import Path
 
 from mcp.server import MCPServer
 
+from app.db import ensure_app_schema
 from core.analytics import Anomaly, Trend, detect_anomalies_for_metrics, get_trend as analytics_get_trend
 from core.storage import repository
 from core.storage.db import connect
@@ -44,6 +45,13 @@ def _db_path() -> Path:
 def _connection():
     conn = connect(_db_path())
     try:
+        # Same SQLite file the FastAPI app uses (design doc: one database,
+        # never two) -- this only adds app_setting/admin_user/session/etc.
+        # if they don't already exist (ensure_app_schema is idempotent), so
+        # it's safe even though the web app usually creates them first.
+        # athlete_snapshot needs app_setting (athlete name/DOB) now, which
+        # core.storage.db.connect() alone doesn't provide.
+        ensure_app_schema(conn)
         yield conn
     finally:
         conn.close()

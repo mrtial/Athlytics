@@ -25,6 +25,16 @@
       <span>Trends (7-day rolling average)</span>
     </h2>
   </div>
+  {% if not has_connected_source %}
+  <div class="widget-card workout-empty-card">
+    <div class="workout-empty-icon">{{ feather_icon('link-2') }}</div>
+    <h3 class="workout-empty-title">No Data Source Connected Yet</h3>
+    <p class="workout-empty-desc">Connect Garmin, Strava, Apple Health, or Mi Fitness to start seeing your health and training trends here.</p>
+    <a href="/connections" class="btn-primary" style="text-decoration: none; margin-top: 0.5rem; font-size: 0.85rem; padding: 0.5rem 1.25rem;">
+      {{ feather_icon('link-2') }} Go to Connections
+    </a>
+  </div>
+  {% else %}
   <div class="metrics-grid" id="metrics-grid">
     <div class="widget-card metric-detail-panel" id="metric-detail-panel">
       <div class="metric-detail-panel-header">
@@ -120,6 +130,7 @@
     </div>
     {% endfor %}
   </div>
+  {% endif %}
 </section>
 
 <section id="dashboard-activities-section" class="dashboard-activities-section">
@@ -212,13 +223,22 @@
       </tbody>
     </table>
   </div>
+  {% elif not has_connected_source %}
+  <div class="widget-card workout-empty-card">
+    <div class="workout-empty-icon">{{ feather_icon('link-2') }}</div>
+    <h3 class="workout-empty-title">No Data Source Connected Yet</h3>
+    <p class="workout-empty-desc">Connect Garmin, Strava, Apple Health, or Mi Fitness to automatically pull and view your running, cycling, swimming, and workout sessions.</p>
+    <a href="/connections" class="btn-primary" style="text-decoration: none; margin-top: 0.5rem; font-size: 0.85rem; padding: 0.5rem 1.25rem;">
+      {{ feather_icon('link-2') }} Go to Connections
+    </a>
+  </div>
   {% else %}
   <div class="widget-card workout-empty-card">
     <div class="workout-empty-icon">{{ feather_icon('activity') }}</div>
     <h3 class="workout-empty-title">No Workouts Recorded Yet</h3>
-    <p class="workout-empty-desc">Sync your Garmin Connect data to automatically pull and view your running, cycling, swimming, and workout sessions.</p>
+    <p class="workout-empty-desc">Your data source is connected &mdash; sync now to pull in your running, cycling, swimming, and workout sessions.</p>
     <button type="button" class="btn-primary" onclick="triggerManualSync(event)" style="margin-top: 0.5rem; font-size: 0.85rem; padding: 0.5rem 1.25rem;">
-      {{ feather_icon('zap') }} Sync Garmin Data
+      {{ feather_icon('zap') }} Sync Now
     </button>
   </div>
   {% endif %}
