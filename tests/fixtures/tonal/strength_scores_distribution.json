@@ -1,0 +1,137 @@
+{
+  "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+  "overallScore": 709,
+  "percentile": 84,
+  "distributionPoints": [
+    {
+      "id": "f870d44b-5d60-4d60-b740-ed1ca16a1eef",
+      "score": 0,
+      "yValue": 0.20833333333333334
+    },
+    {
+      "id": "e249ba1c-8225-4264-b171-d3ddfafd9069",
+      "score": 50,
+      "yValue": 1.6416666666666668
+    },
+    {
+      "id": "0adfb918-3058-479e-a0e4-dd64fc9866b2",
+      "score": 100,
+      "yValue": 4.991666666666668
+    },
+    {
+      "id": "f81b3bfb-e8ea-4c00-84d7-d6d91886014d",
+      "score": 150,
+      "yValue": 8.941666666666665
+    },
+    {
+      "id": "ce2ce76b-ff26-43ab-80b4-d6eed3d125f9",
+      "score": 200,
+      "yValue": 11.441666666666666
+    },
+    {
+      "id": "c2b7cbfd-db25-4712-85ef-bbdf0a8be278",
+      "score": 250,
+      "yValue": 11.658333333333331
+    },
+    {
+      "id": "241dc084-a22d-4dc4-af7b-0f2216d3f845",
+      "score": 300,
+      "yValue": 10.516666666666666
+    },
+    {
+      "id": "51ea76ca-5428-421c-ac76-fa55cad390e1",
+      "score": 350,
+      "yValue": 9.133333333333333
+    },
+    {
+      "id": "a7a93b71-3fee-4115-9494-85b36c6f713c",
+      "score": 400,
+      "yValue": 8.116666666666667
+    },
+    {
+      "id": "ee544c2b-50c1-4e85-9e5f-6e1aefd66b1a",
+      "score": 450,
+      "yValue": 7.491666666666668
+    },
+    {
+      "id": "1c5ef7ec-0c8c-4bd3-8dbd-1335b3000eea",
+      "score": 500,
+      "yValue": 7.008333333333333
+    },
+    {
+      "id": "f6589a34-abb5-463e-b722-55f0fa6e2827",
+      "score": 550,
+      "yValue": 6.458333333333334
+    },
+    {
+      "id": "322cb989-ec77-4660-a01e-43680f3fe3e9",
+      "score": 600,
+      "yValue": 5.783333333333334
+    },
+    {
+      "id": "d3ec3b1f-f3a2-4d17-ac1d-4664d5eb49a1",
+      "score": 650,
+      "yValue": 5.008333333333333
+    },
+    {
+      "id": "12fd5bc3-0902-4655-9a55-e914e58eb7e5",
+      "score": 700,
+      "yValue": 4.183333333333334
+    },
+    {
+      "id": "d98edb28-47ad-4db7-b0da-7b54ec95ceca",
+      "score": 750,
+      "yValue": 3.441666666666667
+    },
+    {
+      "id": "c3373d9f-deeb-4bbf-b0bd-71fc74960e4d",
+      "score": 800,
+      "yValue": 2.716666666666667
+    },
+    {
+      "id": "97ddd4d9-9bd6-4d7f-9db2-59037f83cd4f",
+      "score": 850,
+      "yValue": 2.0833333333333335
+    },
+    {
+      "id": "42b7b754-e661-49e8-93c6-773f158f7713",
+      "score": 900,
+      "yValue": 1.75
+    },
+    {
+      "id": "c5248b2c-a442-4379-9ec9-553d9cec82fb",
+      "score": 950,
+      "yValue": 1.2999999999999998
+    },
+    {
+      "id": "e9bef121-d585-4757-9ed4-25f6c9d3c25f",
+      "score": 1000,
+      "yValue": 0.9333333333333333
+    },
+    {
+      "id": "dafe4151-6e0c-4385-b65a-cc0076e5e01f",
+      "score": 1050,
+      "yValue": 0.8416666666666667
+    },
+    {
+      "id": "c0a6fdd5-abc5-4416-b780-64aaeedd582e",
+      "score": 1100,
+      "yValue": 0.875
+    },
+    {
+      "id": "e2ebeb96-3bd9-4db0-9102-cd8a6e7435c5",
+      "score": 1150,
+      "yValue": 0.7083333333333334
+    },
+    {
+      "id": "52c7dd2e-3823-4ea3-a354-2098194ad49e",
+      "score": 1200,
+      "yValue": 0.2916666666666667
+    },
+    {
+      "id": "1a912eeb-8589-4bd7-9cf2-7a4152948fc1",
+      "score": 1250,
+      "yValue": 0
+    }
+  ]
+}

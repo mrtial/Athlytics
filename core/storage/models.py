@@ -140,3 +140,38 @@ class Activity:
                 f"got a timezone-aware value: {self.created_at!r}."
             )
 
+
+@dataclass(frozen=True)
+class StrengthSet:
+    """A single set within a strength-training workout (currently Tonal-only),
+    holding per-set detail (weight, reps, 1RM, power, ROM, struggling score)
+    that Activity's cardio-shaped columns (distance/speed/elevation) can't
+    represent.
+
+    Timezone contract: `created_at` MUST be a naive `datetime` representing
+    UTC wall-clock time, consistent with Activity/MetricReading.
+    """
+
+    id: str  # f"{source}:{activity_id}:{set_index}"
+    activity_id: str  # FK-by-convention to activity.id (f"{source}:{activity_id}")
+    movement_id: str
+    movement_name: str | None
+    set_index: int  # ordering within the workout
+    is_warm_up: bool
+    reps: int | None
+    weight_lbs: float | None
+    volume_lbs: float | None
+    one_rep_max: float | None
+    max_power_watts: float | None
+    rom_inches: float | None
+    struggling_score: float | None
+    side: str | None  # 'Left' | 'Right' | 'Both'
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.created_at.tzinfo is not None:
+            raise ValueError(
+                "StrengthSet.created_at must be a naive datetime representing UTC wall-clock time; "
+                f"got a timezone-aware value: {self.created_at!r}."
+            )
+

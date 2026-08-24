@@ -1,0 +1,1 @@
+../../skills/athlytics-coach/SKILL.md

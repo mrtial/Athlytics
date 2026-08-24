@@ -1,7 +1,16 @@
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 
-from core.storage.models import Activity, CoachNote, MetricReading, MetricSummary, Report, Target, TrainingPlan
+from core.storage.models import (
+    Activity,
+    CoachNote,
+    MetricReading,
+    MetricSummary,
+    Report,
+    StrengthSet,
+    Target,
+    TrainingPlan,
+)
 
 
 def upsert_readings(conn: sqlite3.Connection, readings: list[MetricReading]) -> int:
@@ -584,6 +593,106 @@ def get_activities(
         )
         for row in rows
     ]
+
+
+def upsert_strength_sets(conn: sqlite3.Connection, sets: list[StrengthSet]) -> int:
+    conn.executemany(
+        """
+        INSERT INTO strength_set (
+            id, activity_id, movement_id, movement_name, set_index, is_warm_up,
+            reps, weight_lbs, volume_lbs, one_rep_max, max_power_watts,
+            rom_inches, struggling_score, side, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            activity_id = excluded.activity_id,
+            movement_id = excluded.movement_id,
+            movement_name = excluded.movement_name,
+            set_index = excluded.set_index,
+            is_warm_up = excluded.is_warm_up,
+            reps = excluded.reps,
+            weight_lbs = excluded.weight_lbs,
+            volume_lbs = excluded.volume_lbs,
+            one_rep_max = excluded.one_rep_max,
+            max_power_watts = excluded.max_power_watts,
+            rom_inches = excluded.rom_inches,
+            struggling_score = excluded.struggling_score,
+            side = excluded.side,
+            created_at = excluded.created_at
+        """,
+        [
+            (
+                s.id,
+                s.activity_id,
+                s.movement_id,
+                s.movement_name,
+                s.set_index,
+                int(s.is_warm_up),
+                s.reps,
+                s.weight_lbs,
+                s.volume_lbs,
+                s.one_rep_max,
+                s.max_power_watts,
+                s.rom_inches,
+                s.struggling_score,
+                s.side,
+                s.created_at.isoformat(),
+            )
+            for s in sets
+        ],
+    )
+    conn.commit()
+    return len(sets)
+
+
+def _row_to_strength_set(row) -> StrengthSet:
+    return StrengthSet(
+        id=row[0],
+        activity_id=row[1],
+        movement_id=row[2],
+        movement_name=row[3],
+        set_index=row[4],
+        is_warm_up=bool(row[5]),
+        reps=row[6],
+        weight_lbs=row[7],
+        volume_lbs=row[8],
+        one_rep_max=row[9],
+        max_power_watts=row[10],
+        rom_inches=row[11],
+        struggling_score=row[12],
+        side=row[13],
+        created_at=datetime.fromisoformat(row[14]),
+    )
+
+
+def get_strength_sets(conn: sqlite3.Connection, activity_id: str) -> list[StrengthSet]:
+    rows = conn.execute(
+        """
+        SELECT id, activity_id, movement_id, movement_name, set_index, is_warm_up,
+               reps, weight_lbs, volume_lbs, one_rep_max, max_power_watts,
+               rom_inches, struggling_score, side, created_at
+        FROM strength_set
+        WHERE activity_id = ?
+        ORDER BY set_index ASC
+        """,
+        (activity_id,),
+    ).fetchall()
+    return [_row_to_strength_set(row) for row in rows]
+
+
+def get_strength_sets_by_movement(conn: sqlite3.Connection, movement_id: str, limit: int = 50) -> list[StrengthSet]:
+    rows = conn.execute(
+        """
+        SELECT id, activity_id, movement_id, movement_name, set_index, is_warm_up,
+               reps, weight_lbs, volume_lbs, one_rep_max, max_power_watts,
+               rom_inches, struggling_score, side, created_at
+        FROM strength_set
+        WHERE movement_id = ?
+        ORDER BY created_at DESC, set_index ASC
+        LIMIT ?
+        """,
+        (movement_id, limit),
+    ).fetchall()
+    return [_row_to_strength_set(row) for row in rows]
 
 
 def get_activity_by_id(conn: sqlite3.Connection, activity_id: str) -> Activity | None:

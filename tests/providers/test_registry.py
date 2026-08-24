@@ -9,7 +9,14 @@ from core.security.credentials import CredentialStore
 from core.storage.db import connect
 
 
-def _state(tmp_path, *, garmin_connected=False, strava_connected=False, mi_fitness_connected=False):
+def _state(
+    tmp_path,
+    *,
+    garmin_connected=False,
+    strava_connected=False,
+    mi_fitness_connected=False,
+    tonal_connected=False,
+):
     tmp_path.mkdir(parents=True, exist_ok=True)
     garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin.enc")
     if garmin_connected:
@@ -20,16 +27,20 @@ def _state(tmp_path, *, garmin_connected=False, strava_connected=False, mi_fitne
     mi_fitness_store = CredentialStore(Fernet.generate_key(), tmp_path / "mi_fitness.enc")
     if mi_fitness_connected:
         mi_fitness_store.save({"token_file_content": "{}", "uid": "u"})
+    tonal_store = CredentialStore(Fernet.generate_key(), tmp_path / "tonal.enc")
+    if tonal_connected:
+        tonal_store.save({"email": "a@example.com", "password": "x"})
     return SimpleNamespace(
         credential_store=garmin_store,
         strava_credential_store=strava_store,
         mi_fitness_credential_store=mi_fitness_store,
+        tonal_credential_store=tonal_store,
     )
 
 
-def test_registry_contains_garmin_strava_apple_health_mi_fitness_and_only_those():
+def test_registry_contains_garmin_strava_apple_health_mi_fitness_tonal_and_only_those():
     ids = {p.id for p in PROVIDER_REGISTRY}
-    assert ids == {"garmin", "strava", "apple_health", "mi_fitness"}
+    assert ids == {"garmin", "strava", "apple_health", "mi_fitness", "tonal"}
 
 
 def test_registry_entries_have_expected_flow_types():
@@ -39,6 +50,7 @@ def test_registry_entries_have_expected_flow_types():
         "strava": "oauth_redirect",
         "apple_health": "file_import",
         "mi_fitness": "qr_login_poll",
+        "tonal": "credentials_form",
     }
 
 
@@ -128,6 +140,14 @@ def test_mi_fitness_is_connected_reflects_credential_store(tmp_path):
 
     assert provider.is_connected(conn, _state(tmp_path, mi_fitness_connected=False)) is False
     assert provider.is_connected(conn, _state(tmp_path / "b", mi_fitness_connected=True)) is True
+
+
+def test_tonal_is_connected_reflects_credential_store(tmp_path):
+    provider = get_provider("tonal")
+    conn = connect(tmp_path / "test.db")
+
+    assert provider.is_connected(conn, _state(tmp_path, tonal_connected=False)) is False
+    assert provider.is_connected(conn, _state(tmp_path / "b", tonal_connected=True)) is True
 
 
 def test_connected_providers_returns_only_connected_entries(tmp_path):

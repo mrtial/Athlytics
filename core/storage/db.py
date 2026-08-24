@@ -92,6 +92,27 @@ CREATE TABLE IF NOT EXISTS metric_source_priority (
     metric_type TEXT PRIMARY KEY,
     preferred_source TEXT NOT NULL CHECK (preferred_source IN ('garmin', 'apple_health'))
 );
+
+CREATE TABLE IF NOT EXISTS strength_set (
+    id TEXT PRIMARY KEY,              -- f"{source}:{activity_id}:{set_index}"
+    activity_id TEXT NOT NULL,        -- FK-by-convention to activity.id (f"{source}:{activity_id}")
+    movement_id TEXT NOT NULL,
+    movement_name TEXT,
+    set_index INTEGER NOT NULL,       -- ordering within the workout
+    is_warm_up INTEGER NOT NULL DEFAULT 0,
+    reps INTEGER,
+    weight_lbs REAL,
+    volume_lbs REAL,
+    one_rep_max REAL,
+    max_power_watts REAL,
+    rom_inches REAL,
+    struggling_score REAL,
+    side TEXT,                        -- 'Left' | 'Right' | 'Both'
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_strength_set_activity ON strength_set(activity_id);
+CREATE INDEX IF NOT EXISTS idx_strength_set_movement ON strength_set(movement_id);
 """
 
 

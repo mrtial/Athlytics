@@ -20,6 +20,7 @@ from core.storage import repository
 from core.storage.db import connect
 from core.storage.models import Activity, CoachNote, MetricReading, MetricSummary, Report, Target, TrainingPlan
 from mcp_server.prompts import (
+    prompt_build_tonal_program,
     prompt_build_training_plan,
     prompt_readiness_check,
     prompt_weekly_review,
@@ -398,6 +399,175 @@ def sync_mi_fitness_data(days: int = 30, force_full_history: bool = False) -> di
         )
 
 
+@mcp.tool()
+def sync_tonal_data(days: int = 30, force_full_history: bool = False) -> dict[str, str]:
+    """Trigger a sync from Tonal to pull muscle-readiness, strength-score, and workout metrics into Athlytics.
+
+    By default this is incremental: each metric_type resumes from its own
+    checkpoint (the last date it was successfully synced through), so `days`
+    only matters the very first time a metric_type is ever synced. Pass
+    force_full_history=True to ignore checkpoints and refetch each metric_type's
+    entire history from `days` ago through today.
+    """
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "tonal_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Tonal credentials not found. Please connect your Tonal account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal import TonalProvider
+    from core.scheduler.sync import sync_all_metrics
+    from datetime import date as dt_date, timedelta
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = TonalProvider(store)
+
+    end_date = dt_date.today()
+    start_date = end_date - timedelta(days=days)
+
+    with _connection() as conn:
+        return sync_all_metrics(
+            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history
+        )
+
+
+@mcp.tool()
+def search_tonal_movements(query: str | None = None, muscle_group: str | None = None) -> list[dict]:
+    """Search the Tonal movement library by a name/muscle-group keyword and/or an exact muscle group (e.g. 'Chest', 'Quads')."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "tonal_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Tonal credentials not found. Please connect your Tonal account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal import TonalProvider
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = TonalProvider(store)
+
+    return provider.search_movements(query=query, muscle_group=muscle_group)
+
+
+@mcp.tool()
+def get_tonal_workout_history(limit: int = 10) -> list[dict]:
+    """Fetch the athlete's most recent Tonal strength workouts (most recent first), each with an activity_id usable with get_tonal_workout_detail."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "tonal_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Tonal credentials not found. Please connect your Tonal account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal_client import TonalClient
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    client = TonalClient(store)
+
+    # TonalClient.get_activities already returns the exact raw shape wanted
+    # here (activity_id/date/title/type/duration_seconds/total_volume_lbs).
+    # Going through TonalProvider.fetch_activities would map into the
+    # Activity dataclass instead, which has no total_volume_lbs field and
+    # would silently drop it -- so this tool talks to TonalClient directly
+    # rather than through TonalProvider.
+    return client.get_activities(limit=limit)
+
+
+@mcp.tool()
+def get_tonal_workout_detail(activity_id: str) -> dict:
+    """Fetch the per-set breakdown (reps, weight, volume, one-rep-max) for one Tonal workout by activity_id."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "tonal_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Tonal credentials not found. Please connect your Tonal account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal import TonalProvider
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = TonalProvider(store)
+
+    with _connection() as conn:
+        return provider.get_workout_detail(conn, activity_id)
+
+
+@mcp.tool()
+def estimate_tonal_workout(blocks: list[dict]) -> dict:
+    """Estimate duration and set count for a candidate Tonal workout (a list of exercise blocks) without pushing it to the machine."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "tonal_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Tonal credentials not found. Please connect your Tonal account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal import TonalProvider
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = TonalProvider(store)
+
+    return provider.estimate_workout(blocks)
+
+
+@mcp.tool()
+def create_tonal_workout(title: str, blocks: list[dict]) -> dict:
+    """Push a new workout onto the athlete's Tonal machine. Call estimate_tonal_workout first and confirm with the athlete before creating."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "tonal_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Tonal credentials not found. Please connect your Tonal account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal import TonalProvider
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = TonalProvider(store)
+
+    return provider.create_workout(title, blocks)
+
+
+@mcp.tool()
+def delete_tonal_workout(workout_id: str) -> bool:
+    """Delete a workout from the athlete's Tonal account by workout_id."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "tonal_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Tonal credentials not found. Please connect your Tonal account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal import TonalProvider
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = TonalProvider(store)
+
+    return provider.delete_workout(workout_id)
+
+
 # ---------------------------------------------------------------------------
 # Dynamic Context Resources
 # ---------------------------------------------------------------------------
@@ -453,6 +623,12 @@ def build_training_plan(
 ) -> str:
     """Guides building a structured, periodized training block with the 10% rule and deload weeks."""
     return prompt_build_training_plan(goal, target_date, current_weekly_volume)
+
+
+@mcp.prompt()
+def build_tonal_program(goal: str, target_date: str | None = None) -> str:
+    """Guides building a Tonal strength program around movement selection, muscle-group balance, and readiness, with an estimate-before-create confirmation step."""
+    return prompt_build_tonal_program(goal, target_date)
 
 
 if __name__ == "__main__":

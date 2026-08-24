@@ -61,7 +61,7 @@ def sync_all_metrics(
                     chunk_end = min(cursor + timedelta(days=chunk_days - 1), end)
                     readings = _fetch_with_backoff(provider, metric_type, cursor, chunk_end, max_retries, sleep_fn)
                     repository.upsert_readings(conn, readings)
-                    if metric_type == "activity_duration" and hasattr(provider, "fetch_activities"):
+                    if metric_type in ("activity_duration", "tonal_workout_duration") and hasattr(provider, "fetch_activities"):
                         try:
                             activities = provider.fetch_activities(cursor, chunk_end)
                             repository.upsert_activities(conn, activities)

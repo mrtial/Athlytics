@@ -232,13 +232,19 @@ async function triggerFullHistorySync(evt) {
 }
 
 // Connections page: regular incremental sync for an already-connected
-// Garmin account, with no credentials to re-enter (contrast with the
-// nav's triggerManualSync, which targets a different button id, and
-// triggerFullHistorySync, which ignores checkpoints).
-async function triggerGarminSyncNow(evt) {
+// source, with no credentials to re-enter (contrast with the nav's
+// triggerManualSync, which targets a different button id, and
+// triggerFullHistorySync, which ignores checkpoints). /api/sync/trigger
+// itself is provider-agnostic -- it kicks off the whole scheduler pass,
+// which covers every connected source, not just the one whose button was
+// clicked -- so this one function (parameterized by element id, since
+// every source's panel renders its own Sync Now button/status pair into
+// the DOM at once, not just the active one) is shared by every source's
+// panel rather than each source getting its own near-identical copy.
+async function triggerSourceSyncNow(evt, btnId, statusId) {
   if (evt) evt.preventDefault();
-  const btn = document.getElementById("btn-garmin-sync-now");
-  const statusEl = document.getElementById("garmin-sync-now-status");
+  const btn = document.getElementById(btnId);
+  const statusEl = document.getElementById(statusId);
 
   if (btn) {
     btn.disabled = true;
@@ -266,6 +272,14 @@ async function triggerGarminSyncNow(evt) {
       btn.innerHTML = "<span>Sync Now</span>";
     }
   }
+}
+
+function triggerGarminSyncNow(evt) {
+  return triggerSourceSyncNow(evt, "btn-garmin-sync-now", "garmin-sync-now-status");
+}
+
+function triggerTonalSyncNow(evt) {
+  return triggerSourceSyncNow(evt, "btn-tonal-sync-now", "tonal-sync-now-status");
 }
 
 // Connections/onboarding-connect pages: while a sync pass is running

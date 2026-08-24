@@ -228,3 +228,48 @@ def test_sync_all_metrics_persists_activities_when_provider_supports_it(tmp_path
     assert stored_activities[0].activity_name == "Morning 10K"
     assert stored_activities[0].activity_type == "running"
 
+
+def test_sync_all_metrics_persists_activities_for_tonal_workout_duration_metric_type(tmp_path):
+    """Regression: the activity-persisting gate was hardcoded to the single
+    metric_type name "activity_duration" (Garmin's/Strava's shared name),
+    so it silently never fired for Tonal's "tonal_workout_duration" --
+    TonalProvider.fetch_activities existed but was dead code, and no
+    `activity` rows were ever written for Tonal."""
+    from core.storage.models import Activity
+    conn = connect(tmp_path / "test.db")
+    act = Activity(
+        id="tonal:1",
+        source="tonal",
+        activity_id="1",
+        activity_name="Push Workout",
+        activity_type="strength_training",
+        sport_type="strength_training",
+        start_time=datetime(2026, 1, 2, 8, 0),
+        duration_seconds=1800.0,
+        distance_meters=None,
+        calories=None,
+        avg_hr=None,
+        max_hr=None,
+        avg_speed=None,
+        max_speed=None,
+        elevation_gain=None,
+        elevation_loss=None,
+        created_at=datetime(2026, 1, 2, 9, 0),
+    )
+
+    class _TonalActivityProvider(FakeProvider):
+        def __init__(self):
+            super().__init__(readings_by_metric={"tonal_workout_duration": [_reading(2, 1800.0)]})
+            self.name = "tonal"
+
+        def fetch_activities(self, start, end):
+            return [act]
+
+    provider = _TonalActivityProvider()
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5))
+
+    stored_activities = repository.get_activities(conn)
+    assert len(stored_activities) == 1
+    assert stored_activities[0].activity_name == "Push Workout"
+    assert stored_activities[0].source == "tonal"
+

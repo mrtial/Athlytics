@@ -13,6 +13,7 @@ from markupsafe import Markup
 
 from app.db import ensure_app_schema
 from core.config import get_or_create_secret_key
+from core.providers.tonal_client import TonalClient
 from core.security.credentials import CredentialStore
 from core.storage.db import connect
 
@@ -62,6 +63,7 @@ def create_app(data_dir: Path) -> FastAPI:
     token_cache_dir = data_dir / "garmin_tokens"
     strava_credentials_path = data_dir / "strava_credentials.enc"
     mi_fitness_credentials_path = data_dir / "mi_fitness_credentials.enc"
+    tonal_credentials_path = data_dir / "tonal_credentials.enc"
 
     conn = connect(db_path)
     ensure_app_schema(conn)
@@ -71,6 +73,7 @@ def create_app(data_dir: Path) -> FastAPI:
     credential_store = CredentialStore(secret_key, credentials_path)
     strava_credential_store = CredentialStore(secret_key, strava_credentials_path)
     mi_fitness_credential_store = CredentialStore(secret_key, mi_fitness_credentials_path)
+    tonal_credential_store = CredentialStore(secret_key, tonal_credentials_path)
 
     def sync_fn(force_full_backfill: bool = False) -> None:
         def on_source_start(source: str) -> None:
@@ -89,6 +92,7 @@ def create_app(data_dir: Path) -> FastAPI:
                 strava_credential_store=strava_credential_store,
                 strava_http_client_factory=app.state.strava_http_client_factory,
                 mi_fitness_credential_store=mi_fitness_credential_store,
+                tonal_credential_store=tonal_credential_store,
                 force_full_backfill=force_full_backfill,
                 on_source_start=on_source_start,
                 on_metric_progress=on_metric_progress,
@@ -123,6 +127,11 @@ def create_app(data_dir: Path) -> FastAPI:
     app.state.strava_http_client_factory = lambda: httpx.Client(base_url="https://www.strava.com", timeout=30.0)
     app.state.mi_fitness_credential_store = mi_fitness_credential_store
     app.state.pending_mi_fitness_login = None
+    app.state.tonal_credential_store = tonal_credential_store
+    # Mirrors app.state.garmin_client_factory: a swappable factory so route
+    # tests can inject a stub TonalClient instead of hitting the real Tonal
+    # API during connect validation (app.data_sources.connect_tonal).
+    app.state.tonal_client_factory = TonalClient
     app.state.secure_cookies = os.environ.get("ATHLYTICS_SECURE_COOKIES", "false").lower() == "true"
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")

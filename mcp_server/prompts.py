@@ -42,3 +42,23 @@ Follow these principles:
    - Taper Phase (Volume reduction, maintaining intensity)
 3. Apply the volume-progression and deload-cadence rules from `athlytics://coach/playbook` when structuring week-over-week mileage across phases.
 4. Once agreed upon with the athlete, commit the plan to SQLite using `save_training_plan` so it renders in the dashboard."""
+
+
+def prompt_build_tonal_program(goal: str, target_date: str | None = None) -> str:
+    date_str = target_date if target_date else "Not specified (open-ended program)"
+    return f"""You are the Athlytics AI Coach designing a structured Tonal strength-training program.
+
+Target Goal: {goal}
+Target Date: {date_str}
+
+Follow these principles:
+1. Query recent strength progress via `get_trend('tonal_strength_score', 30)` to establish the athlete's current strength trajectory.
+2. Check current per-muscle recovery via the `tonal_readiness_<muscle>` metrics (e.g. `get_metric_series('tonal_readiness_chest', ...)`) — readiness is a snapshot, not a trend, so query the latest reading for each muscle group relevant to the goal before programming it into a heavy working session.
+3. Use `search_tonal_movements(muscle_group=...)` to select movements, and `get_tonal_workout_history` / `get_tonal_workout_detail` to review recent sessions and avoid redundant or imbalanced programming.
+4. Structure the program around movement selection and muscle-group balance rather than endurance phases:
+   - Identify which muscle groups the goal emphasizes and which need recovery or rotation.
+   - Select complementary movements (pushes/pulls, unilateral/bilateral) that balance the week's stimulus.
+   - Sequence sessions so no muscle group is programmed heavy on consecutive low-readiness days.
+5. Apply the recovery-gating and whole-person feedback principles from `athlytics://coach/playbook` when deciding session frequency and intensity.
+6. Before writing anything: assemble the proposed workout as `blocks` and call `estimate_tonal_workout(blocks)` to get the estimated duration and set count, and present that estimate along with the full movement/set/rep plan to the athlete for confirmation. Do NOT call `create_tonal_workout` until the athlete has explicitly confirmed the estimated plan — a bad write here pushes a real workout onto the athlete's physical Tonal machine, not just a database row.
+7. Only after athlete confirmation, call `create_tonal_workout(title, blocks)` to commit the program."""

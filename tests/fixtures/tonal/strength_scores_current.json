@@ -1,0 +1,162 @@
+[
+  {
+    "id": "bdcb50e0-6cb8-4219-a18a-b67261d88b34",
+    "createdAt": "2026-08-18T11:45:25.995555Z",
+    "updatedAt": "2026-08-18T11:45:25.995555Z",
+    "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+    "workoutActivityId": "327444c4-3286-4b19-957e-f153ffc1eced",
+    "strengthBodyRegion": "Upper Body",
+    "bodyRegionDisplay": "Upper",
+    "score": 797,
+    "current": true,
+    "familyActivity": [
+      {
+        "id": "c8782887-9771-49e0-8556-4565779f992a",
+        "createdAt": "2026-07-06T12:13:29.115Z",
+        "updatedAt": "2026-07-06T12:13:29.115Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "baae7a10-c1fe-4158-8d51-8073f9c73287",
+        "strengthFamily": "Back",
+        "strengthBodyRegion": "Upper Body",
+        "score": 910.2092761377562,
+        "current": true
+      },
+      {
+        "id": "80161c31-b3ad-4abe-b9c4-db35a9f778ca",
+        "createdAt": "2026-07-08T01:00:11.495Z",
+        "updatedAt": "2026-07-08T01:00:11.495Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "03f43ab9-c040-40f3-bfc5-00661e06fb98",
+        "strengthFamily": "Biceps",
+        "strengthBodyRegion": "Upper Body",
+        "score": 610.1365356294699,
+        "current": true
+      },
+      {
+        "id": "e8face08-a4de-4b76-9add-7674e7f66b06",
+        "createdAt": "2026-08-18T11:33:08.492025Z",
+        "updatedAt": "2026-08-18T11:33:08.492025Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "327444c4-3286-4b19-957e-f153ffc1eced",
+        "strengthFamily": "Chest",
+        "strengthBodyRegion": "Upper Body",
+        "score": 831.8535320824701,
+        "current": true
+      },
+      {
+        "id": "09813692-55e8-4cfc-aca8-429126a7f315",
+        "createdAt": "2026-07-10T12:00:56.394514Z",
+        "updatedAt": "2026-07-10T12:00:56.394514Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "4c4aeeba-7185-4676-8dd2-af6ce3dd7763",
+        "strengthFamily": "Shoulders",
+        "strengthBodyRegion": "Upper Body",
+        "score": 704.6542013397725,
+        "current": true
+      },
+      {
+        "id": "8e21a95a-12ec-4b20-96f9-47afd8fea740",
+        "createdAt": "2026-08-18T11:33:08.492025Z",
+        "updatedAt": "2026-08-18T11:33:08.492025Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "327444c4-3286-4b19-957e-f153ffc1eced",
+        "strengthFamily": "Triceps",
+        "strengthBodyRegion": "Upper Body",
+        "score": 902.1719441200457,
+        "current": true
+      }
+    ]
+  },
+  {
+    "id": "26647ed6-88cd-40f3-822b-632153fb74e3",
+    "createdAt": "2026-07-06T12:47:07.361969Z",
+    "updatedAt": "2026-07-06T12:47:07.361969Z",
+    "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+    "workoutActivityId": "baae7a10-c1fe-4158-8d51-8073f9c73287",
+    "strengthBodyRegion": "Core",
+    "bodyRegionDisplay": "Core",
+    "score": 775,
+    "current": true,
+    "familyActivity": [
+      {
+        "id": "0a469397-c6ba-44cc-ab6d-8169756994e4",
+        "createdAt": "2026-06-24T12:22:11.809006Z",
+        "updatedAt": "2026-06-24T12:22:11.809006Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "5a8283fc-6f20-4e3b-8206-3f5f1724408a",
+        "strengthFamily": "Abs",
+        "strengthBodyRegion": "Core",
+        "score": 772.8060103681571,
+        "current": true
+      },
+      {
+        "id": "0e651e3c-c3f9-4426-b58b-ce77f7bd94b3",
+        "createdAt": "2026-07-06T12:13:29.115Z",
+        "updatedAt": "2026-07-06T12:13:29.115Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "baae7a10-c1fe-4158-8d51-8073f9c73287",
+        "strengthFamily": "Obliques",
+        "strengthBodyRegion": "Core",
+        "score": 776.8494774267419,
+        "current": true
+      }
+    ]
+  },
+  {
+    "id": "a46400e3-8897-4995-941d-efca06d93b5e",
+    "createdAt": "2026-07-06T12:47:07.361969Z",
+    "updatedAt": "2026-07-06T12:47:07.361969Z",
+    "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+    "workoutActivityId": "baae7a10-c1fe-4158-8d51-8073f9c73287",
+    "strengthBodyRegion": "Lower Body",
+    "bodyRegionDisplay": "Lower",
+    "score": 554,
+    "current": true,
+    "familyActivity": [
+      {
+        "id": "b1b77c6d-1796-49fd-a6b2-290958bc5db1",
+        "createdAt": "2026-07-06T12:13:29.115Z",
+        "updatedAt": "2026-07-06T12:13:29.115Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "baae7a10-c1fe-4158-8d51-8073f9c73287",
+        "strengthFamily": "Glutes",
+        "strengthBodyRegion": "Lower Body",
+        "score": 552.726560461801,
+        "current": true
+      },
+      {
+        "id": "247b7f80-53cf-44c8-90d9-4dc00b2e484d",
+        "createdAt": "2026-07-06T12:13:29.115Z",
+        "updatedAt": "2026-07-06T12:13:29.115Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "baae7a10-c1fe-4158-8d51-8073f9c73287",
+        "strengthFamily": "Hamstrings",
+        "strengthBodyRegion": "Lower Body",
+        "score": 548.5728310535462,
+        "current": true
+      },
+      {
+        "id": "d7259084-0404-4f37-b583-9830d08cf411",
+        "createdAt": "2026-06-24T12:22:11.809006Z",
+        "updatedAt": "2026-06-24T12:22:11.809006Z",
+        "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+        "workoutActivityId": "5a8283fc-6f20-4e3b-8206-3f5f1724408a",
+        "strengthFamily": "Quads",
+        "strengthBodyRegion": "Lower Body",
+        "score": 560.7039063227244,
+        "current": true
+      }
+    ]
+  },
+  {
+    "id": "434bc154-65d9-47e9-b1a1-8a3db1152846",
+    "createdAt": "0001-01-01T00:00:00Z",
+    "updatedAt": "0001-01-01T00:00:00Z",
+    "userId": "b318e35a-3b28-382e-9986-6c52649c40ab",
+    "workoutActivityId": "00000000-0000-0000-0000-000000000000",
+    "strengthBodyRegion": "Overall",
+    "bodyRegionDisplay": "",
+    "score": 709,
+    "current": true
+  }
+]

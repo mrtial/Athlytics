@@ -387,6 +387,38 @@ onboarding_connect.html and connections.html. Expects in context:
       <script src="/static/mi_fitness_qr.js?v={{ static_version }}"></script>
       <script>startMiFitnessLogin("{{ id_prefix }}-mi-fitness"{% if mi_fitness_success_url %}, "{{ mi_fitness_success_url }}"{% endif %});</script>
     </div>
+
+    {% elif provider.id == "tonal" %}
+    <div class="connect-picker-panel{% if loop.first %} is-active{% endif %}" data-source="tonal">
+      {{ sync_status_block("tonal") }}
+      {% if provider.connected %}
+      <button type="button" class="btn-primary" id="btn-tonal-sync-now" onclick="triggerTonalSyncNow(event)" style="width: 100%; justify-content: center;">
+        <span>Sync Now</span>
+      </button>
+      <p id="tonal-sync-now-status" style="font-size: 0.72rem; color: var(--fg-muted); margin: 0.5rem 0 0; line-height: 1.4; display: none;"></p>
+      {% else %}
+      <form method="post" action="/api/data-sources/tonal/connect">
+        <div class="form-group">
+          <label class="form-label" for="{{ id_prefix }}-tonal-email">Tonal Account Email</label>
+          <input class="form-input" type="email" id="{{ id_prefix }}-tonal-email" name="email" placeholder="you@example.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="{{ id_prefix }}-tonal-password">Tonal Password</label>
+          <input class="form-input" type="password" id="{{ id_prefix }}-tonal-password" name="password" placeholder="••••••••••••" required>
+        </div>
+        <button type="submit" class="btn-primary">
+          <span>Connect Tonal &amp; Begin Sync</span>
+        </button>
+      </form>
+      {% endif %}
+      {% if provider.connected %}
+      <div style="margin-top: 1.25rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+        <form method="post" action="/api/data-sources/tonal/disconnect" id="{{ id_prefix }}-tonal-disconnect-form">
+          {{ confirm_action(id_prefix ~ "-tonal-disconnect", "Disconnect Tonal", "This removes your saved Tonal email and password. Your already-synced history stays &mdash; you'll need to reconnect to resume syncing new data.", "Confirm Disconnect") }}
+        </form>
+      </div>
+      {% endif %}
+    </div>
     {% endif %}
 
     {% endfor %}

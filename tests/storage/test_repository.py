@@ -4,7 +4,7 @@ import pytest
 
 from core.storage import repository
 from core.storage.db import connect
-from core.storage.models import Activity, MetricReading
+from core.storage.models import Activity, MetricReading, StrengthSet
 
 
 def test_upsert_and_get_readings_roundtrip(tmp_path):
@@ -462,3 +462,89 @@ def test_has_activities_from_source_is_source_specific(tmp_path):
 
     assert repository.has_activities_from_source(conn, "strava") is False
     assert repository.has_activities_from_source(conn, "garmin") is True
+
+
+def _strength_set(activity_id, set_index, movement_id="mv-bench", created_at=datetime(2026, 1, 1, 12, 0)):
+    return StrengthSet(
+        id=f"tonal:{activity_id}:{set_index}",
+        activity_id=activity_id,
+        movement_id=movement_id,
+        movement_name="Bench Press",
+        set_index=set_index,
+        is_warm_up=False,
+        reps=10,
+        weight_lbs=135.0,
+        volume_lbs=1350.0,
+        one_rep_max=180.0,
+        max_power_watts=450.0,
+        rom_inches=18.5,
+        struggling_score=0.2,
+        side="Both",
+        created_at=created_at,
+    )
+
+
+def test_strength_set_upsert_and_get_by_activity_roundtrip(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    set0 = _strength_set("tonal:abc123", 0)
+    set1 = _strength_set("tonal:abc123", 1)
+
+    inserted = repository.upsert_strength_sets(conn, [set0, set1])
+    assert inserted == 2
+
+    result = repository.get_strength_sets(conn, "tonal:abc123")
+    assert result == [set0, set1]
+
+
+def test_strength_set_upsert_is_idempotent_and_updates_fields(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    original = _strength_set("tonal:abc123", 0)
+    repository.upsert_strength_sets(conn, [original])
+
+    updated = StrengthSet(
+        id=original.id,
+        activity_id=original.activity_id,
+        movement_id=original.movement_id,
+        movement_name=original.movement_name,
+        set_index=original.set_index,
+        is_warm_up=original.is_warm_up,
+        reps=12,
+        weight_lbs=140.0,
+        volume_lbs=1680.0,
+        one_rep_max=185.0,
+        max_power_watts=460.0,
+        rom_inches=19.0,
+        struggling_score=0.3,
+        side="Both",
+        created_at=original.created_at,
+    )
+    repository.upsert_strength_sets(conn, [updated])
+
+    result = repository.get_strength_sets(conn, "tonal:abc123")
+    assert result == [updated]
+
+
+def test_get_strength_sets_filters_by_activity_id(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    set_a = _strength_set("tonal:aaa", 0)
+    set_b = _strength_set("tonal:bbb", 0)
+    repository.upsert_strength_sets(conn, [set_a, set_b])
+
+    result = repository.get_strength_sets(conn, "tonal:aaa")
+
+    assert result == [set_a]
+
+
+def test_get_strength_sets_by_movement_orders_most_recent_first_and_respects_limit(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    oldest = _strength_set("tonal:w1", 0, movement_id="mv-bench", created_at=datetime(2026, 1, 1, 12, 0))
+    middle = _strength_set("tonal:w2", 0, movement_id="mv-bench", created_at=datetime(2026, 1, 5, 12, 0))
+    newest = _strength_set("tonal:w3", 0, movement_id="mv-bench", created_at=datetime(2026, 1, 10, 12, 0))
+    other_movement = _strength_set("tonal:w4", 0, movement_id="mv-squat", created_at=datetime(2026, 1, 12, 12, 0))
+    repository.upsert_strength_sets(conn, [oldest, middle, newest, other_movement])
+
+    result = repository.get_strength_sets_by_movement(conn, "mv-bench")
+    assert result == [newest, middle, oldest]
+
+    limited = repository.get_strength_sets_by_movement(conn, "mv-bench", limit=2)
+    assert limited == [newest, middle]

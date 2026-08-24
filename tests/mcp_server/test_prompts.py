@@ -26,3 +26,16 @@ async def test_workflow_prompts_contract():
         assert "Sub-4 Marathon" in prompt_text
         assert "2026-10-15" in prompt_text
         assert "35.0" in prompt_text
+
+        # Prompt 4: build_tonal_program
+        res_tonal = await client.get_prompt(
+            "build_tonal_program",
+            {"goal": "Build upper body strength", "target_date": "2026-12-01"},
+        )
+        assert res_tonal.messages is not None
+        tonal_prompt_text = res_tonal.messages[0].content.text
+        assert "Build upper body strength" in tonal_prompt_text
+        assert "2026-12-01" in tonal_prompt_text
+        assert "tonal_strength_score" in tonal_prompt_text
+        assert "estimate_tonal_workout" in tonal_prompt_text
+        assert "create_tonal_workout" in tonal_prompt_text

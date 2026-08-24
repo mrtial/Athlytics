@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.data_sources import (
     SUPPORTED_PROVIDERS,
     connect_garmin,
+    connect_tonal,
     import_apple_health,
     import_strava_export,
     ingest_apple_health_metrics,
@@ -16,6 +17,7 @@ from app.data_sources import (
 from app.dependencies import require_admin_api, require_admin_page
 from app.mi_fitness_login import PendingMiFitnessLogin, start_mi_fitness_login
 from core.providers.garmin import GarminAuthError, GarminMfaRequired, complete_garmin_mfa
+from core.providers.tonal_client import TonalAuthError
 
 router = APIRouter()
 
@@ -65,20 +67,48 @@ def connect_data_source(
     if provider not in SUPPORTED_PROVIDERS:
         raise HTTPException(status_code=404, detail=f"unsupported data source provider: {provider!r}")
 
-    credential_store = request.app.state.credential_store
-    token_cache_dir = request.app.state.token_cache_dir
-    garmin_client_factory = request.app.state.garmin_client_factory
+    # Each credentials_form provider has its own connect function and its
+    # own CredentialStore -- dispatching by provider here (rather than
+    # always calling connect_garmin) matters because CredentialStore.save()
+    # overwrites its entire target file: routing a Tonal submission through
+    # Garmin's store/connect function would silently destroy any saved
+    # Garmin credentials instead of connecting Tonal. This is deliberately
+    # an explicit if/elif/else rather than a fallthrough -- a provider that
+    # gets added to SUPPORTED_PROVIDERS without a branch wired in here
+    # should fail loudly (the else below) rather than silently falling into
+    # some other provider's branch and corrupting its credentials, which is
+    # exactly the bug the Tonal branch above was added to fix.
+    if provider == "garmin":
+        credential_store = request.app.state.credential_store
+        token_cache_dir = request.app.state.token_cache_dir
+        garmin_client_factory = request.app.state.garmin_client_factory
 
-    try:
-        connect_garmin(credential_store, token_cache_dir, email, password, garmin_client_factory=garmin_client_factory)
-    except GarminMfaRequired as exc:
-        # exc.client is a live, partially-authenticated session object --
-        # keep it in server memory (this app is single-admin, so app.state
-        # is a fine home for it) until the follow-up request with the code.
-        request.app.state.pending_garmin_mfa = {"client": exc.client, "client_state": exc.client_state}
-        return RedirectResponse(url="/onboarding/connect/mfa", status_code=303)
-    except GarminAuthError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            connect_garmin(credential_store, token_cache_dir, email, password, garmin_client_factory=garmin_client_factory)
+        except GarminMfaRequired as exc:
+            # exc.client is a live, partially-authenticated session object --
+            # keep it in server memory (this app is single-admin, so app.state
+            # is a fine home for it) until the follow-up request with the code.
+            request.app.state.pending_garmin_mfa = {"client": exc.client, "client_state": exc.client_state}
+            return RedirectResponse(url="/onboarding/connect/mfa", status_code=303)
+        except GarminAuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    elif provider == "tonal":
+        try:
+            connect_tonal(
+                request.app.state.tonal_credential_store,
+                email,
+                password,
+                tonal_client_factory=request.app.state.tonal_client_factory,
+            )
+        except TonalAuthError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    else:
+        # Unreachable given SUPPORTED_PROVIDERS's current derivation (every
+        # credentials_form provider above has its own branch) -- but a hard,
+        # loud failure here is far better than a future provider silently
+        # falling through into whichever branch happens to be last.
+        raise HTTPException(status_code=500, detail=f"no connect handler wired for provider {provider!r}")
 
     request.app.state.sync_scheduler.trigger()
     return RedirectResponse(url="/dashboard", status_code=303)
@@ -89,6 +119,14 @@ def disconnect_garmin(request: Request, conn=Depends(require_admin_page)):
     """Clears saved Garmin credentials so the connect form reappears --
     already-synced readings are untouched, this only forgets the login."""
     request.app.state.credential_store.clear()
+    return RedirectResponse(url="/connections", status_code=303)
+
+
+@router.post("/api/data-sources/tonal/disconnect")
+def disconnect_tonal(request: Request, conn=Depends(require_admin_page)):
+    """Clears saved Tonal credentials so the connect form reappears --
+    already-synced readings are untouched, this only forgets the login."""
+    request.app.state.tonal_credential_store.clear()
     return RedirectResponse(url="/connections", status_code=303)
 
 

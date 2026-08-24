@@ -387,3 +387,206 @@ def test_sync_mi_fitness_data_raises_when_not_connected(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="Mi Fitness credentials not found"):
         sync_mi_fitness_data()
+
+
+# ---------------------------------------------------------------------------
+# Tonal tools
+# ---------------------------------------------------------------------------
+
+
+def test_sync_tonal_data_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import sync_tonal_data
+
+    with pytest.raises(ValueError, match="Tonal credentials not found"):
+        sync_tonal_data()
+
+
+def test_search_tonal_movements_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import search_tonal_movements
+
+    with pytest.raises(ValueError, match="Tonal credentials not found"):
+        search_tonal_movements(query="press")
+
+
+def test_get_tonal_workout_history_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import get_tonal_workout_history
+
+    with pytest.raises(ValueError, match="Tonal credentials not found"):
+        get_tonal_workout_history()
+
+
+def test_get_tonal_workout_detail_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import get_tonal_workout_detail
+
+    with pytest.raises(ValueError, match="Tonal credentials not found"):
+        get_tonal_workout_detail("123")
+
+
+def test_estimate_tonal_workout_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import estimate_tonal_workout
+
+    with pytest.raises(ValueError, match="Tonal credentials not found"):
+        estimate_tonal_workout([])
+
+
+def test_create_tonal_workout_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import create_tonal_workout
+
+    with pytest.raises(ValueError, match="Tonal credentials not found"):
+        create_tonal_workout("Full Body", [])
+
+
+def test_delete_tonal_workout_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import delete_tonal_workout
+
+    with pytest.raises(ValueError, match="Tonal credentials not found"):
+        delete_tonal_workout("w-1")
+
+
+def _save_stub_tonal_credentials(tmp_path):
+    """Write a credentials file so the tools' connected-check passes, mirroring
+    test_sync_garmin_data_tool_forwards_force_full_history's setup."""
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+
+    secret_key_path = tmp_path / ".env"
+    credentials_path = tmp_path / "tonal_credentials.enc"
+    secret_key = get_or_create_secret_key(secret_key_path)
+    CredentialStore(secret_key, credentials_path).save({"email": "a@example.com", "password": "x"})
+
+
+class _StubTonalProvider:
+    """Stand-in for TonalProvider that skips all real Tonal HTTP/auth calls,
+    just like _StubProvider does for GarminProvider in the garmin sync test."""
+
+    name = "tonal"
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def search_movements(self, query=None, muscle_group=None):
+        return [{"id": "m1", "name": "Bench Press", "muscle_groups": ["Chest"]}]
+
+    def get_workout_detail(self, conn, activity_id):
+        return {"total_duration_seconds": 1800, "total_volume_lbs": 5000.0, "sets": []}
+
+    def estimate_workout(self, blocks):
+        return {"estimated_duration_min": 30, "set_count": 10}
+
+    def create_workout(self, title, blocks):
+        return {"workout_id": "w-1", "title": title, "set_count": 10, "exercise_count": 2}
+
+    def delete_workout(self, workout_id):
+        return True
+
+
+class _StubTonalClient:
+    """Stand-in for TonalClient (get_tonal_workout_history talks to TonalClient
+    directly, not TonalProvider, so it keeps total_volume_lbs -- see
+    mcp_server/server.py's comment in get_tonal_workout_history)."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def get_activities(self, limit=10):
+        return [
+            {
+                "activity_id": "1",
+                "date": "2026-01-01T09:00:00Z",
+                "title": "Full Body Workout",
+                "type": "Full Body",
+                "duration_seconds": 1800,
+                "total_volume_lbs": 5000.0,
+            }
+        ][:limit]
+
+
+def test_sync_tonal_data_tool_forwards_force_full_history(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    connect(tmp_path / "athlytics.db").close()
+    _save_stub_tonal_credentials(tmp_path)
+
+    captured = {}
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
+        captured.update(kwargs)
+        return {"tonal_strength_score": "complete"}
+
+    monkeypatch.setattr("core.providers.tonal.TonalProvider", _StubTonalProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    from mcp_server.server import sync_tonal_data
+
+    result = sync_tonal_data(days=7, force_full_history=True)
+
+    assert result == {"tonal_strength_score": "complete"}
+    assert captured.get("force_full_backfill") is True
+
+
+def test_tonal_read_write_tools_return_provider_results(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    connect(tmp_path / "athlytics.db").close()
+    _save_stub_tonal_credentials(tmp_path)
+    monkeypatch.setattr("core.providers.tonal.TonalProvider", _StubTonalProvider)
+    monkeypatch.setattr("core.providers.tonal_client.TonalClient", _StubTonalClient)
+
+    from mcp_server.server import (
+        create_tonal_workout,
+        delete_tonal_workout,
+        estimate_tonal_workout,
+        get_tonal_workout_detail,
+        get_tonal_workout_history,
+        search_tonal_movements,
+    )
+
+    assert search_tonal_movements(query="press") == [
+        {"id": "m1", "name": "Bench Press", "muscle_groups": ["Chest"]}
+    ]
+
+    assert get_tonal_workout_detail("1") == {
+        "total_duration_seconds": 1800, "total_volume_lbs": 5000.0, "sets": []
+    }
+    assert estimate_tonal_workout([]) == {"estimated_duration_min": 30, "set_count": 10}
+    assert create_tonal_workout("Full Body", []) == {
+        "workout_id": "w-1", "title": "Full Body", "set_count": 10, "exercise_count": 2
+    }
+    assert delete_tonal_workout("w-1") is True
+
+
+def test_get_tonal_workout_history_includes_volume_and_type(tmp_path, monkeypatch):
+    """Regression: get_tonal_workout_history must go through TonalClient
+    directly (not TonalProvider.fetch_activities -> Activity, which has no
+    total_volume_lbs field) so per-workout volume and type survive."""
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    connect(tmp_path / "athlytics.db").close()
+    _save_stub_tonal_credentials(tmp_path)
+    monkeypatch.setattr("core.providers.tonal_client.TonalClient", _StubTonalClient)
+
+    from mcp_server.server import get_tonal_workout_history
+
+    history = get_tonal_workout_history(limit=5)
+
+    assert history == [
+        {
+            "activity_id": "1",
+            "date": "2026-01-01T09:00:00Z",
+            "title": "Full Body Workout",
+            "type": "Full Body",
+            "duration_seconds": 1800,
+            "total_volume_lbs": 5000.0,
+        }
+    ]

@@ -10,6 +10,7 @@ from core.providers.apple_health import METRIC_TYPE_UNITS, AppleHealthProvider
 from core.providers.garmin import GarminProvider
 from core.providers.registry import PROVIDER_REGISTRY
 from core.providers.strava_export import StravaExportProvider
+from core.providers.tonal_client import TonalClient
 from core.security.credentials import CredentialStore
 from core.storage import repository
 from core.storage.models import MetricReading
@@ -30,6 +31,23 @@ def connect_garmin(
     """
     credential_store.save({"email": email, "password": password})
     GarminProvider(credential_store, token_cache_dir, garmin_client_factory=garmin_client_factory)
+
+
+def connect_tonal(
+    credential_store: CredentialStore,
+    email: str,
+    password: str,
+    tonal_client_factory: Callable[..., TonalClient] = TonalClient,
+) -> None:
+    """Save the given Tonal credentials, then validate them by actually
+    constructing a TonalClient (a real login) and reading its user_id (an
+    additional real API call -- TonalClient's constructor alone only forces
+    a login when its cached token is missing/expired, e.g. right after
+    credential_store.save() above; user_id confirms the account is fully
+    usable). Raises TonalAuthError (bad credentials) if validation fails.
+    """
+    credential_store.save({"email": email, "password": password})
+    tonal_client_factory(credential_store).user_id
 
 
 def import_apple_health(conn, payload: bytes, batch_size: int = 500) -> dict[str, str]:

@@ -8,6 +8,7 @@ from core.providers.apple_health import APPLE_HEALTH_METRIC_TYPES
 from core.providers.garmin import GARMIN_METRIC_TYPES
 from core.providers.mi_fitness import MI_FITNESS_METRIC_TYPES
 from core.providers.strava import STRAVA_METRIC_TYPES
+from core.providers.tonal import TONAL_METRIC_TYPES
 from core.storage import repository
 
 
@@ -62,6 +63,10 @@ def _mi_fitness_is_connected(conn: sqlite3.Connection, state: object) -> bool:
     return store is not None and store.load() is not None
 
 
+def _tonal_is_connected(conn: sqlite3.Connection, state: object) -> bool:
+    return state.tonal_credential_store.load() is not None
+
+
 PROVIDER_REGISTRY: list[ProviderInfo] = [
     ProviderInfo(
         id="garmin",
@@ -90,6 +95,13 @@ PROVIDER_REGISTRY: list[ProviderInfo] = [
         flow_type="qr_login_poll",
         metric_types=MI_FITNESS_METRIC_TYPES,
         is_connected=_mi_fitness_is_connected,
+    ),
+    ProviderInfo(
+        id="tonal",
+        display_name="Tonal",
+        flow_type="credentials_form",
+        metric_types=TONAL_METRIC_TYPES,
+        is_connected=_tonal_is_connected,
     ),
 ]
 

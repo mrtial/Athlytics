@@ -12,6 +12,8 @@ import httpx
 from core.providers.garmin import GarminAuthError, GarminProvider
 from core.providers.mi_fitness import MiFitnessAuthError, MiFitnessProvider
 from core.providers.strava import StravaAuthError, StravaProvider
+from core.providers.tonal import TonalProvider
+from core.providers.tonal_client import TonalAuthError
 from core.scheduler.sync import sync_all_metrics
 from core.security.credentials import CredentialStore
 from core.storage.db import connect
@@ -97,6 +99,7 @@ def perform_sync_pass(
     strava_credential_store: CredentialStore | None = None,
     strava_http_client_factory: Callable[[], httpx.Client] | None = None,
     mi_fitness_credential_store: CredentialStore | None = None,
+    tonal_credential_store: CredentialStore | None = None,
     force_full_backfill: bool = False,
     on_source_start: Callable[[str], None] | None = None,
     on_metric_progress: Callable[[str, int, int], None] | None = None,
@@ -152,6 +155,23 @@ def perform_sync_pass(
                 _run_provider_sync(
                     conn, "mi_fitness", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill,
                     on_metric_progress=(lambda completed, total: on_metric_progress("mi_fitness", completed, total)) if on_metric_progress else None,
+                )
+        finally:
+            conn.close()
+
+    if tonal_credential_store is not None and tonal_credential_store.load() is not None:
+        if on_source_start:
+            on_source_start("tonal")
+        conn = connect(db_path)
+        try:
+            try:
+                provider = TonalProvider(tonal_credential_store)
+            except TonalAuthError as exc:
+                record_sync_run(conn, "tonal", auth_error=str(exc))
+            else:
+                _run_provider_sync(
+                    conn, "tonal", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill,
+                    on_metric_progress=(lambda completed, total: on_metric_progress("tonal", completed, total)) if on_metric_progress else None,
                 )
         finally:
             conn.close()

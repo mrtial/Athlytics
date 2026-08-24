@@ -489,6 +489,80 @@ def test_perform_sync_pass_runs_mi_fitness_when_connected(tmp_path, monkeypatch)
     assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {"steps": "complete"}
 
 
+def test_perform_sync_pass_runs_tonal_when_connected(tmp_path, monkeypatch):
+    """Regression: perform_sync_pass previously had no Tonal branch at all,
+    so a connected Tonal account was silently skipped in every background
+    sync pass -- no activity/reading rows were ever written for it."""
+    from app.db import ensure_app_schema
+    from core.security.credentials import CredentialStore
+    from cryptography.fernet import Fernet
+
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_credentials.enc")  # not connected
+    tonal_store = CredentialStore(Fernet.generate_key(), tmp_path / "tonal_credentials.enc")
+    tonal_store.save({"email": "a@example.com", "password": "x"})
+
+    class _FakeTonalProvider:
+        name = "tonal"
+
+        def __init__(self, credential_store):
+            self.credential_store = credential_store
+
+        def supported_metric_types(self):
+            return ["tonal_strength_score"]
+
+        def fetch(self, metric_type, start, end):
+            return []
+
+    monkeypatch.setattr("app.sync.TonalProvider", _FakeTonalProvider)
+
+    perform_sync_pass(
+        db_path, garmin_store, tmp_path / "garmin_tokens",
+        tonal_credential_store=tonal_store,
+    )
+
+    conn = connect(db_path)
+    status = get_sync_status(conn, "tonal")
+    assert status["auth_error"] is None
+    assert status["last_run_at"] is not None
+    assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {"tonal_strength_score": "complete"}
+
+
+def test_perform_sync_pass_records_auth_error_when_tonal_provider_construction_fails(tmp_path, monkeypatch):
+    from app.db import ensure_app_schema
+    from core.security.credentials import CredentialStore
+    from core.providers.tonal_client import TonalAuthError
+    from cryptography.fernet import Fernet
+
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_credentials.enc")  # not connected
+    tonal_store = CredentialStore(Fernet.generate_key(), tmp_path / "tonal_credentials.enc")
+    tonal_store.save({"email": "a@example.com", "password": "x"})
+
+    def _raise(credential_store):
+        raise TonalAuthError("Tonal login failed: 401 unauthorized")
+
+    monkeypatch.setattr("app.sync.TonalProvider", _raise)
+
+    perform_sync_pass(
+        db_path, garmin_store, tmp_path / "garmin_tokens",
+        tonal_credential_store=tonal_store,
+    )
+
+    conn = connect(db_path)
+    status = get_sync_status(conn, "tonal")
+    assert status["auth_error"] is not None
+    assert "unauthorized" in status["auth_error"].lower()
+
+
 def test_run_provider_sync_records_run_and_metric_statuses(conn):
     class _FixedProvider:
         name = "garmin"

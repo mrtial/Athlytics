@@ -29,7 +29,7 @@ def test_supported_providers_contains_only_credentials_form_providers():
     from core.providers.registry import PROVIDER_REGISTRY
 
     expected = {p.id for p in PROVIDER_REGISTRY if p.flow_type == "credentials_form"}
-    assert SUPPORTED_PROVIDERS == expected == {"garmin"}
+    assert SUPPORTED_PROVIDERS == expected == {"garmin", "tonal"}
 
 
 def test_connect_garmin_saves_credentials_and_succeeds_with_valid_login(tmp_path):
@@ -190,6 +190,56 @@ def test_connect_route_redirects_to_mfa_form_when_mfa_required(app, client):
     assert response.headers["location"] == "/onboarding/connect/mfa"
     assert app.state.pending_garmin_mfa is not None
     assert app.state.pending_garmin_mfa["client_state"] == {"pending": "state"}
+
+
+class _RouteStubTonalClient:
+    def __init__(self, credential_store):
+        self.credential_store = credential_store
+
+    @property
+    def user_id(self):
+        return "tonal-user-1"
+
+
+class _RouteTonalAuthFailsClient:
+    def __init__(self, credential_store):
+        from core.providers.tonal_client import TonalAuthError
+
+        raise TonalAuthError("Tonal login failed: 401 unauthorized")
+
+
+def test_connect_route_tonal_succeeds_and_does_not_touch_garmin_store(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    app.state.tonal_client_factory = _RouteStubTonalClient
+    triggered = []
+    app.state.sync_scheduler.trigger = lambda: triggered.append(True)
+
+    response = client.post(
+        "/api/data-sources/tonal/connect",
+        data={"email": "athlete@example.com", "password": "hunter2"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard"
+    assert triggered == [True]
+    assert app.state.tonal_credential_store.load() == {"email": "athlete@example.com", "password": "hunter2"}
+    # The critical regression this guards against: a Tonal connect must
+    # never write into Garmin's credential store.
+    assert app.state.credential_store.load() is None
+
+
+def test_connect_route_tonal_returns_400_on_bad_credentials_and_does_not_touch_garmin_store(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    app.state.tonal_client_factory = _RouteTonalAuthFailsClient
+
+    response = client.post(
+        "/api/data-sources/tonal/connect", data={"email": "athlete@example.com", "password": "wrong"}
+    )
+
+    assert response.status_code == 400
+    assert "tonal login failed" in response.json()["detail"].lower()
+    assert app.state.credential_store.load() is None
 
 
 def test_mfa_form_get_redirects_to_connect_when_no_pending_challenge(client):
