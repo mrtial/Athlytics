@@ -6,9 +6,36 @@ from fastapi.responses import RedirectResponse
 
 from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin, import_apple_health
 from app.dependencies import require_admin_api, require_admin_page
+from app.mi_fitness_login import PendingMiFitnessLogin, start_mi_fitness_login
 from core.providers.garmin import GarminAuthError, GarminMfaRequired, complete_garmin_mfa
 
 router = APIRouter()
+
+
+# NOTE: these two Mi Fitness routes use literal paths, but must stay
+# registered ABOVE the parameterized @router.post("/api/data-sources/{provider}/connect")
+# route below -- Starlette matches routes in registration order within a
+# router, so if the parameterized route came first it would swallow
+# "mi-fitness" requests and 422 on the missing email/password Form fields
+# it expects (Mi Fitness's connect has no such fields -- it's a QR flow).
+@router.post("/api/data-sources/mi-fitness/connect")
+def connect_mi_fitness(request: Request, conn=Depends(require_admin_page)):
+    pending = PendingMiFitnessLogin()
+    request.app.state.pending_mi_fitness_login = pending
+    start_mi_fitness_login(
+        pending,
+        request.app.state.mi_fitness_credential_store,
+        on_success=request.app.state.sync_scheduler.trigger,
+    )
+    return {"status": "started"}
+
+
+@router.get("/api/data-sources/mi-fitness/status")
+def mi_fitness_status(request: Request, conn=Depends(require_admin_page)):
+    pending = request.app.state.pending_mi_fitness_login
+    if pending is None:
+        return {"status": "not_started", "qr_image_url": None, "error": None}
+    return {"status": pending.status, "qr_image_url": pending.qr_image_url, "error": pending.error}
 
 
 @router.post("/api/data-sources/{provider}/connect")

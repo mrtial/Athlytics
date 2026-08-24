@@ -9,7 +9,7 @@ router = APIRouter()
 
 @router.get("/")
 def root(request: Request, conn=Depends(get_conn)):
-    status = onboarding_status(conn, request.app.state.credential_store, request.app.state.strava_credential_store)
+    status = onboarding_status(conn, request.app.state)
     if status != "complete":
         return RedirectResponse(url=f"/onboarding/{status}", status_code=303)
 

@@ -6,10 +6,11 @@ from garminconnect import Garmin
 
 from core.providers.apple_health import AppleHealthProvider
 from core.providers.garmin import GarminProvider
+from core.providers.registry import PROVIDER_REGISTRY
 from core.security.credentials import CredentialStore
 from core.storage import repository
 
-SUPPORTED_PROVIDERS = {"garmin"}
+SUPPORTED_PROVIDERS = {p.id for p in PROVIDER_REGISTRY if p.flow_type == "credentials_form"}
 
 
 def connect_garmin(

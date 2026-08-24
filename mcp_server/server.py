@@ -354,6 +354,42 @@ def sync_strava_data(days: int = 30, force_full_history: bool = False) -> dict[s
         )
 
 
+@mcp.tool()
+def sync_mi_fitness_data(days: int = 30, force_full_history: bool = False) -> dict[str, str]:
+    """Trigger a sync from Mi Fitness to pull health data into Athlytics.
+
+    By default this is incremental: each metric_type resumes from its own
+    checkpoint (the last date it was successfully synced through), so `days`
+    only matters the very first time a metric_type is ever synced. Pass
+    force_full_history=True to ignore checkpoints and refetch each metric_type's
+    entire history from `days` ago through today.
+    """
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "mi_fitness_credentials.enc"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Mi Fitness credentials not found. Please connect your Mi Fitness account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.mi_fitness import MiFitnessProvider
+    from core.scheduler.sync import sync_all_metrics
+    from datetime import date as dt_date, timedelta
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = MiFitnessProvider(store)
+
+    end_date = dt_date.today()
+    start_date = end_date - timedelta(days=days)
+
+    with _connection() as conn:
+        return sync_all_metrics(
+            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history
+        )
+
+
 # ---------------------------------------------------------------------------
 # Dynamic Context Resources
 # ---------------------------------------------------------------------------

@@ -4,21 +4,25 @@ from fastapi import APIRouter, Depends, Request
 
 from app.dependencies import require_admin_api
 from app.sync import get_sync_status, perform_sync_pass
+from core.providers.registry import PROVIDER_REGISTRY
 
 router = APIRouter()
 
 
 @router.get("/api/sync-status")
 def sync_status(request: Request, conn=Depends(require_admin_api)):
-    status = get_sync_status(conn, "garmin")
-    status["connected"] = request.app.state.credential_store.load() is not None
+    providers: dict[str, dict] = {}
+    for provider in PROVIDER_REGISTRY:
+        connected = provider.is_connected(conn, request.app.state)
+        if provider.flow_type == "file_import":
+            # Apple Health has no ongoing sync run -- only a one-shot import.
+            providers[provider.id] = {"connected": connected, "last_run_at": None, "auth_error": None, "metrics": []}
+        else:
+            status = get_sync_status(conn, provider.id)
+            status["connected"] = connected
+            providers[provider.id] = status
 
-    if request.app.state.strava_credential_store.load() is not None:
-        strava_status = get_sync_status(conn, "strava")
-        strava_status["connected"] = True
-        status["strava"] = strava_status
-
-    return status
+    return {"providers": providers}
 
 
 @router.post("/api/sync/trigger")

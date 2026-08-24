@@ -152,9 +152,10 @@ def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
     # The sync-status panel reflects the completed pass.
     status_response = client.get("/api/sync-status")
     body = status_response.json()
-    assert body["connected"] is True
-    assert body["auth_error"] is None
-    metrics = {m["metric_type"]: m["status"] for m in body["metrics"]}
+    garmin_status = body["providers"]["garmin"]
+    assert garmin_status["connected"] is True
+    assert garmin_status["auth_error"] is None
+    metrics = {m["metric_type"]: m["status"] for m in garmin_status["metrics"]}
     assert metrics == {"resting_hr": "complete"}
 
     # Settings: persona/theme are changeable after onboarding.

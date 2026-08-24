@@ -2,6 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install git, which is required by pip to resolve git+https:// dependencies
+# (e.g., mi-fitness). Use apt-get with --no-install-recommends to keep the
+# image size minimal.
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 # Install the project and every runtime dependency declared in
 # pyproject.toml (cryptography, python-dotenv, garminconnect, fastapi,
 # uvicorn[standard], jinja2, python-multipart, mcp -- assembled across

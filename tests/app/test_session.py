@@ -131,14 +131,18 @@ def test_require_admin_api_rejects_wrong_bearer_token(tmp_path):
 
 
 def test_onboarding_status_progresses_admin_then_persona(tmp_path):
+    from types import SimpleNamespace
+
     from core.security.credentials import CredentialStore
     from cryptography.fernet import Fernet
 
     conn = connect(tmp_path / "test.db")
     ensure_app_schema(conn)
     credential_store = CredentialStore(Fernet.generate_key(), tmp_path / "creds.enc")
+    strava_credential_store = CredentialStore(Fernet.generate_key(), tmp_path / "strava.enc")
+    state = SimpleNamespace(credential_store=credential_store, strava_credential_store=strava_credential_store)
 
-    assert onboarding_status(conn, credential_store) == "admin"
+    assert onboarding_status(conn, state) == "admin"
 
     create_admin(conn, "athlete", "hunter2hunter2")
-    assert onboarding_status(conn, credential_store) == "persona"
+    assert onboarding_status(conn, state) == "persona"

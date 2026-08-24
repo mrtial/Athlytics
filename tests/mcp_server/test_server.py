@@ -378,3 +378,12 @@ def test_sync_strava_data_raises_when_not_connected(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="Strava credentials not found"):
         sync_strava_data()
+
+
+def test_sync_mi_fitness_data_raises_when_not_connected(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+
+    from mcp_server.server import sync_mi_fitness_data
+
+    with pytest.raises(ValueError, match="Mi Fitness credentials not found"):
+        sync_mi_fitness_data()

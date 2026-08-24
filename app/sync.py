@@ -10,6 +10,7 @@ from garminconnect import Garmin
 import httpx
 
 from core.providers.garmin import GarminAuthError, GarminProvider
+from core.providers.mi_fitness import MiFitnessAuthError, MiFitnessProvider
 from core.providers.strava import StravaAuthError, StravaProvider
 from core.scheduler.sync import sync_all_metrics
 from core.security.credentials import CredentialStore
@@ -64,6 +65,28 @@ def get_sync_status(conn: sqlite3.Connection, source: str = "garmin") -> dict:
     }
 
 
+def _run_provider_sync(
+    conn: sqlite3.Connection,
+    source: str,
+    provider,
+    backfill_start: date,
+    end: date,
+    chunk_days: int,
+    pace_seconds: float,
+    force_full_backfill: bool,
+) -> None:
+    """Runs sync_all_metrics for an already-constructed, already-authenticated
+    provider and records the run/metric statuses. Shared by every provider
+    block in perform_sync_pass so a new source is one construction branch,
+    not another copy of this bookkeeping."""
+    results = sync_all_metrics(
+        conn, provider, backfill_start, end,
+        chunk_days=chunk_days, pace_seconds=pace_seconds, force_full_backfill=force_full_backfill,
+    )
+    record_sync_run(conn, source, auth_error=None)
+    record_metric_statuses(conn, source, results)
+
+
 def perform_sync_pass(
     db_path: Path,
     credential_store: CredentialStore,
@@ -71,8 +94,12 @@ def perform_sync_pass(
     garmin_client_factory: Callable[..., Garmin] = Garmin,
     strava_credential_store: CredentialStore | None = None,
     strava_http_client_factory: Callable[[], httpx.Client] | None = None,
+    mi_fitness_credential_store: CredentialStore | None = None,
     force_full_backfill: bool = False,
 ) -> None:
+    backfill_start = date.today() - timedelta(days=BACKFILL_LOOKBACK_DAYS)
+    end = date.today()
+
     if credential_store.load() is not None:
         conn = connect(db_path)
         try:
@@ -81,18 +108,9 @@ def perform_sync_pass(
             except GarminAuthError as exc:
                 record_sync_run(conn, "garmin", auth_error=str(exc))
             else:
-                backfill_start = date.today() - timedelta(days=BACKFILL_LOOKBACK_DAYS)
-                results = sync_all_metrics(
-                    conn,
-                    provider,
-                    backfill_start,
-                    date.today(),
-                    chunk_days=SYNC_CHUNK_DAYS,
-                    pace_seconds=SYNC_PACE_SECONDS,
-                    force_full_backfill=force_full_backfill,
+                _run_provider_sync(
+                    conn, "garmin", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill
                 )
-                record_sync_run(conn, "garmin", auth_error=None)
-                record_metric_statuses(conn, "garmin", results)
         finally:
             conn.close()
 
@@ -105,13 +123,23 @@ def perform_sync_pass(
             except StravaAuthError as exc:
                 record_sync_run(conn, "strava", auth_error=str(exc))
             else:
-                backfill_start = date.today() - timedelta(days=BACKFILL_LOOKBACK_DAYS)
-                results = sync_all_metrics(
-                    conn, provider, backfill_start, date.today(),
-                    chunk_days=SYNC_CHUNK_DAYS, pace_seconds=SYNC_PACE_SECONDS, force_full_backfill=force_full_backfill,
+                _run_provider_sync(
+                    conn, "strava", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill
                 )
-                record_sync_run(conn, "strava", auth_error=None)
-                record_metric_statuses(conn, "strava", results)
+        finally:
+            conn.close()
+
+    if mi_fitness_credential_store is not None and mi_fitness_credential_store.load() is not None:
+        conn = connect(db_path)
+        try:
+            try:
+                provider = MiFitnessProvider(mi_fitness_credential_store)
+            except MiFitnessAuthError as exc:
+                record_sync_run(conn, "mi_fitness", auth_error=str(exc))
+            else:
+                _run_provider_sync(
+                    conn, "mi_fitness", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill
+                )
         finally:
             conn.close()
 

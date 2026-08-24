@@ -78,6 +78,18 @@
       </button>
     </form>
 
+    <h2 class="section-title" style="font-size: 1rem; margin: 1.75rem 0 0.75rem;">Mi Fitness</h2>
+    <div id="mi-fitness-onboarding" data-mi-fitness-status>
+      <p style="font-size: 0.78rem; color: var(--fg-muted); margin: 0 0 0.75rem;">
+        Connect your Xiaomi Mi Fitness account by scanning a QR code.
+      </p>
+      <img data-mi-fitness-qr style="display: none; width: 200px; height: 200px; margin-bottom: 0.75rem;" alt="Mi Fitness login QR code">
+      <p data-mi-fitness-status style="font-size: 0.78rem; color: var(--fg-muted); margin-bottom: 0.75rem;"></p>
+      <button type="button" class="btn-primary" data-mi-fitness-start>Connect Mi Fitness</button>
+    </div>
+    <script src="/static/mi_fitness_qr.js?v={{ static_version }}"></script>
+    <script>startMiFitnessLogin("mi-fitness-onboarding", "/dashboard");</script>
+
     <div style="margin-top: 1.5rem; padding: 0.85rem 1rem; background: var(--surface-secondary); border-radius: var(--radius-md); border: 1px solid var(--border); font-size: 0.78rem; color: var(--fg-muted); display: flex; align-items: center; gap: 0.5rem;">
       <span>🔒</span>
       <span>Credentials and uploaded data are encrypted/stored locally and never leave your server.</span>

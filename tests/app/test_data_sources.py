@@ -25,8 +25,11 @@ class _LoginFailsClient(_StubGarminClient):
         raise GarminConnectAuthenticationError("bad credentials")
 
 
-def test_supported_providers_contains_only_garmin():
-    assert SUPPORTED_PROVIDERS == {"garmin"}
+def test_supported_providers_contains_only_credentials_form_providers():
+    from core.providers.registry import PROVIDER_REGISTRY
+
+    expected = {p.id for p in PROVIDER_REGISTRY if p.flow_type == "credentials_form"}
+    assert SUPPORTED_PROVIDERS == expected == {"garmin"}
 
 
 def test_connect_garmin_saves_credentials_and_succeeds_with_valid_login(tmp_path):
@@ -466,3 +469,53 @@ def test_onboarding_connect_page_shows_strava_option(client):
     assert response.status_code == 200
     assert "strava" in response.text.lower()
     assert 'action="/oauth/strava/authorize"' in response.text
+
+
+def test_onboarding_connect_page_shows_mi_fitness_qr_login_section(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/onboarding/connect")
+
+    assert response.status_code == 200
+    assert "mi fitness" in response.text.lower()
+    assert "data-mi-fitness-start" in response.text
+
+
+def test_mi_fitness_connect_route_requires_admin_login(client):
+    response = client.post("/api/data-sources/mi-fitness/connect", follow_redirects=False)
+
+    assert response.status_code == 303
+
+
+def test_mi_fitness_status_route_reports_not_started_before_any_connect_attempt(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/api/data-sources/mi-fitness/status")
+
+    assert response.json() == {"status": "not_started", "qr_image_url": None, "error": None}
+
+
+def test_mi_fitness_connect_route_starts_background_login(app, client, monkeypatch):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    started = {}
+
+    def fake_start_mi_fitness_login(pending, credential_store, **kwargs):
+        started["pending"] = pending
+        started["credential_store"] = credential_store
+        pending.status = "qr_ready"
+        pending.qr_image_url = "https://example.com/qr.png"
+        import threading
+
+        return threading.Thread(target=lambda: None)
+
+    monkeypatch.setattr("app.routes.data_sources.start_mi_fitness_login", fake_start_mi_fitness_login)
+
+    response = client.post("/api/data-sources/mi-fitness/connect")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "started"}
+    assert started["credential_store"] is app.state.mi_fitness_credential_store
+
+    status_response = client.get("/api/data-sources/mi-fitness/status")
+    assert status_response.json() == {"status": "qr_ready", "qr_image_url": "https://example.com/qr.png", "error": None}

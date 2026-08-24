@@ -61,6 +61,7 @@ def create_app(data_dir: Path) -> FastAPI:
     credentials_path = data_dir / "garmin_credentials.enc"
     token_cache_dir = data_dir / "garmin_tokens"
     strava_credentials_path = data_dir / "strava_credentials.enc"
+    mi_fitness_credentials_path = data_dir / "mi_fitness_credentials.enc"
 
     conn = connect(db_path)
     ensure_app_schema(conn)
@@ -69,6 +70,7 @@ def create_app(data_dir: Path) -> FastAPI:
     secret_key = get_or_create_secret_key(env_path)
     credential_store = CredentialStore(secret_key, credentials_path)
     strava_credential_store = CredentialStore(secret_key, strava_credentials_path)
+    mi_fitness_credential_store = CredentialStore(secret_key, mi_fitness_credentials_path)
 
     def sync_fn() -> None:
         perform_sync_pass(
@@ -78,6 +80,7 @@ def create_app(data_dir: Path) -> FastAPI:
             garmin_client_factory=app.state.garmin_client_factory,
             strava_credential_store=strava_credential_store,
             strava_http_client_factory=app.state.strava_http_client_factory,
+            mi_fitness_credential_store=mi_fitness_credential_store,
         )
 
     scheduler = BackgroundSyncScheduler(sync_fn)
@@ -102,6 +105,8 @@ def create_app(data_dir: Path) -> FastAPI:
     app.state.strava_credential_store = strava_credential_store
     app.state.pending_strava_oauth = None
     app.state.strava_http_client_factory = lambda: httpx.Client(base_url="https://www.strava.com", timeout=30.0)
+    app.state.mi_fitness_credential_store = mi_fitness_credential_store
+    app.state.pending_mi_fitness_login = None
     app.state.secure_cookies = os.environ.get("ATHLYTICS_SECURE_COOKIES", "false").lower() == "true"
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -109,6 +114,7 @@ def create_app(data_dir: Path) -> FastAPI:
     from app.routes import activities as activities_routes
     from app.routes import auth as auth_routes
     from app.routes import coach as coach_routes
+    from app.routes import connections as connections_routes
     from app.routes import dashboard as dashboard_routes
     from app.routes import data_sources as data_sources_routes
     from app.routes import metric_detail as metric_detail_routes
@@ -125,6 +131,7 @@ def create_app(data_dir: Path) -> FastAPI:
     app.include_router(sync_status_routes.router)
     app.include_router(metric_detail_routes.router)
     app.include_router(dashboard_routes.router)
+    app.include_router(connections_routes.router)
     app.include_router(activities_routes.router)
     app.include_router(coach_routes.router)
     app.include_router(training_plans_routes.router)

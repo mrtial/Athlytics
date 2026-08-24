@@ -238,6 +238,26 @@ def test_activities_route_requires_admin_and_renders(app, client):
     assert "Workout Sessions" in res.text
 
 
+def test_dashboard_shows_strava_metrics_when_only_strava_connected(app, client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+    app.state.strava_credential_store.save(
+        {"client_id": "1", "client_secret": "s", "access_token": "a", "refresh_token": "r", "expires_at": "9999999999"}
+    )
+    conn = connect(app.state.db_path)
+    repository.upsert_readings(conn, [
+        MetricReading("strava", "activity_duration", datetime(2026, 1, 7, 8, 0), 42.0, "minutes"),
+    ])
+    conn.close()
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "activity_duration" in response.text  # Strava-only metric_type; must appear now that Strava is connected
+    assert "mindful_minutes" not in response.text  # Apple-only metric_type, not connected
+
+
 def test_dashboard_shows_mindful_minutes_widget_for_sleep_recovery_persona_when_apple_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
     client.post("/onboarding/persona", data={"persona": "sleep_recovery_focus"})

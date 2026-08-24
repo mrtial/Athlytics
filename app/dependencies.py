@@ -7,8 +7,6 @@ from fastapi import Depends, HTTPException, Request, status
 from app.db import ensure_app_schema
 from app.session import SESSION_COOKIE_NAME, is_valid_session
 from app.settings import get_api_token, get_persona, get_theme
-from core.security.credentials import CredentialStore
-from core.storage import repository
 from core.storage.db import connect
 
 
@@ -54,20 +52,13 @@ def require_admin_api(request: Request, conn: sqlite3.Connection = Depends(get_c
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
 
 
-def onboarding_status(
-    conn: sqlite3.Connection, credential_store: CredentialStore, strava_credential_store: CredentialStore | None = None
-) -> str:
+def onboarding_status(conn: sqlite3.Connection, state: object) -> str:
     """One of "admin"/"persona"/"theme"/"connect"/"complete" -- how far
-    onboarding (design doc's Onboarding Flow) has progressed. "connect"'s
-    completion is signaled by either Garmin credentials existing or Apple
-    Health having synced data. For Garmin, CredentialStore.load() returning
-    non-None is the single source of truth for "is connected", and duplicating
-    that as a second piece of state risks the two disagreeing (design doc:
-    "connect a data source" has no notion of a connection succeeding without
-    valid, storable credentials). For Apple Health, synced data is checked via
-    repository.has_synced_data().
+    onboarding has progressed. "connect" completes as soon as any one
+    PROVIDER_REGISTRY entry's is_connected(conn, state) is true.
     """
     from app.auth import admin_exists
+    from core.providers.registry import PROVIDER_REGISTRY
 
     if not admin_exists(conn):
         return "admin"
@@ -75,9 +66,6 @@ def onboarding_status(
         return "persona"
     if get_theme(conn) is None:
         return "theme"
-    garmin_connected = credential_store.load() is not None
-    apple_health_connected = repository.has_synced_data(conn, "apple_health")
-    strava_connected = strava_credential_store is not None and strava_credential_store.load() is not None
-    if not garmin_connected and not apple_health_connected and not strava_connected:
+    if not any(p.is_connected(conn, state) for p in PROVIDER_REGISTRY):
         return "connect"
     return "complete"

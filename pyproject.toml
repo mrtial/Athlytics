@@ -7,6 +7,7 @@ dependencies = [
     "cryptography>=42.0",
     "python-dotenv>=1.0",
     "garminconnect>=0.2.31",
+    "mi-fitness @ git+https://github.com/Misty02600/mi-fitness-python.git@c8aef5910b4a0c50392992c86c28091a995582cc",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "jinja2>=3.1",

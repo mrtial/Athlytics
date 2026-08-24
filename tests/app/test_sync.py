@@ -1,5 +1,6 @@
 import threading
 import time
+from datetime import date
 
 import pytest
 from cryptography.fernet import Fernet
@@ -7,6 +8,7 @@ from cryptography.fernet import Fernet
 from app.db import ensure_app_schema
 from app.sync import (
     BackgroundSyncScheduler,
+    _run_provider_sync,
     get_sync_status,
     perform_sync_pass,
     record_metric_statuses,
@@ -283,3 +285,65 @@ def test_perform_sync_pass_runs_strava_when_connected(tmp_path):
     status = get_sync_status(conn, "strava")
     assert status["auth_error"] is None
     assert status["metrics"]  # activity_duration/distance/calories all recorded
+
+
+def test_perform_sync_pass_runs_mi_fitness_when_connected(tmp_path, monkeypatch):
+    from app.db import ensure_app_schema
+    from core.security.credentials import CredentialStore
+    from cryptography.fernet import Fernet
+
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_credentials.enc")  # not connected
+    mi_fitness_store = CredentialStore(Fernet.generate_key(), tmp_path / "mi_fitness_credentials.enc")
+    mi_fitness_store.save({"token_file_content": "fake-token-content", "uid": "123"})
+
+    class _FakeMiFitnessProvider:
+        name = "mi_fitness"
+
+        def __init__(self, credential_store):
+            self.credential_store = credential_store
+
+        def supported_metric_types(self):
+            return ["steps"]
+
+        def fetch(self, metric_type, start, end):
+            return []
+
+    monkeypatch.setattr("app.sync.MiFitnessProvider", _FakeMiFitnessProvider)
+
+    perform_sync_pass(
+        db_path, garmin_store, tmp_path / "garmin_tokens",
+        mi_fitness_credential_store=mi_fitness_store,
+    )
+
+    conn = connect(db_path)
+    status = get_sync_status(conn, "mi_fitness")
+    assert status["auth_error"] is None
+    assert status["last_run_at"] is not None
+    assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {"steps": "complete"}
+
+
+def test_run_provider_sync_records_run_and_metric_statuses(conn):
+    class _FixedProvider:
+        name = "garmin"
+
+        def supported_metric_types(self):
+            return ["steps"]
+
+        def fetch(self, metric_type, start, end):
+            return []
+
+    _run_provider_sync(
+        conn, "garmin", _FixedProvider(),
+        backfill_start=date(2026, 1, 1), end=date(2026, 1, 2),
+        chunk_days=30, pace_seconds=0.0, force_full_backfill=False,
+    )
+
+    status = get_sync_status(conn, "garmin")
+    assert status["auth_error"] is None
+    assert status["last_run_at"] is not None
+    assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {"steps": "complete"}

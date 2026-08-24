@@ -18,25 +18,34 @@ async function refreshSyncStatus() {
     const res = await fetch("/api/sync-status");
     if (!res.ok) return;
     const data = await res.json();
+    const providers = data.providers || {};
+    const entries = Object.entries(providers);
+    const connectedEntries = entries.filter(([, s]) => s.connected);
+    const errorEntries = connectedEntries.filter(([, s]) => s.auth_error);
+    const connectedCount = connectedEntries.length;
+    const totalCount = entries.length;
 
     const parts = [];
     parts.push("<div class='sync-status-pill'>");
 
-    // Pulse dot + Live Status + Formatted Date (stacked: label on top, date/time below)
-    if (!data.connected) {
+    if (connectedCount === 0) {
       parts.push("<span class='pulse-dot error'></span>");
-      parts.push(`<div class='sync-pill-text'><strong>Garmin Disconnected</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)}</span></div>`);
-      parts.push("<a href='/onboarding/connect' class='btn-toggle-sync' style='text-decoration:none; color:var(--accent-blue); font-weight:700;'>Connect</a>");
-    } else if (data.auth_error) {
+      parts.push(`<div class='sync-pill-text'><strong>No sources connected</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)}</span></div>`);
+      parts.push("<a href='/connections' class='btn-toggle-sync' style='text-decoration:none; color:var(--accent-blue); font-weight:700;'>Connect</a>");
+    } else if (errorEntries.length > 0) {
       parts.push("<span class='pulse-dot error'></span>");
-      parts.push(`<div class='sync-pill-text' style='color:var(--danger);'><strong>Garmin Auth Issue</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)}</span></div>`);
-      parts.push("<a href='/onboarding/connect' class='btn-toggle-sync' style='text-decoration:none; color:var(--danger); font-weight:700;'>Reconnect</a>");
+      parts.push(`<div class='sync-pill-text' style='color:var(--danger);'><strong>${errorEntries.length} source${errorEntries.length === 1 ? '' : 's'} need attention</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)}</span></div>`);
+      parts.push("<a href='/connections' class='btn-toggle-sync' style='text-decoration:none; color:var(--danger); font-weight:700;'>Reconnect</a>");
     } else {
       parts.push("<span class='pulse-dot'></span>");
-      const lastRun = data.last_run_at ? new Date(data.last_run_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Live";
-      parts.push(`<div class='sync-pill-text'><strong>Garmin Connect Live</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)} &middot; ${escapeHtml(lastRun)}</span></div>`);
+      const lastRunTimes = connectedEntries.map(([, s]) => s.last_run_at).filter(Boolean).sort();
+      const lastRun = lastRunTimes.length
+        ? new Date(lastRunTimes[lastRunTimes.length - 1]).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : "Live";
+      parts.push(`<div class='sync-pill-text'><strong>${connectedCount} of ${totalCount} sources connected</strong><span class='sync-pill-time'>${ICONS.bell}${escapeHtml(todayStr)} &middot; ${escapeHtml(lastRun)}</span></div>`);
 
-      if (data.metrics && data.metrics.length > 0) {
+      const anyMetrics = connectedEntries.some(([, s]) => s.metrics && s.metrics.length > 0);
+      if (anyMetrics) {
         const chevron = syncDetailsVisible ? ICONS.chevronUp : ICONS.chevronDown;
         parts.push(`<button type='button' class='btn-toggle-sync' onclick='toggleSyncDetails(event)' id='btn-sync-toggle'>Details ${chevron}</button>`);
       }
@@ -47,15 +56,18 @@ async function refreshSyncStatus() {
 
     parts.push("</div>");
 
-    // Collapsible drawer (dropdown below chip)
-    if (data.metrics && data.metrics.length > 0) {
+    // Collapsible drawer: only ever lists metrics for CONNECTED providers.
+    const anyMetrics = connectedEntries.some(([, s]) => s.metrics && s.metrics.length > 0);
+    if (anyMetrics) {
       const displayStyle = syncDetailsVisible ? "display: flex;" : "display: none;";
       parts.push(`<div id='sync-pills-drawer' class='sync-header-drawer' style='${displayStyle}'>`);
-      for (const m of data.metrics) {
-        const isComplete = m.status === 'complete' || m.status === 'up_to_date';
-        const bg = isComplete ? 'var(--success-soft)' : 'var(--warning-soft)';
-        const fg = isComplete ? 'var(--success)' : 'var(--warning)';
-        parts.push(`<span style='background: ${bg}; color: ${fg}; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: var(--radius-pill);'>${escapeHtml(m.metric_type)}: ${escapeHtml(m.status)}</span>`);
+      for (const [providerId, status] of connectedEntries) {
+        for (const m of status.metrics) {
+          const isComplete = m.status === 'complete' || m.status === 'up_to_date';
+          const bg = isComplete ? 'var(--success-soft)' : 'var(--warning-soft)';
+          const fg = isComplete ? 'var(--success)' : 'var(--warning)';
+          parts.push(`<span style='background: ${bg}; color: ${fg}; font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: var(--radius-pill);'>${escapeHtml(providerId)}/${escapeHtml(m.metric_type)}: ${escapeHtml(m.status)}</span>`);
+        }
       }
       parts.push("</div>");
     }
