@@ -109,6 +109,14 @@ def has_synced_data(conn: sqlite3.Connection, source: str) -> bool:
     return row is not None
 
 
+def has_activities_from_source(conn: sqlite3.Connection, source: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM activity WHERE source = ? LIMIT 1",
+        (source,),
+    ).fetchone()
+    return row is not None
+
+
 def get_source_priority(conn: sqlite3.Connection, metric_type: str) -> str | None:
     row = conn.execute(
         "SELECT preferred_source FROM metric_source_priority WHERE metric_type = ?",

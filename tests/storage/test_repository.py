@@ -442,3 +442,23 @@ def test_upsert_activities_far_apart_in_time_both_kept(tmp_path):
 
     assert inserted == 1
     assert len(repository.get_activities(conn)) == 2
+
+
+def test_has_activities_from_source_false_when_none_stored(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    assert repository.has_activities_from_source(conn, "strava") is False
+
+
+def test_has_activities_from_source_true_after_upsert(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [_activity("strava", "999", datetime(2026, 1, 1, 7, 0))])
+
+    assert repository.has_activities_from_source(conn, "strava") is True
+
+
+def test_has_activities_from_source_is_source_specific(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [_activity("garmin", "111", datetime(2026, 1, 1, 7, 0))])
+
+    assert repository.has_activities_from_source(conn, "strava") is False
+    assert repository.has_activities_from_source(conn, "garmin") is True

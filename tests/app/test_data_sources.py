@@ -588,6 +588,32 @@ def test_completing_onboarding_via_apple_health_upload_reaches_dashboard(client)
     assert root_response.headers["location"] == "/dashboard"
 
 
+def test_completing_onboarding_via_strava_export_upload_reaches_dashboard(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+    response = client.post(
+        "/api/data-sources/strava/import",
+        files={"export_file": ("export.zip", _strava_export_zip(_strava_csv_row("1", "Jan 1, 2026, 8:00:00 AM")), "application/zip")},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200  # import route returns a JSON summary, not a redirect
+
+    root_response = client.get("/", follow_redirects=False)
+    assert root_response.headers["location"] == "/dashboard"
+
+
+def test_onboarding_connect_page_includes_strava_export_upload_form(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.get("/onboarding/connect")
+
+    assert response.status_code == 200
+    assert 'action="/api/data-sources/strava/import"' in response.text
+
+
 def test_onboarding_connect_page_shows_strava_option(client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
 
@@ -646,3 +672,150 @@ def test_mi_fitness_connect_route_starts_background_login(app, client, monkeypat
 
     status_response = client.get("/api/data-sources/mi-fitness/status")
     assert status_response.json() == {"status": "qr_ready", "qr_image_url": "https://example.com/qr.png", "error": None}
+
+
+STRAVA_CSV_HEADER = (
+    "Activity ID,Activity Date,Activity Name,Activity Type,Elapsed Time,Distance,"
+    "Commute,Filename,Elapsed Time,Moving Time,Distance,Max Speed,Average Speed,"
+    "Elevation Gain,Elevation Loss,Max Heart Rate,Average Heart Rate,Calories"
+)
+
+
+def _strava_export_zip(csv_rows: str) -> bytes:
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("activities.csv", STRAVA_CSV_HEADER + "\n" + csv_rows)
+    return buf.getvalue()
+
+
+def _strava_csv_row(activity_id, date_str, name="Morning Run", activity_type="Run"):
+    return (
+        f'{activity_id},"{date_str}",{name},{activity_type},1800,5,false,,'
+        "1800.0,1800.0,5000.0,3.5,2.8,20.0,20.0,160.0,140.0,300.0\n"
+    )
+
+
+def test_import_strava_export_upserts_activities_and_records_sync_run(tmp_path):
+    from app.data_sources import import_strava_export
+    from app.db import ensure_app_schema
+    from app.sync import get_sync_status
+    from core.storage.db import connect
+    from core.storage import repository
+
+    conn = connect(tmp_path / "test.db")
+    ensure_app_schema(conn)
+
+    result = import_strava_export(conn, _strava_export_zip(_strava_csv_row("1", "Jan 1, 2026, 8:00:00 AM")))
+
+    assert result["imported"] == 1
+    activities = repository.get_activities(conn)
+    assert len(activities) == 1
+    assert activities[0].source == "strava"
+    assert activities[0].activity_id == "1"
+
+    status = get_sync_status(conn, "strava")
+    assert status["last_run_at"] is not None
+    assert status["auth_error"] is None
+
+
+def test_import_strava_export_dedupes_against_existing_garmin_activity(tmp_path):
+    from datetime import datetime
+
+    from app.data_sources import import_strava_export
+    from app.db import ensure_app_schema
+    from core.storage.db import connect
+    from core.storage import repository
+    from core.storage.models import Activity
+
+    conn = connect(tmp_path / "test.db")
+    ensure_app_schema(conn)
+    repository.upsert_activities(
+        conn,
+        [
+            Activity(
+                id="garmin:111",
+                source="garmin",
+                activity_id="111",
+                activity_name="Morning Run",
+                activity_type="running",
+                sport_type="running",
+                start_time=datetime(2026, 1, 1, 8, 0, 30),  # 30s from the Strava row below
+                duration_seconds=1800.0,
+                distance_meters=5000.0,
+                calories=300.0,
+                avg_hr=140.0,
+                max_hr=160.0,
+                avg_speed=2.8,
+                max_speed=3.5,
+                elevation_gain=20.0,
+                elevation_loss=20.0,
+                created_at=datetime(2026, 1, 1, 9, 0),
+            )
+        ],
+    )
+
+    result = import_strava_export(conn, _strava_export_zip(_strava_csv_row("1", "Jan 1, 2026, 8:00:00 AM")))
+
+    assert result["imported"] == 0
+    activities = repository.get_activities(conn)
+    assert len(activities) == 1
+    assert activities[0].source == "garmin"  # Garmin wins per ACTIVITY_SOURCE_PRIORITY
+
+
+def test_strava_import_route_requires_admin_login(client):
+    response = client.post(
+        "/api/data-sources/strava/import",
+        files={"export_file": ("export.zip", _strava_export_zip(_strava_csv_row("1", "Jan 1, 2026, 8:00:00 AM")), "application/zip")},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 401
+
+
+def test_strava_import_route_succeeds_and_returns_summary(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/strava/import",
+        files={"export_file": ("export.zip", _strava_export_zip(_strava_csv_row("1", "Jan 1, 2026, 8:00:00 AM")), "application/zip")},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == 1
+
+
+def test_strava_import_route_returns_400_for_invalid_zip(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/strava/import",
+        files={"export_file": ("export.zip", b"not a zip", "application/zip")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_strava_import_route_returns_400_when_activities_csv_missing(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("profile.csv", "Athlete ID\n1\n")
+
+    response = client.post(
+        "/api/data-sources/strava/import",
+        files={"export_file": ("export.zip", buf.getvalue(), "application/zip")},
+    )
+
+    assert response.status_code == 400
+
+
+def test_strava_import_route_returns_400_when_no_activities_in_file(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/strava/import",
+        files={"export_file": ("export.zip", _strava_export_zip(""), "application/zip")},
+    )
+
+    assert response.status_code == 400

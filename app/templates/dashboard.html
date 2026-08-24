@@ -184,8 +184,8 @@
             </div>
           </td>
           <td class="cell-datetime">
-            <span class="cell-main-date">{{ act.date_str }}</span>
-            <span class="cell-sub-time">{{ act.time_str }}</span>
+            <span class="cell-main-date" data-utc-timestamp="{{ act.raw_start_time }}" data-format="date">&hellip;</span>
+            <span class="cell-sub-time" data-utc-timestamp="{{ act.raw_start_time }}" data-format="time">&hellip;</span>
           </td>
           <td class="cell-distance">
             {% if act.distance_formatted %}

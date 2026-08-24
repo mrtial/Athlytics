@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
-from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin, import_apple_health, ingest_apple_health_metrics
+from app.data_sources import (
+    SUPPORTED_PROVIDERS,
+    connect_garmin,
+    import_apple_health,
+    import_strava_export,
+    ingest_apple_health_metrics,
+)
 from app.dependencies import require_admin_api, require_admin_page
 from app.mi_fitness_login import PendingMiFitnessLogin, start_mi_fitness_login
 from core.providers.garmin import GarminAuthError, GarminMfaRequired, complete_garmin_mfa
@@ -78,6 +84,14 @@ def connect_data_source(
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
+@router.post("/api/data-sources/garmin/disconnect")
+def disconnect_garmin(request: Request, conn=Depends(require_admin_page)):
+    """Clears saved Garmin credentials so the connect form reappears --
+    already-synced readings are untouched, this only forgets the login."""
+    request.app.state.credential_store.clear()
+    return RedirectResponse(url="/connections", status_code=303)
+
+
 @router.post("/api/data-sources/garmin/mfa")
 def submit_garmin_mfa(
     request: Request,
@@ -120,6 +134,25 @@ def import_apple_health_route(
         raise HTTPException(
             status_code=400,
             detail="No recognized Apple Health data found in this export.",
+        )
+    return result
+
+
+@router.post("/api/data-sources/strava/import")
+def import_strava_export_route(
+    request: Request,
+    export_file: UploadFile = File(...),
+    conn=Depends(require_admin_api),
+):
+    payload = export_file.file.read()
+    try:
+        result = import_strava_export(conn, payload)
+    except (ValueError, KeyError, zipfile.BadZipFile) as exc:
+        raise HTTPException(status_code=400, detail=f"could not import Strava export: {exc}") from exc
+    if not result["total_in_file"]:
+        raise HTTPException(
+            status_code=400,
+            detail="No activities found in this export.",
         )
     return result
 

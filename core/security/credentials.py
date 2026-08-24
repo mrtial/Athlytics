@@ -20,3 +20,6 @@ class CredentialStore:
             return None
         plaintext = self._fernet.decrypt(self._storage_path.read_bytes())
         return json.loads(plaintext.decode("utf-8"))
+
+    def clear(self) -> None:
+        self._storage_path.unlink(missing_ok=True)

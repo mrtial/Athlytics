@@ -223,6 +223,14 @@ def test_build_recent_activities_formats_correctly(conn):
     assert formatted_mi[0]["distance_formatted"] == "6.21 mi"
     assert formatted_mi[0]["pace_or_speed_val"] == "8:02 /mi"
 
+    # date_str/time_str used to be formatted server-side from a naive-UTC
+    # start_time with zero timezone conversion, silently showing UTC wall-
+    # clock time mislabeled as local. Only a raw, explicitly-UTC timestamp
+    # should be exposed now -- the browser converts it to local at render.
+    assert "date_str" not in formatted[0]
+    assert "time_str" not in formatted[0]
+    assert formatted[0]["raw_start_time"] == "2026-01-10T07:30:00Z"
+
 
 def test_activities_route_requires_admin_and_renders(app, client):
     # Unauthenticated redirects
@@ -266,6 +274,46 @@ def test_activities_route_requires_admin_and_renders(app, client):
     assert "Morning 10K" in res.text
     assert "Running" in res.text
     assert "Workout Sessions" in res.text
+    assert 'data-utc-timestamp="2026-01-10T07:30:00Z"' in res.text
+
+
+def test_dashboard_route_renders_raw_utc_timestamp_for_recent_activity(app, client):
+    from core.storage.models import Activity
+
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "dark"})
+    app.state.credential_store.save({"email": "a@example.com", "password": "x"})
+
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    act = Activity(
+        id="garmin:202",
+        source="garmin",
+        activity_id="202",
+        activity_name="Evening Ride",
+        activity_type="cycling",
+        sport_type="cycling",
+        start_time=datetime(2026, 1, 10, 22, 15),
+        duration_seconds=1800.0,
+        distance_meters=15000.0,
+        calories=500.0,
+        avg_hr=140.0,
+        max_hr=160.0,
+        avg_speed=8.3,
+        max_speed=10.0,
+        elevation_gain=20.0,
+        elevation_loss=20.0,
+        created_at=datetime(2026, 1, 10, 22, 45),
+    )
+    repository.upsert_activities(conn, [act])
+    conn.close()
+
+    res = client.get("/dashboard")
+
+    assert res.status_code == 200
+    assert 'data-utc-timestamp="2026-01-10T22:15:00Z"' in res.text
 
 
 def test_dashboard_shows_strava_metrics_when_only_strava_connected(app, client):

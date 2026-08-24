@@ -46,3 +46,22 @@ def test_saved_credential_file_has_restrictive_permissions(tmp_path):
     store.save({"email": "a@example.com", "password": "x"})
 
     assert oct(path.stat().st_mode)[-3:] == "600"
+
+
+def test_clear_removes_saved_credentials(tmp_path):
+    path = tmp_path / "garmin_credentials.enc"
+    store = CredentialStore(Fernet.generate_key(), path)
+    store.save({"email": "a@example.com", "password": "x"})
+
+    store.clear()
+
+    assert store.load() is None
+    assert not path.exists()
+
+
+def test_clear_is_a_noop_when_nothing_was_ever_saved(tmp_path):
+    store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_credentials.enc")
+
+    store.clear()  # must not raise
+
+    assert store.load() is None

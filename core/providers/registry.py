@@ -35,7 +35,14 @@ def _garmin_is_connected(conn: sqlite3.Connection, state: object) -> bool:
 
 
 def _strava_is_connected(conn: sqlite3.Connection, state: object) -> bool:
-    return state.strava_credential_store.load() is not None
+    # OAuth credentials are the primary connection method, but a user
+    # without an active Strava API subscription can instead import a
+    # bulk-export zip (app.data_sources.import_strava_export) -- that
+    # writes Activity rows with no OAuth credentials involved, so this
+    # source is also "connected" once any Strava-sourced activity exists.
+    if state.strava_credential_store.load() is not None:
+        return True
+    return repository.has_activities_from_source(conn, "strava")
 
 
 def _apple_health_is_connected(conn: sqlite3.Connection, state: object) -> bool:

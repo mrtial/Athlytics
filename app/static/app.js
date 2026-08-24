@@ -1,5 +1,33 @@
 let syncDetailsVisible = false;
 
+// Server-rendered timestamps are UTC (see core/storage/models.py's naive-
+// UTC contract); only the browser reliably knows the viewer's own
+// timezone, so anything showing "when" -- not just "what day" -- gets
+// rendered server-side as a placeholder plus a raw UTC ISO string in
+// data-utc-timestamp, then filled in here after load. data-format picks
+// which part to show: "date", "time", or the default full date + time.
+function formatLocalTimestamp(iso, format) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  if (format === "time") {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  if (format === "date") {
+    return d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+  }
+  const datePart = d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  const timePart = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${datePart} · ${timePart}`;
+}
+
+function hydrateLocalTimestamps() {
+  document.querySelectorAll("[data-utc-timestamp]").forEach((el) => {
+    const iso = el.getAttribute("data-utc-timestamp");
+    if (!iso) return;
+    el.textContent = formatLocalTimestamp(iso, el.getAttribute("data-format"));
+  });
+}
+
 const ICONS = {
   bell: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-bell"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>',
   zap: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-zap"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>',
@@ -12,7 +40,10 @@ async function refreshSyncStatus() {
   const el = document.getElementById("sync-status");
   if (!el) return;
 
-  const todayStr = el.getAttribute("data-today") || new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
+  // Always compute client-side, in the viewer's own timezone -- the
+  // server's date.today() reflects the container's clock (typically UTC),
+  // which can be a different calendar day near midnight local time.
+  const todayStr = new Date().toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' });
 
   try {
     const res = await fetch("/api/sync-status");
@@ -160,12 +191,13 @@ async function triggerManualSync(evt) {
   }
 }
 
-// Settings page: one-off, manually-triggered resync of a metric's entire
-// history (ignores checkpoints -- see /api/sync/full-history), distinct
-// from the routine "Sync Now" action which only ever fetches new data.
-// The server runs it in a background thread and responds immediately, so
-// this just confirms it started; actual progress shows up in the
-// Dashboard's sync status over the next several minutes.
+// Connections page: one-off, manually-triggered resync of every connected
+// source's entire history (ignores checkpoints -- see
+// /api/sync/full-history), distinct from the routine "Sync Now" action
+// which only ever fetches new data. The server routes this through the
+// scheduler's own background thread and responds immediately, so this
+// just confirms it started; pollSyncStatus (triggered below) shows live
+// progress via the Sync Status badge above.
 async function triggerFullHistorySync(evt) {
   if (evt) evt.preventDefault();
   const btn = document.getElementById("btn-full-history-sync");
@@ -181,9 +213,10 @@ async function triggerFullHistorySync(evt) {
     if (statusEl) {
       statusEl.style.display = "block";
       statusEl.textContent = res.ok
-        ? "Full history sync started -- this can take several minutes. Check the Dashboard's sync status for progress."
+        ? "Full history sync started -- deliberately paced to avoid rate limits, so this can take an hour or more across every metric. Watch the Sync Status badge above for progress."
         : "Couldn't start full history sync. Try again in a moment.";
     }
+    if (res.ok) pollSyncStatus();
   } catch (err) {
     console.error("Failed to trigger full history sync:", err);
     if (statusEl) {
@@ -196,6 +229,85 @@ async function triggerFullHistorySync(evt) {
       btn.textContent = "Full History Sync";
     }
   }
+}
+
+// Connections page: regular incremental sync for an already-connected
+// Garmin account, with no credentials to re-enter (contrast with the
+// nav's triggerManualSync, which targets a different button id, and
+// triggerFullHistorySync, which ignores checkpoints).
+async function triggerGarminSyncNow(evt) {
+  if (evt) evt.preventDefault();
+  const btn = document.getElementById("btn-garmin-sync-now");
+  const statusEl = document.getElementById("garmin-sync-now-status");
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `${ICONS.loader} Syncing…`;
+  }
+
+  try {
+    const res = await fetch("/api/sync/trigger", { method: "POST" });
+    if (statusEl) {
+      statusEl.style.display = "block";
+      statusEl.textContent = res.ok
+        ? "Sync started -- watch the Sync Status badge above for progress."
+        : "Couldn't start sync. Try again in a moment.";
+    }
+    if (res.ok) pollSyncStatus();
+  } catch (err) {
+    console.error("Failed to trigger sync:", err);
+    if (statusEl) {
+      statusEl.style.display = "block";
+      statusEl.textContent = "Couldn't start sync. Try again in a moment.";
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = "<span>Sync Now</span>";
+    }
+  }
+}
+
+// Connections/onboarding-connect pages: while a sync pass is running
+// (background daily sync, manual Sync Now, or Full History Sync -- any of
+// them, since they all now run through the same single scheduler thread),
+// polls /api/sync-status every few seconds and swaps the relevant
+// data-sync-status-badge to "Syncing…". Once the pass finishes, reloads
+// the page once to pick up the fresh Last Synced / per-metric status the
+// server renders, rather than duplicating that HTML-building logic here.
+// Safe to call unconditionally on page load: if nothing is syncing, it's
+// just one fetch and no further polling.
+function pollSyncStatus() {
+  let wasSyncing = false;
+
+  const tick = async () => {
+    let data;
+    try {
+      const res = await fetch("/api/sync-status");
+      data = await res.json();
+    } catch (err) {
+      console.error("Failed to poll sync status:", err);
+      return;
+    }
+
+    if (data.sync_in_progress) {
+      const progress = data.sync_metric_progress;
+      const label = progress ? `Syncing ${progress.completed}/${progress.total}…` : "Syncing…";
+      document.querySelectorAll("[data-sync-status-badge]").forEach((el) => {
+        if (el.dataset.syncStatusBadge === data.currently_syncing_source) {
+          el.textContent = label;
+          el.style.background = "var(--warning-soft)";
+          el.style.color = "var(--warning)";
+        }
+      });
+      wasSyncing = true;
+      setTimeout(tick, 4000);
+    } else if (wasSyncing) {
+      window.location.reload();
+    }
+  };
+
+  tick();
 }
 
 function escapeHtml(value) {
@@ -425,5 +537,6 @@ document.addEventListener("DOMContentLoaded", () => {
   initThemeToggle();
   initSkinToggle();
   initActivityFilters();
+  hydrateLocalTimestamps();
 });
 

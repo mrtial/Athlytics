@@ -208,10 +208,101 @@ def test_perform_sync_pass_forwards_force_full_backfill_to_sync_all_metrics(tmp_
     assert captured.get("force_full_backfill") is True
 
 
+def test_perform_sync_pass_calls_on_source_start_for_each_connected_source(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_creds.enc")
+    garmin_store.save({"email": "a@example.com", "password": "x"})
+    strava_store = CredentialStore(Fernet.generate_key(), tmp_path / "strava_creds.enc")
+    strava_store.save({
+        "client_id": "1", "client_secret": "s", "access_token": "a", "refresh_token": "r", "expires_at": "9999999999"
+    })
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, chunk_days=30, pace_seconds=0.0, **kwargs):
+        return {"resting_hr": "complete"}
+
+    monkeypatch.setattr("app.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    def strava_http_client_factory():
+        import httpx
+        return httpx.Client(
+            base_url="https://www.strava.com",
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[])),
+        )
+
+    seen: list[str] = []
+
+    perform_sync_pass(
+        db_path, garmin_store, tmp_path / "garmin_tokens",
+        garmin_client_factory=_OneMetricClient,
+        strava_credential_store=strava_store, strava_http_client_factory=strava_http_client_factory,
+        on_source_start=seen.append,
+    )
+
+    assert seen == ["garmin", "strava"]
+
+
+def test_perform_sync_pass_forwards_on_metric_progress_qualified_by_source(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_creds.enc")
+    garmin_store.save({"email": "a@example.com", "password": "x"})
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, chunk_days=30, pace_seconds=0.0, **kwargs):
+        on_metric_progress = kwargs.get("on_metric_progress")
+        if on_metric_progress:
+            on_metric_progress(1, 3)
+            on_metric_progress(3, 3)
+        return {"resting_hr": "complete"}
+
+    monkeypatch.setattr("app.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    seen: list[tuple[str, int, int]] = []
+
+    perform_sync_pass(
+        db_path, garmin_store, tmp_path / "garmin_tokens",
+        garmin_client_factory=_OneMetricClient,
+        on_metric_progress=lambda source, completed, total: seen.append((source, completed, total)),
+    )
+
+    assert seen == [("garmin", 1, 3), ("garmin", 3, 3)]
+
+
+def test_perform_sync_pass_does_not_call_on_source_start_for_unconnected_sources(tmp_path):
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_creds.enc")  # not connected
+
+    seen: list[str] = []
+    perform_sync_pass(db_path, garmin_store, tmp_path / "garmin_tokens", on_source_start=seen.append)
+
+    assert seen == []
+
+
+def test_perform_sync_pass_on_source_start_is_optional(tmp_path):
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_creds.enc")  # not connected
+
+    perform_sync_pass(db_path, garmin_store, tmp_path / "garmin_tokens")  # must not raise with no callback given
+
+
 def test_background_sync_scheduler_trigger_runs_sync_fn_promptly():
     ran = threading.Event()
 
-    def sync_fn():
+    def sync_fn(force_full_backfill=False):
         ran.set()
 
     scheduler = BackgroundSyncScheduler(sync_fn, interval_seconds=1000)
@@ -226,7 +317,7 @@ def test_background_sync_scheduler_trigger_runs_sync_fn_promptly():
 
 
 def test_background_sync_scheduler_stop_joins_thread():
-    scheduler = BackgroundSyncScheduler(lambda: None, interval_seconds=1000)
+    scheduler = BackgroundSyncScheduler(lambda force_full_backfill=False: None, interval_seconds=1000)
     scheduler.start()
 
     scheduler.stop(timeout=2)
@@ -237,7 +328,7 @@ def test_background_sync_scheduler_stop_joins_thread():
 def test_background_sync_scheduler_swallows_exceptions_from_sync_fn():
     calls = []
 
-    def flaky_sync_fn():
+    def flaky_sync_fn(force_full_backfill=False):
         calls.append(1)
         if len(calls) == 1:
             raise RuntimeError("boom")
@@ -250,6 +341,77 @@ def test_background_sync_scheduler_swallows_exceptions_from_sync_fn():
             time.sleep(0.05)
         assert len(calls) == 1  # thread must still be alive after the exception, not crashed
     finally:
+        scheduler.stop(timeout=2)
+
+
+def test_background_sync_scheduler_trigger_force_full_backfill_is_forwarded_to_sync_fn():
+    received = []
+    ran = threading.Event()
+
+    def sync_fn(force_full_backfill=False):
+        received.append(force_full_backfill)
+        ran.set()
+
+    scheduler = BackgroundSyncScheduler(sync_fn, interval_seconds=1000)
+    scheduler.start()
+    try:
+        assert ran.wait(timeout=2)  # the initial run-on-start pass -- ignore it
+        ran.clear()
+        received.clear()
+
+        scheduler.trigger(force_full_backfill=True)
+        assert ran.wait(timeout=2)
+        assert received == [True]
+    finally:
+        scheduler.stop(timeout=2)
+
+
+def test_background_sync_scheduler_trigger_without_force_defaults_to_false():
+    received = []
+    ran = threading.Event()
+
+    def sync_fn(force_full_backfill=False):
+        received.append(force_full_backfill)
+        ran.set()
+
+    scheduler = BackgroundSyncScheduler(sync_fn, interval_seconds=1000)
+    scheduler.start()
+    try:
+        assert ran.wait(timeout=2)
+        ran.clear()
+        received.clear()
+
+        scheduler.trigger()
+        assert ran.wait(timeout=2)
+        assert received == [False]
+    finally:
+        scheduler.stop(timeout=2)
+
+
+def test_background_sync_scheduler_is_syncing_reflects_sync_fn_execution():
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_sync_fn(force_full_backfill=False):
+        entered.set()
+        release.wait(timeout=2)
+
+    scheduler = BackgroundSyncScheduler(slow_sync_fn, interval_seconds=1000)
+    assert scheduler.is_syncing() is False
+
+    scheduler.start()
+    try:
+        assert entered.wait(timeout=2)
+        assert scheduler.is_syncing() is True
+
+        release.set()
+        # give _run_loop a moment to fall through the sync_fn call and clear the flag
+        deadline = time.time() + 2
+        while scheduler.is_syncing() and time.time() < deadline:
+            time.sleep(0.02)
+        assert scheduler.is_syncing() is False
+    finally:
+        release.set()
         scheduler.stop(timeout=2)
 
 

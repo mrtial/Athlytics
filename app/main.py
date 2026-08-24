@@ -72,16 +72,30 @@ def create_app(data_dir: Path) -> FastAPI:
     strava_credential_store = CredentialStore(secret_key, strava_credentials_path)
     mi_fitness_credential_store = CredentialStore(secret_key, mi_fitness_credentials_path)
 
-    def sync_fn() -> None:
-        perform_sync_pass(
-            db_path,
-            credential_store,
-            token_cache_dir,
-            garmin_client_factory=app.state.garmin_client_factory,
-            strava_credential_store=strava_credential_store,
-            strava_http_client_factory=app.state.strava_http_client_factory,
-            mi_fitness_credential_store=mi_fitness_credential_store,
-        )
+    def sync_fn(force_full_backfill: bool = False) -> None:
+        def on_source_start(source: str) -> None:
+            app.state.currently_syncing_source = source
+            app.state.sync_metric_progress = None
+
+        def on_metric_progress(source: str, completed: int, total: int) -> None:
+            app.state.sync_metric_progress = {"completed": completed, "total": total}
+
+        try:
+            perform_sync_pass(
+                db_path,
+                credential_store,
+                token_cache_dir,
+                garmin_client_factory=app.state.garmin_client_factory,
+                strava_credential_store=strava_credential_store,
+                strava_http_client_factory=app.state.strava_http_client_factory,
+                mi_fitness_credential_store=mi_fitness_credential_store,
+                force_full_backfill=force_full_backfill,
+                on_source_start=on_source_start,
+                on_metric_progress=on_metric_progress,
+            )
+        finally:
+            app.state.currently_syncing_source = None
+            app.state.sync_metric_progress = None
 
     scheduler = BackgroundSyncScheduler(sync_fn)
 
@@ -98,6 +112,8 @@ def create_app(data_dir: Path) -> FastAPI:
     app.state.token_cache_dir = token_cache_dir
     app.state.templates = TEMPLATES
     app.state.sync_scheduler = scheduler
+    app.state.currently_syncing_source = None
+    app.state.sync_metric_progress = None
     app.state.pending_garmin_mfa = None
     from garminconnect import Garmin
 

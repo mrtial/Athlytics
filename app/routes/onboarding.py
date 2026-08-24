@@ -203,15 +203,18 @@ def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN
 
-    providers = [
-        {
-            "id": p.id,
-            "display_name": p.display_name,
-            "flow_type": p.flow_type,
-            "connected": p.is_connected(conn, request.app.state),
-        }
-        for p in PROVIDER_REGISTRY
-    ]
+    providers = sorted(
+        (
+            {
+                "id": p.id,
+                "display_name": p.display_name,
+                "flow_type": p.flow_type,
+                "connected": p.is_connected(conn, request.app.state),
+            }
+            for p in PROVIDER_REGISTRY
+        ),
+        key=lambda p: not p["connected"],
+    )
 
     api_token = get_api_token(conn)
     if api_token is None:
@@ -220,6 +223,7 @@ def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
     apple_health_upload_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/import"
     apple_health_shortcut_qr = apple_health_shortcut_qr_svg(api_token, apple_health_upload_url)
     apple_health_metrics_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/metrics"
+    apple_health_metrics_qr = apple_health_shortcut_qr_svg(api_token, apple_health_metrics_url)
 
     return templates.TemplateResponse(
         request=request,
@@ -234,9 +238,14 @@ def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
             "apple_health_upload_url": apple_health_upload_url,
             "apple_health_shortcut_qr": apple_health_shortcut_qr,
             "apple_health_metrics_url": apple_health_metrics_url,
+            "apple_health_metrics_qr": apple_health_metrics_qr,
             "apple_health_metric_types": sorted(APPLE_HEALTH_METRIC_TYPES),
             "apple_health_success_redirect": "/dashboard",
+            "strava_import_success_redirect": "/dashboard",
             "mi_fitness_success_url": "/dashboard",
+            "sync_in_progress": request.app.state.sync_scheduler.is_syncing(),
+            "currently_syncing_source": request.app.state.currently_syncing_source,
+            "sync_metric_progress": request.app.state.sync_metric_progress,
             "onboarding_steps": onboarding_progress(conn, request.app.state, "connect"),
         },
     )

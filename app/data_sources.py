@@ -9,6 +9,7 @@ from core.providers.apple_health import SOURCE as APPLE_HEALTH_SOURCE
 from core.providers.apple_health import METRIC_TYPE_UNITS, AppleHealthProvider
 from core.providers.garmin import GarminProvider
 from core.providers.registry import PROVIDER_REGISTRY
+from core.providers.strava_export import StravaExportProvider
 from core.security.credentials import CredentialStore
 from core.storage import repository
 from core.storage.models import MetricReading
@@ -101,3 +102,22 @@ def ingest_apple_health_metrics(conn, day: date, readings: dict[str, float]) -> 
         "imported": {reading.metric_type: "imported: 1" for reading in batch},
         "skipped": skipped,
     }
+
+
+def import_strava_export(conn, payload: bytes) -> dict[str, int]:
+    """Streams payload (a Strava "Request your Archive" zip) through
+    StravaExportProvider and upserts the resulting activities, applying the
+    same cross-source dedup the OAuth path uses (repository.upsert_activities
+    -- Garmin wins ties, see ACTIVITY_SOURCE_PRIORITY). Also records a
+    sync_run_status row for "strava" so the Connections page's "Last synced"
+    reflects the upload time -- gated the same way perform_sync_pass gates
+    the OAuth path, so an unrelated background sync pass (which only touches
+    Strava when OAuth credentials exist) never overwrites this timestamp for
+    a file-import-only user."""
+    from app.sync import record_sync_run
+
+    activities = list(StravaExportProvider().ingest(payload))
+    inserted = repository.upsert_activities(conn, activities)
+    if activities:
+        record_sync_run(conn, "strava", auth_error=None)
+    return {"imported": inserted, "total_in_file": len(activities)}

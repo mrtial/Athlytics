@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, Request
 
 from app.dependencies import require_admin_page
@@ -25,15 +23,6 @@ from core.storage.repository import get_source_priority
 router = APIRouter()
 
 
-def _format_last_run(last_run_at: str | None) -> str | None:
-    if not last_run_at:
-        return None
-    try:
-        return datetime.fromisoformat(last_run_at).strftime("%b %d, %Y · %I:%M %p")
-    except ValueError:
-        return last_run_at
-
-
 @router.get("/connections")
 def connections_page(request: Request, conn=Depends(require_admin_page)):
     templates = request.app.state.templates
@@ -44,15 +33,18 @@ def connections_page(request: Request, conn=Depends(require_admin_page)):
     persona = get_persona(conn)
 
     connected_by_id = {p.id: p.is_connected(conn, request.app.state) for p in PROVIDER_REGISTRY}
-    providers = [
-        {
-            "id": p.id,
-            "display_name": p.display_name,
-            "flow_type": p.flow_type,
-            "connected": connected_by_id[p.id],
-        }
-        for p in PROVIDER_REGISTRY
-    ]
+    providers = sorted(
+        (
+            {
+                "id": p.id,
+                "display_name": p.display_name,
+                "flow_type": p.flow_type,
+                "connected": connected_by_id[p.id],
+            }
+            for p in PROVIDER_REGISTRY
+        ),
+        key=lambda p: not p["connected"],
+    )
 
     # Apple Health is a one-shot import, not an ongoing sync run (no
     # sync_run_status/sync_metric_status rows to show) -- its own "Status:
@@ -60,13 +52,15 @@ def connections_page(request: Request, conn=Depends(require_admin_page)):
     sync_status_by_id = {}
     for p in PROVIDER_REGISTRY:
         if connected_by_id[p.id] and p.flow_type != "file_import":
-            status = get_sync_status(conn, p.id)
-            status["last_run_display"] = _format_last_run(status["last_run_at"])
-            sync_status_by_id[p.id] = status
+            sync_status_by_id[p.id] = get_sync_status(conn, p.id)
 
     overlapping_metric_types = []
     if connected_by_id.get("garmin") and connected_by_id.get("apple_health"):
         overlapping_metric_types = sorted(set(GARMIN_METRIC_TYPES) & set(APPLE_HEALTH_METRIC_TYPES))
+
+    sync_in_progress = request.app.state.sync_scheduler.is_syncing()
+    currently_syncing_source = request.app.state.currently_syncing_source
+    sync_metric_progress = request.app.state.sync_metric_progress
 
     api_token = get_api_token(conn)
     if api_token is None:
@@ -75,6 +69,7 @@ def connections_page(request: Request, conn=Depends(require_admin_page)):
     apple_health_upload_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/import"
     apple_health_shortcut_qr = apple_health_shortcut_qr_svg(api_token, apple_health_upload_url)
     apple_health_metrics_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/metrics"
+    apple_health_metrics_qr = apple_health_shortcut_qr_svg(api_token, apple_health_metrics_url)
 
     return templates.TemplateResponse(
         request=request,
@@ -89,13 +84,18 @@ def connections_page(request: Request, conn=Depends(require_admin_page)):
             "persona": persona,
             "providers": providers,
             "sync_status_by_id": sync_status_by_id,
+            "sync_in_progress": sync_in_progress,
+            "currently_syncing_source": currently_syncing_source,
+            "sync_metric_progress": sync_metric_progress,
             "id_prefix": "connections",
             "api_token": api_token,
             "apple_health_upload_url": apple_health_upload_url,
             "apple_health_shortcut_qr": apple_health_shortcut_qr,
             "apple_health_metrics_url": apple_health_metrics_url,
+            "apple_health_metrics_qr": apple_health_metrics_qr,
             "apple_health_metric_types": sorted(APPLE_HEALTH_METRIC_TYPES),
             "apple_health_success_redirect": None,
+            "strava_import_success_redirect": None,
             "mi_fitness_success_url": None,
             "overlapping_metric_types": overlapping_metric_types,
             "source_priority": {mt: get_source_priority(conn, mt) or "garmin" for mt in overlapping_metric_types},

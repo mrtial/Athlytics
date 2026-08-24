@@ -65,10 +65,6 @@ def format_activity_for_display(activity, unit: str = "km") -> dict:
         (activity.activity_type.replace("_", " ").title(), "activity"),
     )
 
-    dt = activity.start_time
-    date_str = dt.strftime("%a, %d %b")
-    time_str = dt.strftime("%H:%M")
-
     dur_sec = int(activity.duration_seconds)
     hours = dur_sec // 3600
     minutes = (dur_sec % 3600) // 60
@@ -137,8 +133,6 @@ def format_activity_for_display(activity, unit: str = "km") -> dict:
         "sport_type": activity.sport_type,
         "sport_label": label,
         "icon": icon,
-        "date_str": date_str,
-        "time_str": time_str,
         "duration_formatted": duration_formatted,
         "distance_formatted": distance_formatted,
         "distance_val": distance_val,
@@ -148,7 +142,12 @@ def format_activity_for_display(activity, unit: str = "km") -> dict:
         "avg_hr": avg_hr,
         "calories": calories,
         "elevation_gain": elev_gain,
-        "raw_start_time": activity.start_time.isoformat(),
+        # start_time is stored naive per the app's UTC timezone contract
+        # (core/storage/models.py) -- append "Z" so JS's Date parser treats
+        # it as UTC and converts to the viewer's local time, rather than
+        # (per the ECMA-262 default for an offset-less datetime string)
+        # silently treating these same digits as already-local.
+        "raw_start_time": activity.start_time.isoformat() + "Z",
     }
 
 

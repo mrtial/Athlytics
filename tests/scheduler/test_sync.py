@@ -154,6 +154,42 @@ def test_chunk_days_less_than_one_raises_value_error(tmp_path):
         sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5), chunk_days=0)
 
 
+def test_on_metric_progress_called_once_per_metric_type_with_running_count(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = FakeProvider(readings_by_metric={"steps": [_reading(1)], "resting_hr": [_reading(1)]})
+    progress: list[tuple[int, int]] = []
+
+    sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 1),
+        on_metric_progress=lambda c, t: progress.append((c, t)),
+    )
+
+    assert progress == [(1, 2), (2, 2)]
+
+
+def test_on_metric_progress_counts_up_to_date_and_failed_metrics_too(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = FakeProvider(
+        readings_by_metric={"steps": [_reading(1)], "resting_hr": []},
+        fail_metric_types={"steps"},
+    )
+    progress: list[tuple[int, int]] = []
+
+    sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 1),
+        on_metric_progress=lambda c, t: progress.append((c, t)),
+    )
+
+    assert progress == [(1, 2), (2, 2)]
+
+
+def test_on_metric_progress_is_optional(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = FakeProvider(readings_by_metric={"steps": [_reading(1)]})
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 1))  # must not raise with no callback given
+
+
 def test_sync_all_metrics_persists_activities_when_provider_supports_it(tmp_path):
     from core.storage.models import Activity
     conn = connect(tmp_path / "test.db")

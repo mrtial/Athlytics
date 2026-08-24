@@ -74,6 +74,7 @@ def _run_provider_sync(
     chunk_days: int,
     pace_seconds: float,
     force_full_backfill: bool,
+    on_metric_progress: Callable[[int, int], None] | None = None,
 ) -> None:
     """Runs sync_all_metrics for an already-constructed, already-authenticated
     provider and records the run/metric statuses. Shared by every provider
@@ -82,6 +83,7 @@ def _run_provider_sync(
     results = sync_all_metrics(
         conn, provider, backfill_start, end,
         chunk_days=chunk_days, pace_seconds=pace_seconds, force_full_backfill=force_full_backfill,
+        on_metric_progress=on_metric_progress,
     )
     record_sync_run(conn, source, auth_error=None)
     record_metric_statuses(conn, source, results)
@@ -96,11 +98,15 @@ def perform_sync_pass(
     strava_http_client_factory: Callable[[], httpx.Client] | None = None,
     mi_fitness_credential_store: CredentialStore | None = None,
     force_full_backfill: bool = False,
+    on_source_start: Callable[[str], None] | None = None,
+    on_metric_progress: Callable[[str, int, int], None] | None = None,
 ) -> None:
     backfill_start = date.today() - timedelta(days=BACKFILL_LOOKBACK_DAYS)
     end = date.today()
 
     if credential_store.load() is not None:
+        if on_source_start:
+            on_source_start("garmin")
         conn = connect(db_path)
         try:
             try:
@@ -109,12 +115,15 @@ def perform_sync_pass(
                 record_sync_run(conn, "garmin", auth_error=str(exc))
             else:
                 _run_provider_sync(
-                    conn, "garmin", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill
+                    conn, "garmin", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill,
+                    on_metric_progress=(lambda completed, total: on_metric_progress("garmin", completed, total)) if on_metric_progress else None,
                 )
         finally:
             conn.close()
 
     if strava_credential_store is not None and strava_credential_store.load() is not None:
+        if on_source_start:
+            on_source_start("strava")
         conn = connect(db_path)
         try:
             http_client = strava_http_client_factory() if strava_http_client_factory else None
@@ -124,12 +133,15 @@ def perform_sync_pass(
                 record_sync_run(conn, "strava", auth_error=str(exc))
             else:
                 _run_provider_sync(
-                    conn, "strava", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill
+                    conn, "strava", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill,
+                    on_metric_progress=(lambda completed, total: on_metric_progress("strava", completed, total)) if on_metric_progress else None,
                 )
         finally:
             conn.close()
 
     if mi_fitness_credential_store is not None and mi_fitness_credential_store.load() is not None:
+        if on_source_start:
+            on_source_start("mi_fitness")
         conn = connect(db_path)
         try:
             try:
@@ -138,31 +150,44 @@ def perform_sync_pass(
                 record_sync_run(conn, "mi_fitness", auth_error=str(exc))
             else:
                 _run_provider_sync(
-                    conn, "mi_fitness", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill
+                    conn, "mi_fitness", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill,
+                    on_metric_progress=(lambda completed, total: on_metric_progress("mi_fitness", completed, total)) if on_metric_progress else None,
                 )
         finally:
             conn.close()
 
 
 class BackgroundSyncScheduler:
-    """Runs a sync_fn() on a roughly-daily cadence in a background thread,
-    triggerable on demand so backfill starts immediately after a data
-    source is connected rather than waiting up to interval_seconds.
+    """Runs a sync_fn(force_full_backfill) on a roughly-daily cadence in a
+    background thread, triggerable on demand so backfill starts immediately
+    after a data source is connected rather than waiting up to
+    interval_seconds. This is the *only* thread that ever calls sync_fn --
+    routing every trigger (including a manual "resync all history" request)
+    through here, instead of spawning ad-hoc threads elsewhere, is what
+    guarantees two sync passes never run concurrently against the same
+    provider APIs.
     """
 
-    def __init__(self, sync_fn: Callable[[], None], interval_seconds: float = SYNC_INTERVAL_SECONDS):
+    def __init__(self, sync_fn: Callable[[bool], None], interval_seconds: float = SYNC_INTERVAL_SECONDS):
         self._sync_fn = sync_fn
         self._interval_seconds = interval_seconds
         self._wake_event = threading.Event()
         self._stop_event = threading.Event()
+        self._force_full_backfill_requested = threading.Event()
+        self._syncing = threading.Event()
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
-    def trigger(self) -> None:
+    def trigger(self, force_full_backfill: bool = False) -> None:
+        if force_full_backfill:
+            self._force_full_backfill_requested.set()
         self._wake_event.set()
+
+    def is_syncing(self) -> bool:
+        return self._syncing.is_set()
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop_event.set()
@@ -172,9 +197,14 @@ class BackgroundSyncScheduler:
 
     def _run_loop(self) -> None:
         while not self._stop_event.is_set():
+            force_full_backfill = self._force_full_backfill_requested.is_set()
+            self._force_full_backfill_requested.clear()
+            self._syncing.set()
             try:
-                self._sync_fn()
+                self._sync_fn(force_full_backfill)
             except Exception:
                 logger.exception("background sync pass failed")
+            finally:
+                self._syncing.clear()
             self._wake_event.wait(timeout=self._interval_seconds)
             self._wake_event.clear()

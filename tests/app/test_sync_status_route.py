@@ -86,22 +86,57 @@ def test_sync_trigger_route_triggers_background_scheduler(client):
     assert response.json() == {"status": "triggered"}
 
 
-def test_full_history_sync_route_runs_perform_sync_pass_with_force_full_backfill(client, monkeypatch):
-    import threading
-
+def test_full_history_sync_route_triggers_scheduler_with_force_full_backfill(app, client, monkeypatch):
+    # Routed through the scheduler's own single thread (not a separate ad-hoc
+    # thread) so it can never run concurrently with a regular sync pass and
+    # race the same provider APIs -- and, as a result, covers every
+    # connected source (not just Garmin), since it's the same sync_fn the
+    # regular pass already uses.
     _login(client)
-    ran = threading.Event()
     captured = {}
-
-    def fake_perform_sync_pass(*args, **kwargs):
-        captured.update(kwargs)
-        ran.set()
-
-    monkeypatch.setattr("app.routes.sync_status.perform_sync_pass", fake_perform_sync_pass)
+    monkeypatch.setattr(app.state.sync_scheduler, "trigger", lambda **kwargs: captured.update(kwargs))
 
     response = client.post("/api/sync/full-history")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "started"}
-    assert ran.wait(timeout=2), "route should run perform_sync_pass in a background thread"
-    assert captured.get("force_full_backfill") is True
+    assert response.json() == {"status": "triggered"}
+    assert captured == {"force_full_backfill": True}
+
+
+def test_sync_status_route_reports_sync_in_progress_false_by_default(client):
+    _login(client)
+
+    response = client.get("/api/sync-status")
+
+    body = response.json()
+    assert body["sync_in_progress"] is False
+    assert body["currently_syncing_source"] is None
+
+
+def test_sync_status_route_reports_sync_in_progress_true_while_scheduler_is_syncing(app, client, monkeypatch):
+    _login(client)
+    monkeypatch.setattr(app.state.sync_scheduler, "is_syncing", lambda: True)
+    app.state.currently_syncing_source = "garmin"
+
+    response = client.get("/api/sync-status")
+
+    body = response.json()
+    assert body["sync_in_progress"] is True
+    assert body["currently_syncing_source"] == "garmin"
+
+
+def test_sync_status_route_reports_sync_metric_progress_none_by_default(client):
+    _login(client)
+
+    response = client.get("/api/sync-status")
+
+    assert response.json()["sync_metric_progress"] is None
+
+
+def test_sync_status_route_reports_sync_metric_progress_when_set(app, client):
+    _login(client)
+    app.state.sync_metric_progress = {"completed": 5, "total": 18}
+
+    response = client.get("/api/sync-status")
+
+    assert response.json()["sync_metric_progress"] == {"completed": 5, "total": 18}

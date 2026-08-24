@@ -67,6 +67,46 @@ def test_strava_is_connected_reflects_credential_store(tmp_path):
     assert provider.is_connected(conn, _state(tmp_path / "b", strava_connected=True)) is True
 
 
+def test_strava_is_connected_reflects_file_imported_activities_without_oauth(tmp_path):
+    from datetime import datetime
+
+    from core.storage import repository
+    from core.storage.models import Activity
+
+    provider = get_provider("strava")
+    conn = connect(tmp_path / "test.db")
+    state = _state(tmp_path, strava_connected=False)
+
+    assert provider.is_connected(conn, state) is False
+
+    repository.upsert_activities(
+        conn,
+        [
+            Activity(
+                id="strava:1",
+                source="strava",
+                activity_id="1",
+                activity_name="Morning Run",
+                activity_type="running",
+                sport_type="Run",
+                start_time=datetime(2026, 1, 1, 7, 0),
+                duration_seconds=1800.0,
+                distance_meters=5000.0,
+                calories=300.0,
+                avg_hr=140.0,
+                max_hr=160.0,
+                avg_speed=2.8,
+                max_speed=3.5,
+                elevation_gain=20.0,
+                elevation_loss=20.0,
+                created_at=datetime(2026, 1, 1, 8, 0),
+            )
+        ],
+    )
+
+    assert provider.is_connected(conn, state) is True
+
+
 def test_apple_health_is_connected_reflects_synced_data(tmp_path):
     from datetime import date
 

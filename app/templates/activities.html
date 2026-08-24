@@ -70,7 +70,7 @@
           </div>
         </div>
         <div class="workout-time-chip">
-          <span>{{ act.date_str }} &bull; {{ act.time_str }}</span>
+          <span><span data-utc-timestamp="{{ act.raw_start_time }}" data-format="date">&hellip;</span> &bull; <span data-utc-timestamp="{{ act.raw_start_time }}" data-format="time">&hellip;</span></span>
         </div>
       </div>
 
