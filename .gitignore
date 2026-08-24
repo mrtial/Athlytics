@@ -8,3 +8,4 @@ __pycache__/
 .garmin_tokens/
 .pytest_cache/
 .claude/worktrees
+/seed/

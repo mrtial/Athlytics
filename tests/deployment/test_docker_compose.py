@@ -16,9 +16,9 @@ def test_docker_compose_file_exists_and_is_valid_yaml():
     assert "services" in compose
 
 
-def test_docker_compose_defines_exactly_one_service():
+def test_docker_compose_defines_the_app_service():
     compose = _load_compose()
-    assert list(compose["services"].keys()) == ["app"]
+    assert "app" in compose["services"]
 
 
 def test_app_service_has_a_stable_container_name_for_docker_exec():
@@ -53,8 +53,21 @@ def test_app_service_exposes_port_8000_with_a_configurable_host_side():
     assert "ATHLYTICS_PORT" in ports[0]
 
 
-def test_compose_defines_no_second_service_or_reverse_proxy():
+def test_compose_defines_only_the_app_service_and_the_opt_in_dev_sandbox():
     # Design doc Deployment section + Non-Goals: no separate DB container,
-    # no reverse proxy/TLS termination in v1.
+    # no reverse proxy/TLS termination in v1. The one exception is app-dev,
+    # a sandbox for exercising onboarding against a throwaway database --
+    # gated behind the "dev" Compose profile so `docker compose up` alone
+    # never starts it, preserving the "nothing runs by accident" intent
+    # even though it's technically a second services: entry.
     compose = _load_compose()
-    assert len(compose["services"]) == 1
+    assert set(compose["services"].keys()) == {"app", "app-dev"}
+    assert compose["services"]["app-dev"].get("profiles") == ["dev"]
+
+
+def test_app_dev_service_is_isolated_from_the_real_app():
+    compose = _load_compose()
+    app = compose["services"]["app"]
+    app_dev = compose["services"]["app-dev"]
+    assert app_dev["volumes"] != app["volumes"]
+    assert app_dev["ports"] != app["ports"]

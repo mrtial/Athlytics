@@ -13,5 +13,29 @@ services:
       ATHLYTICS_DB_PATH: /data/athlytics.db
       ATHLYTICS_SECURE_COOKIES: "${ATHLYTICS_SECURE_COOKIES:-false}"
 
+  # Isolated instance for exercising the onboarding flow (or any other
+  # fresh-install behavior) without touching the real athlytics_data
+  # volume. Its own volume means "start fresh" is just deleting
+  # athlytics_athlytics_dev_data, never athlytics_athlytics_data.
+  # Opt-in via the "dev" profile so a plain `docker compose up` never
+  # starts it: `docker compose --profile dev up -d app-dev`.
+  # Reset to a blank onboarding state:
+  #   docker compose --profile dev rm -sf app-dev
+  #   docker volume rm athlytics_athlytics_dev_data
+  app-dev:
+    build: .
+    image: athlytics:latest
+    container_name: athlytics-dev
+    profiles: ["dev"]
+    ports:
+      - "${ATHLYTICS_DEV_PORT:-8001}:8000"
+    volumes:
+      - athlytics_dev_data:/data
+    environment:
+      ATHLYTICS_DATA_DIR: /data
+      ATHLYTICS_DB_PATH: /data/athlytics.db
+      ATHLYTICS_SECURE_COOKIES: "false"
+
 volumes:
   athlytics_data:
+  athlytics_dev_data:

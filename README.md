@@ -107,6 +107,42 @@ docker compose down -v       # stops container AND deletes data volume
 
 *Warning: This permanently deletes your local database, encryption secret, and cached Garmin session.*
 
+### Backup & Seed Data
+
+Dump the live database to a portable `.sql` file (used for backups, or as seed data for a fresh instance):
+
+```bash
+docker exec athlytics python scripts/export_db.py --output /data/seed_export.sql
+docker cp athlytics:/data/seed_export.sql seed/athlytics_seed.sql
+docker exec athlytics rm /data/seed_export.sql
+```
+
+`seed/` is gitignored -- these dumps contain your admin password hash and session data, so they're never committed. Restore one into a fresh database with:
+
+```bash
+python scripts/import_db.py --input seed/athlytics_seed.sql --db path/to/athlytics.db
+```
+
+`import_db.py` refuses to overwrite an existing, non-empty `--db` file unless you pass `--force`.
+
+### Sandbox Dev Instance (Testing Onboarding Without Touching Real Data)
+
+`docker-compose.yml` also defines an `app-dev` service: the same image, but its own port (8001) and its own data volume, gated behind the `dev` Compose profile so it never starts alongside the real app by accident.
+
+```bash
+docker compose --profile dev up -d app-dev   # fresh instance at http://localhost:8001
+```
+
+Reset it to a blank onboarding state as many times as you like:
+
+```bash
+docker compose --profile dev rm -sf app-dev
+docker volume rm athlytics_athlytics_dev_data
+docker compose --profile dev up -d app-dev
+```
+
+*Never run `docker compose down -v` to reset the dev instance -- that removes every unused volume in the project, including your real `athlytics_data`. Target the dev volume by name instead, as above.*
+
 ### Advanced: Running without Compose
 
 ```bash
