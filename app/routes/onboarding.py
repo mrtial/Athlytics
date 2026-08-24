@@ -21,6 +21,7 @@ from app.settings import (
     set_persona,
     set_theme,
 )
+from core.providers.apple_health import APPLE_HEALTH_METRIC_TYPES
 from core.providers.registry import PROVIDER_REGISTRY
 
 router = APIRouter()
@@ -218,6 +219,7 @@ def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
         set_api_token(conn, api_token)
     apple_health_upload_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/import"
     apple_health_shortcut_qr = apple_health_shortcut_qr_svg(api_token, apple_health_upload_url)
+    apple_health_metrics_url = str(request.base_url).rstrip("/") + "/api/data-sources/apple-health/metrics"
 
     return templates.TemplateResponse(
         request=request,
@@ -231,6 +233,8 @@ def onboarding_connect_form(request: Request, conn=Depends(require_admin_page)):
             "api_token": api_token,
             "apple_health_upload_url": apple_health_upload_url,
             "apple_health_shortcut_qr": apple_health_shortcut_qr,
+            "apple_health_metrics_url": apple_health_metrics_url,
+            "apple_health_metric_types": sorted(APPLE_HEALTH_METRIC_TYPES),
             "apple_health_success_redirect": "/dashboard",
             "mi_fitness_success_url": "/dashboard",
             "onboarding_steps": onboarding_progress(conn, request.app.state, "connect"),

@@ -5,7 +5,8 @@ onboarding_connect.html and connections.html. Expects in context:
   - providers: list of {id, display_name, connected} (from PROVIDER_REGISTRY)
   - id_prefix: string, unique per including page ("onboarding" / "connections") --
     keeps DOM ids from colliding if this partial is ever on a page twice
-  - api_token, apple_health_upload_url: for the Apple Health Shortcut section
+  - api_token, apple_health_upload_url, apple_health_metrics_url,
+    apple_health_metric_types: for the Apple Health Shortcut section
   - apple_health_success_redirect: URL to navigate to after a successful Apple
     Health import, or omit/None to just reload the current page in place
   - mi_fitness_success_url: URL to navigate to after Mi Fitness QR login
@@ -151,11 +152,16 @@ onboarding_connect.html and connections.html. Expects in context:
       <details style="margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
         <summary style="cursor: pointer; font-weight: 700; font-size: 0.85rem; color: var(--fg);">Set up automatic sync via iOS Shortcut</summary>
         <div style="margin-top: 1rem;">
-          <p style="font-size: 0.8rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
-            Build a Shortcut that exports and uploads Health data in one tap, instead of doing it manually here each time.
+          <p style="font-size: 0.8rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.45;">
+            Two ways to automate this, trading off coverage against how hands-off it is. Both use the same token below.
           </p>
           <label class="form-label">Token</label>
-          <input class="form-input" type="text" readonly value="{{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+          <input class="form-input" type="text" readonly value="{{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 1.25rem;">
+
+          <p style="font-size: 0.85rem; font-weight: 800; color: var(--fg); margin: 0 0 0.4rem;">Option A: Full export &mdash; every metric, manual trigger</p>
+          <p style="font-size: 0.8rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
+            iOS has no Shortcuts action that triggers a Health export directly &mdash; it only starts from inside the Health app itself. Set the Shortcut up once below, then each sync is: export from Health, share it to your Shortcut.
+          </p>
           <label class="form-label">Upload URL</label>
           <input class="form-input" type="text" readonly value="{{ apple_health_upload_url }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
           <label class="form-label">Header (Shortcuts "Get Contents of URL" &rarr; Headers)</label>
@@ -170,15 +176,49 @@ onboarding_connect.html and connections.html. Expects in context:
           </div>
           {% endif %}
 
+          <p style="font-size: 0.78rem; font-weight: 700; color: var(--fg); margin: 0 0 0.4rem;">One-time setup</p>
+          <ol style="font-size: 0.8rem; color: var(--fg-muted); line-height: 1.6; padding-left: 1.2rem; margin: 0 0 1rem;">
+            <li>In the Shortcuts app: <strong>+</strong> &rarr; Add Action &rarr; <strong>Get Contents of URL</strong> &rarr; URL from above, Method <strong>POST</strong>, Headers as above, Request Body <strong>Form</strong> with a field named exactly <code>export_file</code> (Type: File) set to <strong>Shortcut Input</strong> (tap the field, choose Variable &rarr; Shortcut Input).</li>
+            <li>Tap the Shortcut's settings (<strong>&#9432;</strong> icon) &rarr; turn on <strong>Show in Share Sheet</strong> &rarr; under Share Sheet Types, make sure <strong>Files</strong> is checked.</li>
+            <li>Rename the Shortcut (e.g. "Sync to Athlytics") so it's easy to spot in the Share Sheet.</li>
+          </ol>
+          <p style="font-size: 0.78rem; font-weight: 700; color: var(--fg); margin: 0 0 0.4rem;">Each time you want to sync</p>
           <ol style="font-size: 0.8rem; color: var(--fg-muted); line-height: 1.6; padding-left: 1.2rem; margin: 0 0 0.75rem;">
-            <li>In the Shortcuts app: <strong>+</strong> &rarr; Add Action &rarr; <strong>Export Health Data</strong>.</li>
-            <li>Add Action &rarr; <strong>Get Contents of URL</strong> &rarr; URL from above, Method <strong>POST</strong>, Headers as above, Request Body <strong>Form</strong> with a field named exactly <code>export_file</code> (Type: File) set to the Export Health Data output.</li>
-            <li>Optional: add a <strong>Show Notification</strong> action for confirmation, then rename the Shortcut (e.g. "Sync to Athlytics").</li>
-            <li>Run it by tapping it, saying "Hey Siri, Sync to Athlytics," or set a daily <strong>Time of Day</strong> personal automation to prompt you.</li>
+            <li>Open the <strong>Health</strong> app &rarr; tap your profile picture (top right) &rarr; scroll down &rarr; <strong>Export All Health Data</strong> &rarr; Export. This can take a few minutes for a large history.</li>
+            <li>When the Share Sheet appears, choose your Shortcut (e.g. "Sync to Athlytics") &mdash; it uploads the export automatically.</li>
           </ol>
           <p style="font-size: 0.75rem; color: var(--fg-muted); margin: 0;">
-            iOS requires a one-tap confirmation each time it reads Health data — this is a one-tap daily action, not silent background sync.
+            The export itself is a manual, Health-app-only step &mdash; Shortcuts and Siri can't trigger it directly, that's an iOS limitation. Once you tap Export and share to your Shortcut, the upload happens without any further typing.
           </p>
+
+          {% if apple_health_metrics_url %}
+          <p style="font-size: 0.85rem; font-weight: 800; color: var(--fg); margin: 1.5rem 0 0.4rem; padding-top: 1rem; border-top: 1px solid var(--border);">Option B: Scheduled multi-metric &mdash; fewer metrics, fully automatic</p>
+          <p style="font-size: 0.8rem; color: var(--fg-muted); margin: 0 0 0.75rem; line-height: 1.45;">
+            Pull specific metrics with <strong>Find Health Samples</strong> yourself and post them as a dictionary. More setup per metric, but it's a separate endpoint built to accept that &mdash; and unlike Option A, it can run on a schedule with nobody tapping anything.
+          </p>
+          <label class="form-label">Metrics URL</label>
+          <input class="form-input" type="text" readonly value="{{ apple_health_metrics_url }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+          <label class="form-label">Header (same as Option A)</label>
+          <input class="form-input" type="text" readonly value="Authorization: Bearer {{ api_token }}" onclick="this.select()" style="font-family: monospace; margin-bottom: 0.75rem;">
+
+          {% if apple_health_metric_types %}
+          <label class="form-label">Supported metric keys</label>
+          <p style="font-size: 0.76rem; color: var(--fg-muted); margin: 0 0 1rem; line-height: 1.8;">
+            {% for mt in apple_health_metric_types %}<code style="margin-right: 0.3rem;">{{ mt }}</code>{% endfor %}
+          </p>
+          {% endif %}
+
+          <ol style="font-size: 0.8rem; color: var(--fg-muted); line-height: 1.6; padding-left: 1.2rem; margin: 0 0 0.75rem;">
+            <li>In the Shortcuts app: <strong>+</strong> &rarr; add a <strong>Dictionary</strong> action. Add one key per metric you want, using the exact names above (e.g. <code>steps</code>, <code>resting_hr</code>, <code>sleep_duration</code>).</li>
+            <li>For each key: add <strong>Find Health Samples</strong> for that metric filtered to <strong>Today</strong>, then <strong>Calculate Statistics</strong> (Sum for cumulative metrics like steps, Average for point-in-time ones like heart rate) &mdash; set the result as that key's value in the Dictionary.</li>
+            <li>Add <strong>Get Contents of URL</strong> &rarr; URL from above, Method <strong>POST</strong>, Headers as above, Request Body <strong>JSON</strong> with a field named <code>readings</code> set to your Dictionary variable.</li>
+            <li>Rename the Shortcut, then add a personal <strong>Automation</strong> (Automation tab &rarr; <strong>+</strong> &rarr; Time of Day, daily) that runs it, with "Ask Before Running" turned off.</li>
+          </ol>
+          <p style="font-size: 0.75rem; color: var(--fg-muted); margin: 0;">
+            Only covers metrics you wire up this way &mdash; and each one is its own Find Health Samples chain. Unrecognized keys are skipped and reported back, not silently dropped, so a typo won't fail the whole sync.
+          </p>
+          {% endif %}
+
           {% if show_regenerate_token %}
           <form method="post" action="/settings/api-token/regenerate" onsubmit="return confirm('Regenerating invalidates the current token -- any Shortcut using it will need updating. Continue?');" style="margin-top: 0.75rem;">
             <button type="submit" class="btn-logout" style="padding: 0.5rem 0.85rem; font-size: 0.8rem;">Regenerate Token</button>

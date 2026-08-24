@@ -138,6 +138,17 @@ _SLEEP_UNIT = "hr"
 _MINDFUL_UNIT = "min"
 _STAND_HOUR_UNIT = "count"
 
+# metric_type -> unit, for callers that need to attach the right unit to an
+# already-aggregated value (e.g. the lightweight multi-metric Shortcut
+# endpoint) without re-deriving it from HK_QUANTITY_MAP by hand.
+METRIC_TYPE_UNITS: dict[str, str] = {
+    metric_type: unit for metric_type, unit, _ in HK_QUANTITY_MAP.values()
+} | {
+    "sleep_duration": _SLEEP_UNIT,
+    "mindful_minutes": _MINDFUL_UNIT,
+    "stand_hours": _STAND_HOUR_UNIT,
+}
+
 
 class AppleHealthProvider:
     name = SOURCE

@@ -1,14 +1,17 @@
 from collections import defaultdict
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Callable
 
 from garminconnect import Garmin
 
-from core.providers.apple_health import AppleHealthProvider
+from core.providers.apple_health import SOURCE as APPLE_HEALTH_SOURCE
+from core.providers.apple_health import METRIC_TYPE_UNITS, AppleHealthProvider
 from core.providers.garmin import GarminProvider
 from core.providers.registry import PROVIDER_REGISTRY
 from core.security.credentials import CredentialStore
 from core.storage import repository
+from core.storage.models import MetricReading
 
 SUPPORTED_PROVIDERS = {p.id for p in PROVIDER_REGISTRY if p.flow_type == "credentials_form"}
 
@@ -58,3 +61,43 @@ def import_apple_health(conn, payload: bytes, batch_size: int = 500) -> dict[str
             repository.set_checkpoint(conn, provider.name, metric_type, latest_date)
 
     return {metric_type: f"imported: {count}" for metric_type, count in counts.items()}
+
+
+def ingest_apple_health_metrics(conn, day: date, readings: dict[str, float]) -> dict[str, object]:
+    """Lightweight counterpart to import_apple_health for the scheduled
+    multi-metric Shortcut path: takes values a Shortcut already computed
+    itself (Find Health Samples + Calculate Statistics), keyed by
+    Athlytics's own metric_type vocabulary, and stores one reading per key
+    for the given calendar day. Units are looked up server-side from
+    METRIC_TYPE_UNITS rather than trusted from the caller, since a wrong
+    unit string would silently corrupt that metric_type's stored unit for
+    every other source (see HK_QUANTITY_MAP's comment in apple_health.py).
+    Unrecognized keys are skipped and reported back rather than rejected
+    outright, so one Shortcut typo doesn't drop the whole sync.
+    """
+    timestamp = datetime.combine(day, time.min)
+    batch: list[MetricReading] = []
+    skipped: list[str] = []
+
+    for metric_type, value in readings.items():
+        unit = METRIC_TYPE_UNITS.get(metric_type)
+        if unit is None:
+            skipped.append(metric_type)
+            continue
+        batch.append(
+            MetricReading(
+                source=APPLE_HEALTH_SOURCE, metric_type=metric_type, timestamp=timestamp, value=float(value), unit=unit
+            )
+        )
+
+    if batch:
+        repository.upsert_readings(conn, batch)
+        for reading in batch:
+            existing = repository.get_checkpoint(conn, APPLE_HEALTH_SOURCE, reading.metric_type)
+            if existing is None or day > existing:
+                repository.set_checkpoint(conn, APPLE_HEALTH_SOURCE, reading.metric_type, day)
+
+    return {
+        "imported": {reading.metric_type: "imported: 1" for reading in batch},
+        "skipped": skipped,
+    }

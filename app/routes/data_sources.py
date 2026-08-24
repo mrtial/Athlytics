@@ -1,15 +1,25 @@
 import xml.etree.ElementTree as ET
 import zipfile
+from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 
-from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin, import_apple_health
+from app.data_sources import SUPPORTED_PROVIDERS, connect_garmin, import_apple_health, ingest_apple_health_metrics
 from app.dependencies import require_admin_api, require_admin_page
 from app.mi_fitness_login import PendingMiFitnessLogin, start_mi_fitness_login
 from core.providers.garmin import GarminAuthError, GarminMfaRequired, complete_garmin_mfa
 
 router = APIRouter()
+
+
+class AppleHealthMetricsPayload(BaseModel):
+    # Attribute can't be named "date" -- it shadows the imported `date` type
+    # during Pydantic's annotation resolution ("date | None" -> "NoneType |
+    # NoneType"). Alias keeps the wire format ({"date": ...}) unchanged.
+    reading_date: date | None = Field(default=None, alias="date")
+    readings: dict[str, float]
 
 
 # NOTE: these two Mi Fitness routes use literal paths, but must stay
@@ -110,6 +120,22 @@ def import_apple_health_route(
         raise HTTPException(
             status_code=400,
             detail="No recognized Apple Health data found in this export.",
+        )
+    return result
+
+
+@router.post("/api/data-sources/apple-health/metrics")
+def ingest_apple_health_metrics_route(
+    payload: AppleHealthMetricsPayload,
+    conn=Depends(require_admin_api),
+):
+    if not payload.readings:
+        raise HTTPException(status_code=400, detail="readings must not be empty")
+    result = ingest_apple_health_metrics(conn, payload.reading_date or date.today(), payload.readings)
+    if not result["imported"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No recognized metric types in readings. Unrecognized: {', '.join(result['skipped'])}",
         )
     return result
 

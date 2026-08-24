@@ -421,6 +421,132 @@ def test_import_apple_health_checkpoint_does_not_regress_on_older_reupload(tmp_p
     assert repository.get_checkpoint(conn, "apple_health", "steps") == date(2026, 1, 10)
 
 
+def test_ingest_apple_health_metrics_upserts_readings_with_looked_up_units_and_sets_checkpoint(tmp_path):
+    from app.data_sources import ingest_apple_health_metrics
+    from core.storage.db import connect
+    from core.storage import repository
+    from datetime import date
+
+    conn = connect(tmp_path / "test.db")
+
+    result = ingest_apple_health_metrics(conn, date(2026, 1, 1), {"steps": 8432, "resting_hr": 58})
+
+    assert result == {"imported": {"steps": "imported: 1", "resting_hr": "imported: 1"}, "skipped": []}
+    readings = repository.get_readings(conn, "steps", date(2026, 1, 1), date(2026, 1, 1))
+    assert len(readings) == 1
+    assert readings[0].value == 8432.0
+    assert readings[0].unit == "count"
+    assert repository.get_checkpoint(conn, "apple_health", "steps") == date(2026, 1, 1)
+    assert repository.get_checkpoint(conn, "apple_health", "resting_hr") == date(2026, 1, 1)
+
+
+def test_ingest_apple_health_metrics_skips_unrecognized_keys_but_imports_the_rest(tmp_path):
+    from app.data_sources import ingest_apple_health_metrics
+    from core.storage.db import connect
+    from datetime import date
+
+    conn = connect(tmp_path / "test.db")
+
+    result = ingest_apple_health_metrics(conn, date(2026, 1, 1), {"steps": 100, "not_a_real_metric": 1})
+
+    assert result["imported"] == {"steps": "imported: 1"}
+    assert result["skipped"] == ["not_a_real_metric"]
+
+
+def test_apple_health_metrics_route_requires_admin_login(client):
+    response = client.post(
+        "/api/data-sources/apple-health/metrics",
+        json={"readings": {"steps": 100}},
+    )
+
+    assert response.status_code == 401
+
+
+def test_apple_health_metrics_route_accepts_bearer_token_without_cookie(app, client):
+    from app.settings import set_api_token
+    from core.storage.db import connect
+    from app.db import ensure_app_schema
+
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    set_api_token(conn, "shortcut-token")
+    conn.close()
+
+    response = client.post(
+        "/api/data-sources/apple-health/metrics",
+        json={"readings": {"steps": 100}},
+        headers={"Authorization": "Bearer shortcut-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == {"steps": "imported: 1"}
+
+
+def test_apple_health_metrics_route_succeeds_and_returns_summary(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/metrics",
+        json={"date": "2026-01-01", "readings": {"steps": 8432, "sleep_duration": 7.5}},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["imported"] == {"steps": "imported: 1", "sleep_duration": "imported: 1"}
+    assert body["skipped"] == []
+
+
+def test_apple_health_metrics_route_defaults_date_to_today(client):
+    from datetime import date
+
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/metrics",
+        json={"readings": {"steps": 100}},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["imported"] == {"steps": "imported: 1"}
+
+
+def test_apple_health_metrics_route_returns_400_for_empty_readings(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/metrics",
+        json={"readings": {}},
+    )
+
+    assert response.status_code == 400
+
+
+def test_apple_health_metrics_route_returns_400_when_no_recognized_keys(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/metrics",
+        json={"readings": {"not_a_real_metric": 1}},
+    )
+
+    assert response.status_code == 400
+    assert "not_a_real_metric" in response.json()["detail"]
+
+
+def test_apple_health_metrics_route_reports_partial_skip_with_200(client):
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+
+    response = client.post(
+        "/api/data-sources/apple-health/metrics",
+        json={"readings": {"steps": 100, "not_a_real_metric": 1}},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["imported"] == {"steps": "imported: 1"}
+    assert body["skipped"] == ["not_a_real_metric"]
+
+
 def test_app_exposes_strava_credential_store(app):
     assert app.state.strava_credential_store is not None
     assert app.state.strava_credential_store.load() is None  # nothing connected yet
