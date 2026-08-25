@@ -85,6 +85,24 @@ def test_supported_metric_types_returns_all_14_tonal_metric_types():
     assert "tonal_workout_duration" in types
 
 
+def test_snapshot_metric_types_is_exactly_the_11_readiness_metrics():
+    """readiness has no historical range support -- it always returns "right
+    now" regardless of the requested date range (see _fetch_readiness).
+    core.scheduler.sync.sync_all_metrics duck-types this method (hasattr) to
+    fetch these once per sync pass instead of once per chunk; strength score
+    and the two workout-derived metrics are real time-series data and must
+    NOT be in this set."""
+    provider = _provider(FakeTonalClient())
+
+    snapshot_types = provider.snapshot_metric_types()
+
+    assert snapshot_types == {t for t in TONAL_METRIC_TYPES if t.startswith("tonal_readiness_")}
+    assert len(snapshot_types) == 11
+    assert "tonal_strength_score" not in snapshot_types
+    assert "tonal_workout_volume" not in snapshot_types
+    assert "tonal_workout_duration" not in snapshot_types
+
+
 def test_fetch_readiness_returns_exactly_one_reading_regardless_of_date_range():
     fake_client = FakeTonalClient(muscle_readiness={"Chest": 82.5})
     provider = _provider(fake_client)

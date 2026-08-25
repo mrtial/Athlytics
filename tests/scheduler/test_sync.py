@@ -273,3 +273,78 @@ def test_sync_all_metrics_persists_activities_for_tonal_workout_duration_metric_
     assert stored_activities[0].activity_name == "Push Workout"
     assert stored_activities[0].source == "tonal"
 
+
+def test_snapshot_metric_type_is_fetched_once_regardless_of_backfill_window(tmp_path):
+    """A metric_type a provider declares as snapshot-only (e.g. Tonal's
+    per-muscle readiness -- always "right now", no historical range support)
+    should be fetched exactly once per sync_all_metrics call, not once per
+    chunk. Without this, a 10-year first backfill walks ~122 chunks issuing
+    ~122 identical "give me readiness now" calls and writes ~122
+    near-duplicate rows."""
+    conn = connect(tmp_path / "test.db")
+
+    class _SnapshotProvider(FakeProvider):
+        def __init__(self):
+            super().__init__(readings_by_metric={
+                "readiness_chest": [_reading(1, 70.0)],  # date(2026,1,1) fixture reading
+            })
+
+        def snapshot_metric_types(self):
+            return frozenset({"readiness_chest"})
+
+        def fetch(self, metric_type, start, end):
+            self.fetch_calls.append((metric_type, start, end))
+            # A real snapshot endpoint ignores the requested range and
+            # always returns "now" -- return the same single reading no
+            # matter what (start, end) this call was made with.
+            return self._readings_by_metric["readiness_chest"]
+
+    provider = _SnapshotProvider()
+
+    results = sync_all_metrics(conn, provider, date(2016, 1, 1), date(2026, 1, 5), chunk_days=30)
+
+    assert results == {"readiness_chest": "complete"}
+    assert len(provider.fetch_calls) == 1, (
+        f"expected exactly 1 fetch call for a snapshot metric over a 10-year "
+        f"window, got {len(provider.fetch_calls)}"
+    )
+    assert repository.get_checkpoint(conn, "fake", "readiness_chest") == date(2026, 1, 5)
+
+
+def test_snapshot_metric_type_still_paced_and_reported_alongside_regular_metrics(tmp_path):
+    """A snapshot metric_type and a regular time-series metric_type in the
+    same provider don't interfere with each other's chunking/pacing, and
+    on_metric_progress still fires once per metric_type either way."""
+    conn = connect(tmp_path / "test.db")
+
+    class _MixedProvider(FakeProvider):
+        def __init__(self):
+            super().__init__(readings_by_metric={
+                "readiness_chest": [_reading(1, 70.0)],
+                "steps": [_reading(d) for d in range(1, 6)],
+            })
+
+        def snapshot_metric_types(self):
+            return frozenset({"readiness_chest"})
+
+        def fetch(self, metric_type, start, end):
+            self.fetch_calls.append((metric_type, start, end))
+            if metric_type == "readiness_chest":
+                return self._readings_by_metric["readiness_chest"]
+            return [r for r in self._readings_by_metric[metric_type] if start <= r.timestamp.date() <= end]
+
+    provider = _MixedProvider()
+    progress_calls = []
+
+    results = sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 5), chunk_days=2,
+        on_metric_progress=lambda completed, total: progress_calls.append((completed, total)),
+    )
+
+    assert results == {"readiness_chest": "complete", "steps": "complete"}
+    readiness_calls = [c for c in provider.fetch_calls if c[0] == "readiness_chest"]
+    steps_calls = [c for c in provider.fetch_calls if c[0] == "steps"]
+    assert len(readiness_calls) == 1
+    assert len(steps_calls) > 1  # a 5-day range chunked at 2 days -> multiple chunks
+    assert progress_calls == [(1, 2), (2, 2)]
+

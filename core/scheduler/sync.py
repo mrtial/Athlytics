@@ -45,8 +45,32 @@ def sync_all_metrics(
     results: dict[str, str] = {}
     metric_types = provider.supported_metric_types()
     total = len(metric_types)
+    snapshot_types = frozenset(provider.snapshot_metric_types()) if hasattr(provider, "snapshot_metric_types") else frozenset()
 
     for completed, metric_type in enumerate(metric_types, start=1):
+        if metric_type in snapshot_types:
+            # A snapshot metric (e.g. Tonal's per-muscle readiness) has no
+            # historical range support -- every call returns "right now"
+            # regardless of (start, end). Chunking it like a real
+            # time-series metric would issue the same call ~122 times over
+            # a 10-year first backfill and write that many near-duplicate
+            # rows. Fetch it exactly once per sync pass instead, ignoring
+            # checkpoint/force_full_backfill (there's no history to resume
+            # or re-walk), and record `end` as its checkpoint purely for
+            # "last synced" display consistency with every other metric.
+            try:
+                readings = _fetch_with_backoff(provider, metric_type, end, end, max_retries, sleep_fn)
+                repository.upsert_readings(conn, readings)
+                repository.set_checkpoint(conn, provider.name, metric_type, end)
+                results[metric_type] = "complete"
+            except Exception:
+                logger.exception("sync failed for metric_type=%s", metric_type)
+                results[metric_type] = "failed"
+
+            if on_metric_progress:
+                on_metric_progress(completed, total)
+            continue
+
         if force_full_backfill:
             cursor = backfill_start
         else:

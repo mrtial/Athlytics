@@ -77,6 +77,16 @@ class TonalProvider:
     def supported_metric_types(self) -> list[str]:
         return list(TONAL_METRIC_TYPES)
 
+    def snapshot_metric_types(self) -> frozenset[str]:
+        """Metric types with no historical range support -- every fetch()
+        call returns a single "right now" reading regardless of the
+        requested (start, end). core.scheduler.sync.sync_all_metrics
+        duck-types this method (via hasattr) to fetch these exactly once
+        per sync pass instead of walking every backfill chunk, which would
+        otherwise issue the same call ~122 times over a 10-year first
+        backfill and write that many near-duplicate rows."""
+        return frozenset(_READINESS_METRIC_TO_MUSCLE)
+
     def fetch(self, metric_type: str, start: date, end: date) -> list[MetricReading]:
         if metric_type not in TONAL_METRIC_TYPES:
             raise ValueError(f"unsupported metric_type for TonalProvider: {metric_type!r}")
