@@ -601,8 +601,8 @@ def upsert_strength_sets(conn: sqlite3.Connection, sets: list[StrengthSet]) -> i
         INSERT INTO strength_set (
             id, activity_id, movement_id, movement_name, set_index, is_warm_up,
             reps, weight_lbs, volume_lbs, one_rep_max, max_power_watts,
-            rom_inches, struggling_score, side, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            rom_inches, struggling_score, side, created_at, occurred_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             activity_id = excluded.activity_id,
             movement_id = excluded.movement_id,
@@ -617,7 +617,8 @@ def upsert_strength_sets(conn: sqlite3.Connection, sets: list[StrengthSet]) -> i
             rom_inches = excluded.rom_inches,
             struggling_score = excluded.struggling_score,
             side = excluded.side,
-            created_at = excluded.created_at
+            created_at = excluded.created_at,
+            occurred_at = excluded.occurred_at
         """,
         [
             (
@@ -636,6 +637,7 @@ def upsert_strength_sets(conn: sqlite3.Connection, sets: list[StrengthSet]) -> i
                 s.struggling_score,
                 s.side,
                 s.created_at.isoformat(),
+                s.occurred_at.isoformat(),
             )
             for s in sets
         ],
@@ -661,6 +663,7 @@ def _row_to_strength_set(row) -> StrengthSet:
         struggling_score=row[12],
         side=row[13],
         created_at=datetime.fromisoformat(row[14]),
+        occurred_at=datetime.fromisoformat(row[15]),
     )
 
 
@@ -669,7 +672,7 @@ def get_strength_sets(conn: sqlite3.Connection, activity_id: str) -> list[Streng
         """
         SELECT id, activity_id, movement_id, movement_name, set_index, is_warm_up,
                reps, weight_lbs, volume_lbs, one_rep_max, max_power_watts,
-               rom_inches, struggling_score, side, created_at
+               rom_inches, struggling_score, side, created_at, occurred_at
         FROM strength_set
         WHERE activity_id = ?
         ORDER BY set_index ASC
@@ -684,15 +687,72 @@ def get_strength_sets_by_movement(conn: sqlite3.Connection, movement_id: str, li
         """
         SELECT id, activity_id, movement_id, movement_name, set_index, is_warm_up,
                reps, weight_lbs, volume_lbs, one_rep_max, max_power_watts,
-               rom_inches, struggling_score, side, created_at
+               rom_inches, struggling_score, side, created_at, occurred_at
         FROM strength_set
         WHERE movement_id = ?
-        ORDER BY created_at DESC, set_index ASC
+        ORDER BY occurred_at DESC, set_index ASC
         LIMIT ?
         """,
         (movement_id, limit),
     ).fetchall()
     return [_row_to_strength_set(row) for row in rows]
+
+
+def replace_strength_set_muscle_groups(conn: sqlite3.Connection, strength_set_id: str, muscle_groups: list[str]) -> None:
+    """Delete-then-insert (not a plain upsert): a movement's muscle-group
+    tags can change between two hydration passes over the same set, and
+    the composite (strength_set_id, muscle_group) primary key can only
+    add-or-ignore new pairings, not remove a stale one."""
+    conn.execute("DELETE FROM strength_set_muscle_group WHERE strength_set_id = ?", (strength_set_id,))
+    conn.executemany(
+        "INSERT INTO strength_set_muscle_group (strength_set_id, muscle_group) VALUES (?, ?)",
+        [(strength_set_id, muscle_group) for muscle_group in muscle_groups],
+    )
+    conn.commit()
+
+
+def get_muscle_group_volume(conn: sqlite3.Connection, start: date, end: date) -> list[dict]:
+    end_exclusive = (end + timedelta(days=1)).isoformat()
+    rows = conn.execute(
+        """
+        SELECT ssmg.muscle_group,
+               SUM(ss.volume_lbs) AS total_volume_lbs,
+               COUNT(DISTINCT ss.activity_id) AS session_count,
+               MAX(ss.occurred_at) AS last_trained
+        FROM strength_set_muscle_group ssmg
+        JOIN strength_set ss ON ss.id = ssmg.strength_set_id
+        WHERE ss.occurred_at >= ? AND ss.occurred_at < ?
+        GROUP BY ssmg.muscle_group
+        ORDER BY total_volume_lbs DESC
+        """,
+        (start.isoformat(), end_exclusive),
+    ).fetchall()
+    return [
+        {
+            "muscle_group": row[0],
+            "total_volume_lbs": row[1] or 0.0,
+            "session_count": row[2],
+            "last_trained": row[3],
+        }
+        for row in rows
+    ]
+
+
+def find_known_movements(conn: sqlite3.Connection, query: str) -> list[dict]:
+    """Distinct (movement_id, movement_name) pairs from strength_set whose
+    id exactly equals `query`, or whose name contains it case-insensitively.
+    Used to resolve a coach-supplied name/keyword to a movement_id without
+    any live Tonal API call -- only movements already hydrated locally
+    (via sync_tonal_data or get_tonal_workout_detail) are resolvable."""
+    rows = conn.execute(
+        """
+        SELECT DISTINCT movement_id, movement_name
+        FROM strength_set
+        WHERE movement_id = ? OR (movement_name IS NOT NULL AND LOWER(movement_name) LIKE ?)
+        """,
+        (query, f"%{query.lower()}%"),
+    ).fetchall()
+    return [{"movement_id": row[0], "movement_name": row[1]} for row in rows]
 
 
 def get_activity_by_id(conn: sqlite3.Connection, activity_id: str) -> Activity | None:

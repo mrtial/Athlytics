@@ -6,18 +6,23 @@ of Tonal data that's genuinely time-series-shaped, plus additional methods
 protocol -- called directly by MCP tools. See
 docs/superpowers/specs/2026-08-24-tonal-integration-design.md §4/§5 for the
 full design, including why readiness is snapshot-only while strength score
-and workout metrics can backfill within a date range.
+and workout metrics can backfill within a date range. See
+docs/superpowers/specs/2026-08-24-tonal-strength-set-hydration-design.md for
+the bulk strength-set hydration path added later.
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import date, datetime, timezone
 from typing import Callable
 
-from core.providers.tonal_client import MUSCLE_READINESS_MUSCLES, TonalClient
+from core.providers.tonal_client import MUSCLE_READINESS_MUSCLES, TonalClient, _parse_workout_set_activity
 from core.security.credentials import CredentialStore
 from core.storage import repository
 from core.storage.models import Activity, MetricReading, StrengthSet
+
+logger = logging.getLogger(__name__)
 
 # 11 readiness metrics (one per muscle group) + strength score + the two
 # workout-derived metrics = 14 total, matching design doc §4.
@@ -179,38 +184,101 @@ class TonalProvider:
             )
         return activities
 
+    def _movement_lookup(self) -> dict[str, dict]:
+        """movement_id -> {"name": str, "muscle_groups": list[str]}, built
+        from TonalClient.get_movements() (already cached 24h client-side)."""
+        return {
+            movement["id"]: {"name": movement["name"], "muscle_groups": movement["muscle_groups"]}
+            for movement in self._client.get_movements()
+        }
+
+    def _build_strength_sets(
+        self, full_activity_id: str, simplified_sets: list[dict], movement_lookup: dict[str, dict]
+    ) -> list[StrengthSet]:
+        """Turn TonalClient's simplified per-set dicts (see
+        tonal_client._parse_workout_set_activity) into StrengthSet rows,
+        keyed f"{full_activity_id}:{index}". Shared by get_workout_detail
+        (single workout, on-demand) and hydrate_recent_strength_sets (bulk,
+        sync-time) so the two write paths can't drift apart."""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        strength_sets = []
+        for index, set_data in enumerate(simplified_sets):
+            movement_id = set_data["movement_id"]
+            movement_info = movement_lookup.get(movement_id, {})
+            begin_time = set_data.get("begin_time")
+            occurred_at = _parse_tonal_timestamp(begin_time) if begin_time else now
+            strength_sets.append(
+                StrengthSet(
+                    id=f"{full_activity_id}:{index}",
+                    activity_id=full_activity_id,
+                    movement_id=movement_id,
+                    movement_name=movement_info.get("name"),
+                    set_index=index,
+                    is_warm_up=bool(set_data.get("is_warm_up")),
+                    reps=set_data.get("reps"),
+                    weight_lbs=set_data.get("weight_lbs"),
+                    volume_lbs=set_data.get("volume_lbs"),
+                    one_rep_max=set_data.get("one_rep_max"),
+                    max_power_watts=set_data.get("max_power_watts"),
+                    rom_inches=set_data.get("rom_inches"),
+                    struggling_score=set_data.get("struggling_score"),
+                    side=set_data.get("side"),
+                    created_at=now,
+                    occurred_at=occurred_at,
+                )
+            )
+        return strength_sets
+
     def get_workout_detail(self, conn: sqlite3.Connection, activity_id: str) -> dict:
         """Per-set breakdown for one workout: fetches from Tonal, persists
-        the sets into `strength_set` (keyed off the same `activity.id`
+        the sets into `strength_set` and their muscle groups into
+        `strength_set_muscle_group` (keyed off the same `activity.id`
         convention, f"tonal:{activity_id}"), and returns the raw detail dict
         for direct MCP-tool use."""
         detail = self._client.get_workout_detail(activity_id)
         full_activity_id = f"tonal:{activity_id}"
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        movement_lookup = self._movement_lookup()
 
-        strength_sets = [
-            StrengthSet(
-                id=f"{full_activity_id}:{index}",
-                activity_id=full_activity_id,
-                movement_id=set_data["movement_id"],
-                movement_name=None,
-                set_index=index,
-                is_warm_up=bool(set_data.get("is_warm_up")),
-                reps=set_data.get("reps"),
-                weight_lbs=set_data.get("weight_lbs"),
-                volume_lbs=set_data.get("volume_lbs"),
-                one_rep_max=set_data.get("one_rep_max"),
-                max_power_watts=set_data.get("max_power_watts"),
-                rom_inches=set_data.get("rom_inches"),
-                struggling_score=set_data.get("struggling_score"),
-                side=set_data.get("side"),
-                created_at=now,
-            )
-            for index, set_data in enumerate(detail.get("sets", []))
-        ]
+        strength_sets = self._build_strength_sets(full_activity_id, detail.get("sets", []), movement_lookup)
         if strength_sets:
             repository.upsert_strength_sets(conn, strength_sets)
+            for strength_set in strength_sets:
+                muscle_groups = movement_lookup.get(strength_set.movement_id, {}).get("muscle_groups", [])
+                repository.replace_strength_set_muscle_groups(conn, strength_set.id, muscle_groups)
         return detail
+
+    def hydrate_recent_strength_sets(self, conn: sqlite3.Connection, since: date) -> dict:
+        """Persist per-set detail for every workout on/after `since`,
+        sourced from the same bulk /workout-activities response already
+        used for tonal_workout_volume/duration -- no extra API call beyond
+        the one-time movement lookup. A single bad workout entry is caught
+        and skipped, not allowed to abort the whole sync pass."""
+        raw_entries = self._client.get_recent_workout_set_activity(limit=self.ACTIVITIES_FETCH_LIMIT)
+        movement_lookup = self._movement_lookup()
+        workouts_hydrated = 0
+        sets_persisted = 0
+
+        for entry in raw_entries:
+            try:
+                timestamp = _parse_tonal_timestamp(entry["beginTime"])
+                if timestamp.date() < since:
+                    continue
+                full_activity_id = f"tonal:{entry['id']}"
+                simplified_sets = _parse_workout_set_activity(entry.get("workoutSetActivity", []))
+                strength_sets = self._build_strength_sets(full_activity_id, simplified_sets, movement_lookup)
+                if not strength_sets:
+                    continue
+                repository.upsert_strength_sets(conn, strength_sets)
+                for strength_set in strength_sets:
+                    muscle_groups = movement_lookup.get(strength_set.movement_id, {}).get("muscle_groups", [])
+                    repository.replace_strength_set_muscle_groups(conn, strength_set.id, muscle_groups)
+                workouts_hydrated += 1
+                sets_persisted += len(strength_sets)
+            except Exception:
+                logger.warning("failed to hydrate strength sets for a Tonal workout", exc_info=True)
+                continue
+
+        return {"workouts": workouts_hydrated, "sets": sets_persisted}
 
     def search_movements(self, query: str | None = None, muscle_group: str | None = None) -> list[dict]:
         return self._client.search_movements(query=query, muscle_group=muscle_group)

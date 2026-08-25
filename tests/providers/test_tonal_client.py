@@ -419,11 +419,19 @@ def test_get_activities_maps_real_fields_and_synthesizes_title(tmp_path):
     first = result[0]
     assert set(first.keys()) == {
         "activity_id", "date", "title", "type", "duration_seconds", "total_volume_lbs",
+        "planned_sets", "completed_sets", "completion_rate",
     }
     assert first["activity_id"] == "bfd8bd25-a29f-4d25-89fe-a552207d5742"
     assert first["date"] == "2024-04-09T01:44:26.57Z"
     assert first["type"] == "Custom"
     assert first["title"] == "Custom Workout"
+    # completion-rate fields are derived from the same fixture's totalSets/
+    # workoutSetActivity -- exact values aren't hand-verified against the
+    # large real fixture here, just that they're present and sane.
+    assert first["planned_sets"] is None or first["planned_sets"] >= 0
+    assert first["completed_sets"] >= 0
+    if first["completion_rate"] is not None:
+        assert 0.0 <= first["completion_rate"] <= 1.0
 
     second = result[1]
     assert second["activity_id"] == "092d226f-92aa-42f9-b17c-f0581a3069ad"
@@ -461,6 +469,58 @@ def _activity_stub(activity_id: str, begin_time: str) -> dict:
         "totalDuration": 1000,
         "totalVolume": 500,
     }
+
+
+def _activity_stub_with_sets(activity_id: str, begin_time: str, total_sets: int, performed_sets: list[dict]) -> dict:
+    """Like _activity_stub, but with totalSets and a controllable
+    workoutSetActivity list, for exercising the completion-rate heuristic."""
+    return {
+        "id": activity_id,
+        "beginTime": begin_time,
+        "workoutType": "Custom",
+        "totalDuration": 1000,
+        "totalVolume": 500,
+        "totalSets": total_sets,
+        "workoutSetActivity": performed_sets,
+    }
+
+
+def test_get_activities_completion_rate_counts_reps_and_duration_as_performed(tmp_path):
+    raw = [
+        _activity_stub_with_sets(
+            "act-1", "2026-08-18T08:00:00Z", total_sets=4,
+            performed_sets=[
+                {"repCount": 10},           # performed (reps)
+                {"repCount": 0, "duration": 30},  # performed (duration-based movement)
+                {"repCount": 0},            # not performed
+                {"repCount": 0},            # not performed
+            ],
+        )
+    ]
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=raw)
+
+    client = _ready_client(tmp_path, api_handler)
+    result = client.get_activities(limit=1)
+
+    assert result[0]["planned_sets"] == 4
+    assert result[0]["completed_sets"] == 2
+    assert result[0]["completion_rate"] == 0.5
+
+
+def test_get_activities_completion_rate_none_when_no_planned_sets(tmp_path):
+    raw = [_activity_stub_with_sets("act-1", "2026-08-18T08:00:00Z", total_sets=0, performed_sets=[])]
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=raw)
+
+    client = _ready_client(tmp_path, api_handler)
+    result = client.get_activities(limit=1)
+
+    assert result[0]["planned_sets"] == 0
+    assert result[0]["completed_sets"] == 0
+    assert result[0]["completion_rate"] is None
 
 
 def test_get_activities_returns_most_recent_first_regardless_of_wire_order(tmp_path):
@@ -501,6 +561,78 @@ def test_get_activities_limit_keeps_the_most_recent_entries_not_the_oldest(tmp_p
     assert [entry["activity_id"] for entry in result] == ["act-newest", "act-mid"]
 
 
+def test_get_activities_paginates_past_servers_default_page_to_reach_recent_workouts(tmp_path):
+    """Regression: /workout-activities silently ignores the `limit` *query*
+    param and instead paginates via `pg-offset`/`pg-limit` *request headers*,
+    defaulting to offset=0 (the oldest page) when neither header is sent --
+    confirmed live against a real account with 240 total workouts, where
+    `limit=1000` as a query param still came back with only the oldest 50.
+    get_activities must discover the total via pg-total and request the last
+    `limit` items, not just take whatever page 1 hands back and slice
+    client-side."""
+    total = 60
+    raw = [_activity_stub(f"act-{i:03d}", f"2020-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}T00:00:00Z") for i in range(total)]
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        assert "limit" not in request.url.params  # server ignores this; must not rely on it
+        offset = int(request.headers.get("pg-offset", 0))
+        limit = int(request.headers.get("pg-limit", 50))
+        page = raw[offset : offset + limit]
+        return httpx.Response(
+            200,
+            json=page,
+            headers={"pg-total": str(total), "pg-offset": str(offset), "pg-limit": str(limit)},
+        )
+
+    client = _ready_client(tmp_path, api_handler)
+    result = client.get_activities(limit=10)
+
+    assert [entry["activity_id"] for entry in result] == [
+        f"act-{i:03d}" for i in range(total - 1, total - 11, -1)
+    ]
+
+
+# --- get_recent_workout_set_activity ------------------------------------
+
+def test_get_recent_workout_set_activity_returns_untrimmed_entries_with_sets(tmp_path):
+    raw = [
+        {
+            **_activity_stub("act-1", "2026-08-18T08:00:00Z"),
+            "workoutSetActivity": [{"movementId": "mv-1", "repCount": 10}],
+        }
+    ]
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=raw)
+
+    client = _ready_client(tmp_path, api_handler)
+    result = client.get_recent_workout_set_activity(limit=10)
+
+    assert result[0]["id"] == "act-1"
+    assert result[0]["workoutSetActivity"] == [{"movementId": "mv-1", "repCount": 10}]
+
+
+def test_get_recent_workout_set_activity_reuses_pagination_logic(tmp_path):
+    """Same offset=total-limit pagination fix as get_activities -- this
+    isn't a second, divergent implementation."""
+    total = 60
+    raw = [_activity_stub(f"act-{i:03d}", f"2020-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}T00:00:00Z") for i in range(total)]
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        offset = int(request.headers.get("pg-offset", 0))
+        limit = int(request.headers.get("pg-limit", 50))
+        page = raw[offset : offset + limit]
+        return httpx.Response(
+            200, json=page,
+            headers={"pg-total": str(total), "pg-offset": str(offset), "pg-limit": str(limit)},
+        )
+
+    client = _ready_client(tmp_path, api_handler)
+    result = client.get_recent_workout_set_activity(limit=10)
+
+    assert [entry["id"] for entry in result] == [f"act-{i:03d}" for i in range(total - 1, total - 11, -1)]
+
+
 # --- get_workout_detail -------------------------------------------------------
 
 def test_get_workout_detail_from_real_fixture(tmp_path):
@@ -520,7 +652,7 @@ def test_get_workout_detail_from_real_fixture(tmp_path):
     first_set = result["sets"][0]
     assert set(first_set.keys()) == {
         "movement_id", "is_warm_up", "reps", "weight_lbs", "volume_lbs",
-        "one_rep_max", "max_power_watts", "rom_inches", "struggling_score", "side",
+        "one_rep_max", "max_power_watts", "rom_inches", "struggling_score", "side", "begin_time",
     }
     assert first_set["movement_id"] == "5ac0e785-c473-43d6-b1de-cc7befeac449"
     assert first_set["is_warm_up"] is False
@@ -532,6 +664,20 @@ def test_get_workout_detail_from_real_fixture(tmp_path):
     assert first_set["rom_inches"] == 41.019999504089355
     assert first_set["struggling_score"] == 0.5172652041348191
     assert first_set["side"] == "Both"
+    assert first_set["begin_time"] == "2024-04-07T00:19:44.418Z"
+
+
+def test_get_workout_detail_sets_include_begin_time(tmp_path):
+    fixture = _load_fixture("workout_activity_detail.json")
+
+    def api_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=fixture)
+
+    client = _ready_client(tmp_path, api_handler)
+    detail = client.get_workout_detail("act-1")
+
+    assert all("begin_time" in s for s in detail["sets"])
+    assert detail["sets"][0]["begin_time"] is not None
 
 
 def test_get_workout_detail_splits_warm_up_vs_working_sets(tmp_path):

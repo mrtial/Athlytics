@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import sqlite3
 
 import pytest
 
@@ -464,7 +465,13 @@ def test_has_activities_from_source_is_source_specific(tmp_path):
     assert repository.has_activities_from_source(conn, "garmin") is True
 
 
-def _strength_set(activity_id, set_index, movement_id="mv-bench", created_at=datetime(2026, 1, 1, 12, 0)):
+def _strength_set(
+    activity_id,
+    set_index,
+    movement_id="mv-bench",
+    created_at=datetime(2026, 1, 1, 12, 0),
+    occurred_at=None,
+):
     return StrengthSet(
         id=f"tonal:{activity_id}:{set_index}",
         activity_id=activity_id,
@@ -481,6 +488,7 @@ def _strength_set(activity_id, set_index, movement_id="mv-bench", created_at=dat
         struggling_score=0.2,
         side="Both",
         created_at=created_at,
+        occurred_at=occurred_at if occurred_at is not None else created_at,
     )
 
 
@@ -517,6 +525,7 @@ def test_strength_set_upsert_is_idempotent_and_updates_fields(tmp_path):
         struggling_score=0.3,
         side="Both",
         created_at=original.created_at,
+        occurred_at=original.occurred_at,
     )
     repository.upsert_strength_sets(conn, [updated])
 
@@ -535,16 +544,217 @@ def test_get_strength_sets_filters_by_activity_id(tmp_path):
     assert result == [set_a]
 
 
-def test_get_strength_sets_by_movement_orders_most_recent_first_and_respects_limit(tmp_path):
+def test_get_strength_sets_by_movement_orders_by_occurred_at_not_created_at(tmp_path):
+    """Regression: get_strength_sets_by_movement must order by occurred_at
+    (the real workout timestamp), not created_at (when the row was written
+    to our DB) -- these deliberately disagree here to prove it."""
     conn = connect(tmp_path / "test.db")
-    oldest = _strength_set("tonal:w1", 0, movement_id="mv-bench", created_at=datetime(2026, 1, 1, 12, 0))
-    middle = _strength_set("tonal:w2", 0, movement_id="mv-bench", created_at=datetime(2026, 1, 5, 12, 0))
-    newest = _strength_set("tonal:w3", 0, movement_id="mv-bench", created_at=datetime(2026, 1, 10, 12, 0))
-    other_movement = _strength_set("tonal:w4", 0, movement_id="mv-squat", created_at=datetime(2026, 1, 12, 12, 0))
-    repository.upsert_strength_sets(conn, [oldest, middle, newest, other_movement])
+    # Written to the DB in this order (created_at ascending)...
+    oldest_written = _strength_set(
+        "tonal:w1", 0, movement_id="mv-bench",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 8, 18, 8, 0),
+    )
+    middle_written = _strength_set(
+        "tonal:w2", 0, movement_id="mv-bench",
+        created_at=datetime(2026, 1, 5, 12, 0), occurred_at=datetime(2026, 1, 10, 8, 0),
+    )
+    newest_written = _strength_set(
+        "tonal:w3", 0, movement_id="mv-bench",
+        created_at=datetime(2026, 1, 10, 12, 0), occurred_at=datetime(2026, 1, 1, 8, 0),
+    )
+    other_movement = _strength_set(
+        "tonal:w4", 0, movement_id="mv-squat",
+        created_at=datetime(2026, 1, 12, 12, 0), occurred_at=datetime(2026, 1, 15, 8, 0),
+    )
+    repository.upsert_strength_sets(conn, [oldest_written, middle_written, newest_written, other_movement])
 
     result = repository.get_strength_sets_by_movement(conn, "mv-bench")
-    assert result == [newest, middle, oldest]
+    # occurred_at descending: oldest_written (Aug 18) > middle_written (Jan 10) > newest_written (Jan 1)
+    assert result == [oldest_written, middle_written, newest_written]
 
     limited = repository.get_strength_sets_by_movement(conn, "mv-bench", limit=2)
-    assert limited == [newest, middle]
+    assert limited == [oldest_written, middle_written]
+
+
+def test_connect_migrates_legacy_strength_set_table_and_backfills_occurred_at(tmp_path):
+    """Simulates a database created before `occurred_at` existed: a
+    strength_set table without that column (CREATE TABLE IF NOT EXISTS
+    no-ops on a table that already exists, so adding the column to the
+    schema string alone wouldn't reach a real pre-existing database)."""
+    db_path = tmp_path / "test.db"
+    legacy_conn = sqlite3.connect(db_path)
+    legacy_conn.executescript(
+        """
+        CREATE TABLE activity (
+            id TEXT PRIMARY KEY, source TEXT NOT NULL, activity_id TEXT NOT NULL,
+            activity_name TEXT, activity_type TEXT NOT NULL, sport_type TEXT,
+            start_time TEXT NOT NULL, duration_seconds REAL NOT NULL, distance_meters REAL,
+            calories REAL, avg_hr REAL, max_hr REAL, avg_speed REAL, max_speed REAL,
+            elevation_gain REAL, elevation_loss REAL, created_at TEXT NOT NULL
+        );
+        CREATE TABLE strength_set (
+            id TEXT PRIMARY KEY, activity_id TEXT NOT NULL, movement_id TEXT NOT NULL,
+            movement_name TEXT, set_index INTEGER NOT NULL, is_warm_up INTEGER NOT NULL DEFAULT 0,
+            reps INTEGER, weight_lbs REAL, volume_lbs REAL, one_rep_max REAL,
+            max_power_watts REAL, rom_inches REAL, struggling_score REAL, side TEXT,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    legacy_conn.execute(
+        "INSERT INTO activity VALUES ('tonal:act-1','tonal','act-1',NULL,'strength_training',NULL,"
+        "'2026-08-18T11:33:08',719.0,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'2026-08-18T12:00:00')"
+    )
+    legacy_conn.execute(
+        "INSERT INTO strength_set VALUES ('tonal:act-1:0','tonal:act-1','mv-bench','Bench Press',0,0,"
+        "10,135.0,1350.0,180.0,450.0,18.5,0.2,'Both','2026-08-25T00:00:00')"
+    )
+    legacy_conn.commit()
+    legacy_conn.close()
+
+    conn = connect(db_path)
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(strength_set)").fetchall()}
+    assert "occurred_at" in columns
+
+    row = conn.execute("SELECT occurred_at FROM strength_set WHERE id = 'tonal:act-1:0'").fetchone()
+    assert row[0] == "2026-08-18T11:33:08"
+
+
+def test_connect_migrates_orphaned_legacy_strength_set_falls_back_to_created_at(tmp_path):
+    """A legacy strength_set row whose activity_id has no matching activity
+    row (an orphan -- plausible here since activity rows only exist for date
+    ranges a sync actually covered) must not be left with occurred_at = ''.
+    That empty string later crashes datetime.fromisoformat in
+    _row_to_strength_set, so the backfill must fall back to the row's own
+    created_at instead of leaving it blank."""
+    db_path = tmp_path / "test.db"
+    legacy_conn = sqlite3.connect(db_path)
+    legacy_conn.executescript(
+        """
+        CREATE TABLE activity (
+            id TEXT PRIMARY KEY, source TEXT NOT NULL, activity_id TEXT NOT NULL,
+            activity_name TEXT, activity_type TEXT NOT NULL, sport_type TEXT,
+            start_time TEXT NOT NULL, duration_seconds REAL NOT NULL, distance_meters REAL,
+            calories REAL, avg_hr REAL, max_hr REAL, avg_speed REAL, max_speed REAL,
+            elevation_gain REAL, elevation_loss REAL, created_at TEXT NOT NULL
+        );
+        CREATE TABLE strength_set (
+            id TEXT PRIMARY KEY, activity_id TEXT NOT NULL, movement_id TEXT NOT NULL,
+            movement_name TEXT, set_index INTEGER NOT NULL, is_warm_up INTEGER NOT NULL DEFAULT 0,
+            reps INTEGER, weight_lbs REAL, volume_lbs REAL, one_rep_max REAL,
+            max_power_watts REAL, rom_inches REAL, struggling_score REAL, side TEXT,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    # No corresponding row in `activity` for 'tonal:orphan-1' -- this is the
+    # orphan case the backfill's old EXISTS(...) guard skipped entirely.
+    legacy_conn.execute(
+        "INSERT INTO strength_set VALUES ('tonal:orphan-1:0','tonal:orphan-1','mv-squat','Squat',0,0,"
+        "8,225.0,1800.0,275.0,500.0,20.0,0.1,'Both','2026-08-19T09:15:00')"
+    )
+    legacy_conn.commit()
+    legacy_conn.close()
+
+    conn = connect(db_path)
+
+    row = conn.execute(
+        "SELECT occurred_at, created_at FROM strength_set WHERE id = 'tonal:orphan-1:0'"
+    ).fetchone()
+    assert row[0] == "2026-08-19T09:15:00"
+    assert row[0] == row[1]
+    assert row[0] != ""
+
+    # And the row must be readable without raising (get_strength_sets calls
+    # datetime.fromisoformat(occurred_at) internally via _row_to_strength_set).
+    sets = repository.get_strength_sets(conn, "tonal:orphan-1")
+    assert len(sets) == 1
+    assert sets[0].occurred_at == datetime(2026, 8, 19, 9, 15, 0)
+
+
+def test_replace_strength_set_muscle_groups_deletes_stale_pairs(tmp_path):
+    """Delete-then-insert, not a plain upsert: if a movement's tagged
+    muscle groups change between two writes for the same set, the old
+    pairing must not survive (the composite PK can add-or-ignore new pairs
+    but can't remove a stale one on its own)."""
+    conn = connect(tmp_path / "test.db")
+    ss = _strength_set("tonal:w1", 0)
+    repository.upsert_strength_sets(conn, [ss])
+
+    repository.replace_strength_set_muscle_groups(conn, ss.id, ["Chest", "Triceps"])
+    rows = conn.execute(
+        "SELECT muscle_group FROM strength_set_muscle_group WHERE strength_set_id = ? ORDER BY muscle_group", (ss.id,)
+    ).fetchall()
+    assert [r[0] for r in rows] == ["Chest", "Triceps"]
+
+    repository.replace_strength_set_muscle_groups(conn, ss.id, ["Shoulders"])
+    rows = conn.execute(
+        "SELECT muscle_group FROM strength_set_muscle_group WHERE strength_set_id = ?", (ss.id,)
+    ).fetchall()
+    assert [r[0] for r in rows] == ["Shoulders"]
+
+
+def test_get_muscle_group_volume_aggregates_across_multi_muscle_movements(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    chest_set = _strength_set(
+        "tonal:w1", 0, movement_id="mv-bench", occurred_at=datetime(2026, 7, 10, 8, 0)
+    )  # volume_lbs=1350.0 via helper default
+    quad_set = StrengthSet(
+        id="tonal:w2:0", activity_id="tonal:w2", movement_id="mv-squat", movement_name="Squat",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=225.0, volume_lbs=1800.0,
+        one_rep_max=280.0, max_power_watts=500.0, rom_inches=20.0, struggling_score=0.3, side="Both",
+        created_at=datetime(2026, 7, 12, 12, 0), occurred_at=datetime(2026, 7, 12, 8, 0),
+    )
+    repository.upsert_strength_sets(conn, [chest_set, quad_set])
+    repository.replace_strength_set_muscle_groups(conn, chest_set.id, ["Chest", "Triceps"])
+    repository.replace_strength_set_muscle_groups(conn, quad_set.id, ["Quads"])
+
+    result = repository.get_muscle_group_volume(conn, date(2026, 7, 1), date(2026, 7, 31))
+
+    by_group = {r["muscle_group"]: r for r in result}
+    assert by_group["Chest"]["total_volume_lbs"] == 1350.0
+    assert by_group["Triceps"]["total_volume_lbs"] == 1350.0
+    assert by_group["Quads"]["total_volume_lbs"] == 1800.0
+    assert by_group["Quads"]["session_count"] == 1
+    assert by_group["Quads"]["last_trained"] == "2026-07-12T08:00:00"
+    # sorted busiest-first
+    assert result[0]["muscle_group"] == "Quads"
+
+
+def test_get_muscle_group_volume_excludes_sets_outside_range(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    outside = _strength_set("tonal:w1", 0, occurred_at=datetime(2026, 6, 1, 8, 0))
+    repository.upsert_strength_sets(conn, [outside])
+    repository.replace_strength_set_muscle_groups(conn, outside.id, ["Chest"])
+
+    result = repository.get_muscle_group_volume(conn, date(2026, 7, 1), date(2026, 7, 31))
+
+    assert result == []
+
+
+def test_find_known_movements_matches_by_exact_id_or_name_substring(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    bench = _strength_set("tonal:w1", 0, movement_id="mv-bench")  # movement_name="Bench Press" via helper default
+    close_grip = StrengthSet(
+        id="tonal:w2:0", activity_id="tonal:w2", movement_id="mv-cgbp", movement_name="Close Grip Bench Press",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=100.0, volume_lbs=800.0, one_rep_max=130.0,
+        max_power_watts=400.0, rom_inches=18.0, struggling_score=0.3, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 1, 1, 12, 0),
+    )
+    squat = StrengthSet(
+        id="tonal:w3:0", activity_id="tonal:w3", movement_id="mv-squat", movement_name="Barbell Squat",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=225.0, volume_lbs=1800.0, one_rep_max=280.0,
+        max_power_watts=500.0, rom_inches=20.0, struggling_score=0.3, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 1, 1, 12, 0),
+    )
+    repository.upsert_strength_sets(conn, [bench, close_grip, squat])
+
+    exact_id = repository.find_known_movements(conn, "mv-squat")
+    assert exact_id == [{"movement_id": "mv-squat", "movement_name": "Barbell Squat"}]
+
+    ambiguous = repository.find_known_movements(conn, "bench")
+    assert {m["movement_id"] for m in ambiguous} == {"mv-bench", "mv-cgbp"}
+
+    no_match = repository.find_known_movements(conn, "deadlift")
+    assert no_match == []

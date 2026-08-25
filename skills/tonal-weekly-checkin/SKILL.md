@@ -16,7 +16,7 @@ Use this when the athlete asks for a training check-in, weekly review, progress 
 - A flat or declining trend across several weeks of consistent training is worth flagging on its own — don't wait for the athlete to ask.
 
 ### 2. Readiness Pattern Over the Week
-- Readiness (`tonal_readiness_<muscle>`) is a snapshot metric, not backfillable history — there's no way to pull "readiness as it was each day this week" retroactively. Instead, pull the **current** reading for each muscle group the athlete trained this week (`get_metric_series('tonal_readiness_<muscle>', ...)` returns the latest snapshot) and cross-reference it against which muscle groups appear in this week's workout details (`get_tonal_workout_detail` per `movement_id`'s implied muscle groups, or `search_tonal_movements` to look up a movement's `muscle_groups`).
+- Readiness (`tonal_readiness_<muscle>`) is a snapshot metric, not backfillable history — there's no way to pull "readiness as it was each day this week" retroactively. Instead, pull the **current** reading for each muscle group the athlete trained this week (`get_metric_series('tonal_readiness_<muscle>', ...)` returns the latest snapshot) and cross-reference it against which muscle groups were actually trained this week via `get_muscle_group_volume(start_date, end_date)` — it aggregates volume by muscle group directly from locally hydrated data, no need to infer muscle groups per movement by hand.
 - Apply the same bands as `tonal-coach`: **< 40 fatigued**, **40–70 moderate**, **≥ 70 ready**. If a muscle group currently reads fatigued and was also trained heavy multiple times this week, call that out as a likely driver — not necessarily a problem on its own, but something the athlete should know before the next session hits that muscle group again.
 
 ### 3. Workout Compliance vs. Saved Plan
@@ -26,7 +26,7 @@ Use this when the athlete asks for a training check-in, weekly review, progress 
 
 ### 4. Movement-Level Progressive Overload Check
 - Pick the 2–4 movements most central to the athlete's current goal (or the ones they ask about).
-- For each, pull the last several sessions' data: `get_tonal_workout_history` for candidate `activity_id`s, then `get_tonal_workout_detail(activity_id)` for each, filtering the returned `sets` list to the movement(s) of interest.
+- For each, call `get_movement_history(query, limit=...)` — it returns that movement's chronological per-set history (reps, weight, one-rep-max, volume) straight from locally hydrated data, no per-workout detail fetching required.
 - Compare `one_rep_max` (and secondarily `weight_lbs`/`reps`/`volume_lbs`) across sessions in chronological order. Progressive overload is `one_rep_max` trending up, or held steady with rep/volume increasing — not just "did a workout happen." A movement that's been flat or regressing for multiple sessions despite adequate readiness is worth surfacing as a candidate for a program change (different rep range, more recovery, or movement substitution), not just noted and passed over.
 
 ### 5. Report

@@ -148,8 +148,8 @@ class StrengthSet:
     that Activity's cardio-shaped columns (distance/speed/elevation) can't
     represent.
 
-    Timezone contract: `created_at` MUST be a naive `datetime` representing
-    UTC wall-clock time, consistent with Activity/MetricReading.
+    Timezone contract: `created_at` and `occurred_at` MUST be naive `datetime`s
+    representing UTC wall-clock time, consistent with Activity/MetricReading.
     """
 
     id: str  # f"{source}:{activity_id}:{set_index}"
@@ -166,12 +166,18 @@ class StrengthSet:
     rom_inches: float | None
     struggling_score: float | None
     side: str | None  # 'Left' | 'Right' | 'Both'
-    created_at: datetime
+    created_at: datetime  # write-time bookkeeping only -- NOT the workout date
+    occurred_at: datetime  # the real set/workout timestamp; use this for chronology
 
     def __post_init__(self) -> None:
         if self.created_at.tzinfo is not None:
             raise ValueError(
                 "StrengthSet.created_at must be a naive datetime representing UTC wall-clock time; "
                 f"got a timezone-aware value: {self.created_at!r}."
+            )
+        if self.occurred_at.tzinfo is not None:
+            raise ValueError(
+                "StrengthSet.occurred_at must be a naive datetime representing UTC wall-clock time; "
+                f"got a timezone-aware value: {self.occurred_at!r}."
             )
 

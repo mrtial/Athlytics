@@ -155,6 +155,41 @@ def expand_blocks(blocks: list[dict], movement_map: dict[str, dict]) -> list[dic
     return sets
 
 
+def _parse_workout_set_activity(raw_sets: list[dict]) -> list[dict]:
+    """Normalize Tonal's raw per-set wire format (`workoutSetActivity`, as
+    returned both by GET /workout-activities/{id} and embedded in each
+    entry of GET /workout-activities) into the simplified shape used
+    throughout this codebase. Pure function, no I/O -- shared by
+    TonalClient.get_workout_detail (single workout) and
+    TonalProvider.hydrate_recent_strength_sets (bulk, sync-time) so the two
+    write paths can't drift apart."""
+    sets = []
+    for set_activity in raw_sets:
+        reps = set_activity.get("repCount")
+        if reps is None:
+            reps = set_activity.get("prescribedReps")
+        weight_lbs = set_activity.get("baseWeight")
+        if weight_lbs is None:
+            weight_lbs = set_activity.get("avgWeight")
+        volume_lbs = set_activity.get("volume")
+        if volume_lbs is None:
+            volume_lbs = set_activity.get("totalVolume")
+        sets.append({
+            "movement_id": set_activity.get("movementId"),
+            "is_warm_up": set_activity.get("warmUp"),
+            "reps": reps,
+            "weight_lbs": weight_lbs,
+            "volume_lbs": volume_lbs,
+            "one_rep_max": set_activity.get("oneRepMax"),
+            "max_power_watts": set_activity.get("maxConPower"),
+            "rom_inches": set_activity.get("rom"),
+            "struggling_score": set_activity.get("strugglingScore"),
+            "side": set_activity.get("movementSide"),
+            "begin_time": set_activity.get("beginTime"),
+        })
+    return sets
+
+
 class TonalClient:
     def __init__(
         self,
@@ -217,16 +252,25 @@ class TonalClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._id_token}"}
 
-    def _get(self, path: str, params: dict | None = None) -> dict:
+    def _get_response(self, path: str, params: dict | None = None, extra_headers: dict | None = None) -> httpx.Response:
+        """Like `_get`, but returns the raw `httpx.Response` instead of the
+        parsed body -- needed by callers (`get_activities`) that must read
+        response headers, not just the JSON payload."""
         self._ensure_fresh_token()
-        response = self._http.get(path, params=params, headers=self._headers())
+        headers = {**self._headers(), **(extra_headers or {})}
+        response = self._http.get(path, params=params, headers=headers)
         if response.status_code == 401:
             credentials = self._reauth(self._credential_store.load() or {})
             self._id_token = credentials["id_token"]
-            response = self._http.get(path, params=params, headers=self._headers())
+            headers = {**self._headers(), **(extra_headers or {})}
+            response = self._http.get(path, params=params, headers=headers)
         if response.status_code == 429:
             raise RateLimitError(f"Tonal rate limit exceeded: {response.text}")
         response.raise_for_status()
+        return response
+
+    def _get(self, path: str, params: dict | None = None) -> dict:
+        response = self._get_response(path, params=params)
         return {} if response.status_code == 204 else response.json()
 
     def _post(self, path: str, json_body: dict) -> dict:
@@ -329,21 +373,46 @@ class TonalClient:
             results.append(movement)
         return results
 
+    def _fetch_recent_page(self, limit: int) -> list[dict]:
+        """Shared pagination logic: probe pg-total with a 1-item request,
+        then fetch the last `limit` items (offset = max(0, total - limit)),
+        returning the *untrimmed* raw entries sorted descending by
+        beginTime. The server ignores the `limit` *query* param entirely
+        and defaults to the oldest page (offset=0) unless pg-offset/
+        pg-limit *request headers* are sent -- confirmed live against a
+        real 240-workout account."""
+        path = f"/users/{self.user_id}/workout-activities"
+        probe = self._get_response(path, extra_headers={"pg-offset": "0", "pg-limit": "1"})
+        total = int(probe.headers.get("pg-total", 0))
+        offset = max(0, total - limit)
+        response = self._get_response(path, extra_headers={"pg-offset": str(offset), "pg-limit": str(limit)})
+        raw = response.json()
+        return sorted(raw, key=lambda entry: entry["beginTime"], reverse=True)
+
     def get_activities(self, limit: int = 10) -> list[dict]:
-        """Workout history, most-recent-first. The server appears to ignore
-        the `limit` query param (it returns full history regardless) *and*
-        returns it oldest-first (confirmed against a real account's
-        captured fixture) -- so the raw response is sorted descending by
-        `beginTime` before slicing to `limit`, guaranteeing the method's
-        "most recent `limit` workouts, newest first" contract rather than
-        silently handing back the oldest ones. `beginTime` is an ISO 8601
-        UTC string, which sorts correctly lexicographically."""
-        raw = self._get(f"/users/{self.user_id}/workout-activities", params={"limit": limit})
-        raw_sorted = sorted(raw, key=lambda entry: entry["beginTime"], reverse=True)
+        """Workout history, most-recent-first. Each entry also carries
+        planned_sets/completed_sets/completion_rate, derived from the same
+        raw entry's totalSets and workoutSetActivity -- no extra API call.
+
+        Completion-rate heuristic: a set counts as "completed" if it has
+        repCount > 0 or duration > 0. This is an approximation -- some
+        legitimately-performed sets (e.g. certain bodyweight-style
+        movements) report zero tracked reps, so completion_rate can slightly
+        undercount on workouts using them. Good enough to distinguish an
+        abandoned/cut-short session (rate near 0) from a completed one
+        (rate near 1); not precise enough to treat as an exact percentage.
+        """
+        raw_sorted = self._fetch_recent_page(limit)
         activities = []
-        for entry in raw_sorted:
+        for entry in raw_sorted[:limit]:
             workout_type = entry.get("workoutType")
             title = f"{workout_type} Workout" if workout_type else "Workout"
+            planned_sets = entry.get("totalSets")
+            raw_sets = entry.get("workoutSetActivity", [])
+            completed_sets = sum(
+                1 for s in raw_sets if (s.get("repCount") or 0) > 0 or (s.get("duration") or 0) > 0
+            )
+            completion_rate = (completed_sets / planned_sets) if planned_sets else None
             activities.append({
                 "activity_id": entry["id"],
                 "date": entry["beginTime"],
@@ -351,38 +420,28 @@ class TonalClient:
                 "type": workout_type,
                 "duration_seconds": entry.get("totalDuration"),
                 "total_volume_lbs": entry.get("totalVolume"),
+                "planned_sets": planned_sets,
+                "completed_sets": completed_sets,
+                "completion_rate": completion_rate,
             })
-        return activities[:limit]
+        return activities
+
+    def get_recent_workout_set_activity(self, limit: int = 500) -> list[dict]:
+        """Untrimmed raw workout entries (including the full
+        workoutSetActivity per-set array) for the most recent `limit`
+        workouts -- used only by TonalProvider.hydrate_recent_strength_sets,
+        not called by any MCP tool directly. get_activities() trims this
+        same data down to its small public dict shape; this method exists
+        so the hydration path can get at what get_activities() discards,
+        without a second network call pattern."""
+        return self._fetch_recent_page(limit)
 
     def get_workout_detail(self, activity_id: str) -> dict:
         raw = self._get(f"/users/{self.user_id}/workout-activities/{activity_id}")
-        sets = []
-        for set_activity in raw.get("workoutSetActivity", []):
-            reps = set_activity.get("repCount")
-            if reps is None:
-                reps = set_activity.get("prescribedReps")
-            weight_lbs = set_activity.get("baseWeight")
-            if weight_lbs is None:
-                weight_lbs = set_activity.get("avgWeight")
-            volume_lbs = set_activity.get("volume")
-            if volume_lbs is None:
-                volume_lbs = set_activity.get("totalVolume")
-            sets.append({
-                "movement_id": set_activity.get("movementId"),
-                "is_warm_up": set_activity.get("warmUp"),
-                "reps": reps,
-                "weight_lbs": weight_lbs,
-                "volume_lbs": volume_lbs,
-                "one_rep_max": set_activity.get("oneRepMax"),
-                "max_power_watts": set_activity.get("maxConPower"),
-                "rom_inches": set_activity.get("rom"),
-                "struggling_score": set_activity.get("strugglingScore"),
-                "side": set_activity.get("movementSide"),
-            })
         return {
             "total_duration_seconds": raw.get("totalDuration"),
             "total_volume_lbs": raw.get("totalVolume"),
-            "sets": sets,
+            "sets": _parse_workout_set_activity(raw.get("workoutSetActivity", [])),
         }
 
     def _get_movement_map(self) -> dict[str, dict]:

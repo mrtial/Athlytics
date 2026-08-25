@@ -22,6 +22,8 @@ class FakeTonalClient:
         movements_search_result=None,
         estimate_result=None,
         create_result=None,
+        movements=None,
+        raw_workout_set_activity=None,
     ):
         self.muscle_readiness = muscle_readiness or {}
         self.strength_score_history = strength_score_history or []
@@ -30,12 +32,17 @@ class FakeTonalClient:
         self.movements_search_result = movements_search_result or []
         self.estimate_result = estimate_result or {"estimated_duration_min": 30, "set_count": 12}
         self.create_result = create_result or {"workout_id": "w-1", "title": "t", "set_count": 12, "exercise_count": 4}
+        self.movements = movements or []
+        self.raw_workout_set_activity = raw_workout_set_activity or []
         self.deleted_workout_ids = []
         self.get_workout_detail_calls = []
         self.search_movements_calls = []
         self.estimate_workout_calls = []
         self.create_workout_calls = []
         self.get_activities_calls: list[int] = []
+
+    def get_movements(self, force_refresh=False):
+        return self.movements
 
     def get_muscle_readiness(self):
         return self.muscle_readiness
@@ -46,6 +53,11 @@ class FakeTonalClient:
     def get_activities(self, limit=10):
         self.get_activities_calls.append(limit)
         return self.activities[:limit]
+
+    def get_recent_workout_set_activity(self, limit=500):
+        self.get_recent_workout_set_activity_calls = getattr(self, "get_recent_workout_set_activity_calls", [])
+        self.get_recent_workout_set_activity_calls.append(limit)
+        return self.raw_workout_set_activity
 
     def get_workout_detail(self, activity_id):
         self.get_workout_detail_calls.append(activity_id)
@@ -279,6 +291,10 @@ def test_fetch_activities_excludes_out_of_range_dates():
 def test_get_workout_detail_persists_strength_sets_and_returns_detail_dict(tmp_path):
     conn = connect(tmp_path / "test.db")
     fake_client = FakeTonalClient(
+        movements=[
+            {"id": "mv-bench", "name": "Barbell Bench Press", "muscle_groups": ["Chest", "Triceps"],
+             "body_region": "Upper", "count_reps": True, "is_alternating": False},
+        ],
         workout_detail={
             "total_duration_seconds": 1800,
             "total_volume_lbs": 5400.0,
@@ -294,6 +310,7 @@ def test_get_workout_detail_persists_strength_sets_and_returns_detail_dict(tmp_p
                     "rom_inches": 18.0,
                     "struggling_score": 0.1,
                     "side": "Both",
+                    "begin_time": "2026-08-18T11:33:08.000Z",
                 },
                 {
                     "movement_id": "mv-bench",
@@ -306,9 +323,10 @@ def test_get_workout_detail_persists_strength_sets_and_returns_detail_dict(tmp_p
                     "rom_inches": 18.5,
                     "struggling_score": 0.4,
                     "side": "Both",
+                    "begin_time": "2026-08-18T11:35:00.000Z",
                 },
             ],
-        }
+        },
     )
     provider = _provider(fake_client)
 
@@ -320,12 +338,88 @@ def test_get_workout_detail_persists_strength_sets_and_returns_detail_dict(tmp_p
     persisted = repository.get_strength_sets(conn, "tonal:act-1")
     assert len(persisted) == 2
     assert persisted[0].movement_id == "mv-bench"
+    assert persisted[0].movement_name == "Barbell Bench Press"
     assert persisted[0].is_warm_up is True
     assert persisted[0].reps == 10
+    assert persisted[0].occurred_at == datetime(2026, 8, 18, 11, 33, 8)
+    assert persisted[1].occurred_at == datetime(2026, 8, 18, 11, 35, 0)
     assert persisted[1].is_warm_up is False
     assert persisted[1].reps == 8
     assert persisted[0].id == "tonal:act-1:0"
     assert persisted[1].id == "tonal:act-1:1"
+
+    muscle_groups = conn.execute(
+        "SELECT muscle_group FROM strength_set_muscle_group WHERE strength_set_id = ? ORDER BY muscle_group",
+        (persisted[0].id,),
+    ).fetchall()
+    assert [m[0] for m in muscle_groups] == ["Chest", "Triceps"]
+
+
+def test_hydrate_recent_strength_sets_persists_sets_since_boundary(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    fake_client = FakeTonalClient(
+        movements=[
+            {"id": "mv-bench", "name": "Barbell Bench Press", "muscle_groups": ["Chest"],
+             "body_region": "Upper", "count_reps": True, "is_alternating": False},
+        ],
+        raw_workout_set_activity=[
+            {
+                "id": "act-new", "beginTime": "2026-08-18T11:33:08.000Z", "workoutType": "Custom",
+                "totalDuration": 719, "totalVolume": 2246,
+                "workoutSetActivity": [
+                    {"movementId": "mv-bench", "warmUp": False, "repCount": 12, "baseWeight": 15,
+                     "volume": 200, "oneRepMax": 22.7, "maxConPower": 1376.5, "rom": 26.2,
+                     "strugglingScore": 0.57, "movementSide": "Both", "beginTime": "2026-08-18T11:33:08.000Z"},
+                ],
+            },
+            {
+                "id": "act-old", "beginTime": "2024-08-01T01:26:14.000Z", "workoutType": "PT",
+                "totalDuration": 2713, "totalVolume": 8795,
+                "workoutSetActivity": [
+                    {"movementId": "mv-bench", "warmUp": False, "repCount": 10, "baseWeight": 100,
+                     "volume": 1000, "oneRepMax": 130.0, "maxConPower": 1200.0, "rom": 25.0,
+                     "strugglingScore": 0.5, "movementSide": "Both", "beginTime": "2024-08-01T01:26:14.000Z"},
+                ],
+            },
+        ],
+    )
+    provider = _provider(fake_client)
+
+    result = provider.hydrate_recent_strength_sets(conn, since=date(2026, 1, 1))
+
+    assert result == {"workouts": 1, "sets": 1}
+    persisted = repository.get_strength_sets(conn, "tonal:act-new")
+    assert len(persisted) == 1
+    assert persisted[0].movement_name == "Barbell Bench Press"
+    assert persisted[0].occurred_at == datetime(2026, 8, 18, 11, 33, 8)
+    # the pre-since workout must not have been persisted
+    assert repository.get_strength_sets(conn, "tonal:act-old") == []
+
+
+def test_hydrate_recent_strength_sets_isolates_per_workout_failures(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    fake_client = FakeTonalClient(
+        movements=[],
+        raw_workout_set_activity=[
+            {"id": "act-bad", "beginTime": "not-a-valid-timestamp", "workoutType": "PT",
+             "totalDuration": 100, "totalVolume": 50, "workoutSetActivity": []},
+            {
+                "id": "act-good", "beginTime": "2026-08-18T11:33:08.000Z", "workoutType": "PT",
+                "totalDuration": 100, "totalVolume": 50,
+                "workoutSetActivity": [
+                    {"movementId": "mv-x", "warmUp": False, "repCount": 5, "baseWeight": 10,
+                     "volume": 50, "oneRepMax": 12.0, "maxConPower": 100.0, "rom": 10.0,
+                     "strugglingScore": 0.1, "movementSide": "Both", "beginTime": "2026-08-18T11:33:08.000Z"},
+                ],
+            },
+        ],
+    )
+    provider = _provider(fake_client)
+
+    result = provider.hydrate_recent_strength_sets(conn, since=date(2026, 1, 1))
+
+    assert result == {"workouts": 1, "sets": 1}
+    assert repository.get_strength_sets(conn, "tonal:act-good") != []
 
 
 def test_search_movements_estimate_create_delete_are_passthroughs_to_client():

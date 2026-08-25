@@ -476,7 +476,7 @@ class _StubTonalProvider:
     name = "tonal"
 
     def __init__(self, *args, **kwargs):
-        pass
+        self.hydrate_calls = []
 
     def search_movements(self, query=None, muscle_group=None):
         return [{"id": "m1", "name": "Bench Press", "muscle_groups": ["Chest"]}]
@@ -492,6 +492,10 @@ class _StubTonalProvider:
 
     def delete_workout(self, workout_id):
         return True
+
+    def hydrate_recent_strength_sets(self, conn, since):
+        self.hydrate_calls.append(since)
+        return {"workouts": 1, "sets": 5}
 
 
 class _StubTonalClient:
@@ -533,8 +537,112 @@ def test_sync_tonal_data_tool_forwards_force_full_history(tmp_path, monkeypatch)
 
     result = sync_tonal_data(days=7, force_full_history=True)
 
-    assert result == {"tonal_strength_score": "complete"}
+    assert result == {
+        "tonal_strength_score": "complete",
+        "tonal_strength_sets": "skipped (full history sync)",
+    }
     assert captured.get("force_full_backfill") is True
+
+
+def test_sync_tonal_data_tool_hydrates_strength_sets_on_incremental_sync(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    connect(tmp_path / "athlytics.db").close()
+    _save_stub_tonal_credentials(tmp_path)
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
+        return {"tonal_strength_score": "complete"}
+
+    monkeypatch.setattr("core.providers.tonal.TonalProvider", _StubTonalProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    from mcp_server.server import sync_tonal_data
+
+    result = sync_tonal_data(days=7, force_full_history=False)
+
+    assert result == {
+        "tonal_strength_score": "complete",
+        "tonal_strength_sets": "5 sets across 1 workouts",
+    }
+
+
+class _CapturingSinceTonalProvider(_StubTonalProvider):
+    """Records every `since` a hydration call receives on a class-level list
+    (instances are recreated per sync_tonal_data call, so a per-instance list
+    like _StubTonalProvider's wouldn't survive to be inspected by the test)."""
+
+    captured_since: list = []
+
+    def hydrate_recent_strength_sets(self, conn, since):
+        _CapturingSinceTonalProvider.captured_since.append(since)
+        return {"workouts": 1, "sets": 5}
+
+
+def test_sync_tonal_data_hydrates_from_checkpoint_day_itself_not_day_after(tmp_path, monkeypatch):
+    """A sync on day D hydrates through D and sets the checkpoint to D. If the
+    athlete trains again later that same day D, the next sync must still pick
+    up that workout, so hydrate_since must be the checkpoint day itself, not
+    checkpoint + 1 day -- unlike core/scheduler/sync.py's daily-aggregate
+    checkpoint convention, upsert_strength_sets is idempotent by id, so
+    re-hydrating the checkpoint day on every sync is free and correct."""
+    db_path = tmp_path / "athlytics.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    checkpoint_day = date(2026, 8, 20)
+    repository.set_checkpoint(conn, "tonal", "tonal_strength_sets", checkpoint_day)
+    conn.close()
+    _save_stub_tonal_credentials(tmp_path)
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
+        return {"tonal_strength_score": "complete"}
+
+    _CapturingSinceTonalProvider.captured_since = []
+    monkeypatch.setattr("core.providers.tonal.TonalProvider", _CapturingSinceTonalProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    from mcp_server.server import sync_tonal_data
+
+    sync_tonal_data(days=7, force_full_history=False)
+
+    assert _CapturingSinceTonalProvider.captured_since == [checkpoint_day]
+
+
+class _FailingHydrateTonalProvider(_StubTonalProvider):
+    """Raises from hydrate_recent_strength_sets itself, standing in for an
+    unwrapped failure in one of the pre-loop calls (get_recent_workout_set_activity
+    / _movement_lookup) that hydrate_recent_strength_sets does not itself
+    try/except -- from sync_tonal_data's point of view these look identical."""
+
+    def hydrate_recent_strength_sets(self, conn, since):
+        raise RuntimeError("simulated rate limit error")
+
+
+def test_sync_tonal_data_isolates_hydration_failure_and_keeps_sync_all_metrics_results(tmp_path, monkeypatch):
+    db_path = tmp_path / "athlytics.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_tonal_credentials(tmp_path)
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
+        return {"tonal_strength_score": "complete", "tonal_workout_volume": "complete"}
+
+    monkeypatch.setattr("core.providers.tonal.TonalProvider", _FailingHydrateTonalProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    from mcp_server.server import sync_tonal_data
+
+    result = sync_tonal_data(days=7, force_full_history=False)
+
+    # sync_all_metrics's already-successful results must survive the
+    # hydration failure, not be discarded by a propagating exception.
+    assert result["tonal_strength_score"] == "complete"
+    assert result["tonal_workout_volume"] == "complete"
+    assert "hydration failed" in result["tonal_strength_sets"]
+    assert "simulated rate limit error" in result["tonal_strength_sets"]
+
+    # The checkpoint must not advance past a failed hydration.
+    conn = connect(db_path)
+    assert repository.get_checkpoint(conn, "tonal", "tonal_strength_sets") is None
+    conn.close()
 
 
 def test_tonal_read_write_tools_return_provider_results(tmp_path, monkeypatch):
@@ -590,3 +698,105 @@ def test_get_tonal_workout_history_includes_volume_and_type(tmp_path, monkeypatc
             "total_volume_lbs": 5000.0,
         }
     ]
+
+
+def test_get_movement_history_returns_chronological_sets_for_unambiguous_match(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    conn = connect(tmp_path / "athlytics.db")
+    from core.storage.models import StrengthSet
+    older = StrengthSet(
+        id="tonal:w1:0", activity_id="tonal:w1", movement_id="mv-bench", movement_name="Bench Press",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=100.0, volume_lbs=800.0, one_rep_max=130.0,
+        max_power_watts=400.0, rom_inches=18.0, struggling_score=0.3, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 7, 1, 8, 0),
+    )
+    newer = StrengthSet(
+        id="tonal:w2:0", activity_id="tonal:w2", movement_id="mv-bench", movement_name="Bench Press",
+        set_index=0, is_warm_up=False, reps=6, weight_lbs=115.0, volume_lbs=690.0, one_rep_max=140.0,
+        max_power_watts=420.0, rom_inches=18.5, struggling_score=0.6, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 8, 1, 8, 0),
+    )
+    repository.upsert_strength_sets(conn, [older, newer])
+    conn.close()
+
+    from mcp_server.server import get_movement_history
+
+    result = get_movement_history("bench")
+
+    assert len(result) == 2
+    assert result[0]["date"] == "2026-08-01T08:00:00"  # newest first
+    assert result[0]["one_rep_max"] == 140.0
+    assert result[1]["one_rep_max"] == 130.0
+
+
+def test_get_movement_history_returns_candidates_when_ambiguous(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    conn = connect(tmp_path / "athlytics.db")
+    from core.storage.models import StrengthSet
+    bench = StrengthSet(
+        id="tonal:w1:0", activity_id="tonal:w1", movement_id="mv-bench", movement_name="Bench Press",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=100.0, volume_lbs=800.0, one_rep_max=130.0,
+        max_power_watts=400.0, rom_inches=18.0, struggling_score=0.3, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 7, 1, 8, 0),
+    )
+    close_grip = StrengthSet(
+        id="tonal:w2:0", activity_id="tonal:w2", movement_id="mv-cgbp", movement_name="Close Grip Bench Press",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=90.0, volume_lbs=720.0, one_rep_max=115.0,
+        max_power_watts=380.0, rom_inches=18.0, struggling_score=0.4, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 7, 5, 8, 0),
+    )
+    repository.upsert_strength_sets(conn, [bench, close_grip])
+    conn.close()
+
+    from mcp_server.server import get_movement_history
+
+    result = get_movement_history("bench")
+
+    assert {r["movement_id"] for r in result} == {"mv-bench", "mv-cgbp"}
+
+
+def test_get_movement_history_returns_empty_for_unknown_movement(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    connect(tmp_path / "athlytics.db").close()
+
+    from mcp_server.server import get_movement_history
+
+    assert get_movement_history("deadlift") == []
+
+
+def test_get_muscle_group_volume_aggregates_and_sorts_busiest_first(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    conn = connect(tmp_path / "athlytics.db")
+    from core.storage.models import StrengthSet
+    chest = StrengthSet(
+        id="tonal:w1:0", activity_id="tonal:w1", movement_id="mv-bench", movement_name="Bench Press",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=100.0, volume_lbs=800.0, one_rep_max=130.0,
+        max_power_watts=400.0, rom_inches=18.0, struggling_score=0.3, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 7, 10, 8, 0),
+    )
+    quads = StrengthSet(
+        id="tonal:w2:0", activity_id="tonal:w2", movement_id="mv-squat", movement_name="Squat",
+        set_index=0, is_warm_up=False, reps=8, weight_lbs=225.0, volume_lbs=1800.0, one_rep_max=280.0,
+        max_power_watts=500.0, rom_inches=20.0, struggling_score=0.3, side="Both",
+        created_at=datetime(2026, 1, 1, 12, 0), occurred_at=datetime(2026, 7, 12, 8, 0),
+    )
+    repository.upsert_strength_sets(conn, [chest, quads])
+    repository.replace_strength_set_muscle_groups(conn, chest.id, ["Chest"])
+    repository.replace_strength_set_muscle_groups(conn, quads.id, ["Quads"])
+    conn.close()
+
+    from mcp_server.server import get_muscle_group_volume
+
+    result = get_muscle_group_volume("2026-07-01", "2026-07-31")
+
+    assert [r["muscle_group"] for r in result] == ["Quads", "Chest"]
+    assert result[0]["total_volume_lbs"] == 1800.0
+
+
+def test_get_muscle_group_volume_empty_for_range_with_no_hydrated_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    connect(tmp_path / "athlytics.db").close()
+
+    from mcp_server.server import get_muscle_group_volume
+
+    assert get_muscle_group_volume("2020-01-01", "2020-01-31") == []

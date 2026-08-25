@@ -108,17 +108,58 @@ CREATE TABLE IF NOT EXISTS strength_set (
     rom_inches REAL,
     struggling_score REAL,
     side TEXT,                        -- 'Left' | 'Right' | 'Both'
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    occurred_at TEXT NOT NULL DEFAULT ''  -- real workout/set timestamp; created_at is write-time bookkeeping only
 );
 
 CREATE INDEX IF NOT EXISTS idx_strength_set_activity ON strength_set(activity_id);
 CREATE INDEX IF NOT EXISTS idx_strength_set_movement ON strength_set(movement_id);
+
+CREATE TABLE IF NOT EXISTS strength_set_muscle_group (
+    strength_set_id TEXT NOT NULL REFERENCES strength_set(id),
+    muscle_group TEXT NOT NULL,
+    PRIMARY KEY (strength_set_id, muscle_group)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ssmg_muscle_group ON strength_set_muscle_group(muscle_group);
 """
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Additive, idempotent migrations for columns added after a table's
+    initial CREATE TABLE IF NOT EXISTS -- that statement no-ops on a table
+    that already exists, so a newly added column needs an explicit ALTER
+    TABLE here instead. Safe to run on every connect(); checks
+    PRAGMA table_info before altering so it's a no-op once applied."""
+    existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(strength_set)").fetchall()}
+    if "occurred_at" not in existing_columns:
+        conn.execute("ALTER TABLE strength_set ADD COLUMN occurred_at TEXT NOT NULL DEFAULT ''")
+        # Best-effort backfill for rows written before this column existed:
+        # fall back to the parent activity's start_time (workout-level, not
+        # true per-set time, but far better than an empty string). A legacy
+        # row whose activity_id has no matching activity row (an orphan --
+        # activity rows only exist for date ranges a sync actually covered)
+        # falls back further to the row's own created_at bookkeeping
+        # timestamp, so no row is ever left with an unparseable empty string
+        # (datetime.fromisoformat('') raises in _row_to_strength_set).
+        conn.execute(
+            """
+            UPDATE strength_set
+            SET occurred_at = COALESCE(
+                (SELECT activity.start_time FROM activity WHERE activity.id = strength_set.activity_id),
+                created_at
+            )
+            WHERE occurred_at = ''
+            """
+        )
+    # Create the index unconditionally; CREATE INDEX IF NOT EXISTS is idempotent
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_strength_set_movement_occurred ON strength_set(movement_id, occurred_at)")
 

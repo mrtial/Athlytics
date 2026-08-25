@@ -6,6 +6,7 @@ living dynamic context resources (athlytics://), and evidence-based workflow pro
 import copy
 import dataclasses
 import json
+import logging
 import os
 import uuid
 from contextlib import contextmanager
@@ -34,6 +35,8 @@ from mcp_server.resources import (
 
 DB_PATH_ENV_VAR = "ATHLYTICS_DB_PATH"
 DEFAULT_DB_PATH = Path.home() / ".athlytics" / "athlytics.db"
+
+logger = logging.getLogger(__name__)
 
 mcp = MCPServer("Athlytics")
 
@@ -408,6 +411,14 @@ def sync_tonal_data(days: int = 30, force_full_history: bool = False) -> dict[st
     only matters the very first time a metric_type is ever synced. Pass
     force_full_history=True to ignore checkpoints and refetch each metric_type's
     entire history from `days` ago through today.
+
+    Incremental (non-force_full_history) runs also hydrate per-set strength
+    detail for workouts since the last hydration, at no extra API cost --
+    see get_movement_history/get_muscle_group_volume for the local-data
+    queries this enables. force_full_history runs skip hydration entirely
+    (years of per-set data is out of proportion to what a backfill needs)
+    and leave the hydration checkpoint untouched, so the next incremental
+    sync resumes it correctly.
     """
     data_dir = _db_path().parent
     secret_key_path = data_dir / ".env"
@@ -430,9 +441,33 @@ def sync_tonal_data(days: int = 30, force_full_history: bool = False) -> dict[st
     start_date = end_date - timedelta(days=days)
 
     with _connection() as conn:
-        return sync_all_metrics(
+        results = sync_all_metrics(
             conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history
         )
+        if force_full_history:
+            results["tonal_strength_sets"] = "skipped (full history sync)"
+        else:
+            checkpoint = repository.get_checkpoint(conn, "tonal", "tonal_strength_sets")
+            # Re-hydrate the checkpoint day itself (not checkpoint + 1): unlike
+            # core/scheduler/sync.py's daily-aggregate checkpoints, where
+            # re-processing the checkpoint day would double-count, upsert_strength_sets
+            # is idempotent by id, so re-hydrating it on every sync is free and
+            # correct -- and skipping it would silently drop any workout logged
+            # later the same day as a prior sync, with no in-product recovery path.
+            hydrate_since = checkpoint if checkpoint else start_date
+            try:
+                hydration = provider.hydrate_recent_strength_sets(conn, since=hydrate_since)
+                repository.set_checkpoint(conn, "tonal", "tonal_strength_sets", end_date)
+                results["tonal_strength_sets"] = f"{hydration['sets']} sets across {hydration['workouts']} workouts"
+            except Exception as exc:
+                # Isolate hydration failures (rate limits, HTTP 5xx, auth
+                # errors from the pre-loop fetch calls) from the results
+                # sync_all_metrics already successfully computed above --
+                # don't let a hydration error discard a good sync. Leave the
+                # checkpoint untouched so the next sync retries this window.
+                logger.warning("Tonal strength-set hydration failed", exc_info=True)
+                results["tonal_strength_sets"] = f"hydration failed: {exc}"
+        return results
 
 
 @mcp.tool()
@@ -481,6 +516,37 @@ def get_tonal_workout_history(limit: int = 10) -> list[dict]:
     # would silently drop it -- so this tool talks to TonalClient directly
     # rather than through TonalProvider.
     return client.get_activities(limit=limit)
+
+
+@mcp.tool()
+def get_movement_history(query: str, limit: int = 20) -> list[dict]:
+    """Chronological set history (reps, weight, one-rep-max, volume) for one Tonal movement across workouts -- the signal for whether a specific lift is progressing, entirely from locally hydrated data (no live Tonal API call). `query` accepts an exact movement_id or a name/keyword (e.g. "bench press"). Only movements synced at least once (via sync_tonal_data or get_tonal_workout_detail) are resolvable. If the keyword matches more than one distinct movement, returns the candidate list instead of guessing -- check for a "movement_id"/"movement_name" shape in the result to tell candidates apart from actual history rows."""
+    with _connection() as conn:
+        matches = repository.find_known_movements(conn, query)
+        distinct_ids = {m["movement_id"] for m in matches}
+        if len(distinct_ids) != 1:
+            return matches
+        movement_id = distinct_ids.pop()
+        sets = repository.get_strength_sets_by_movement(conn, movement_id, limit=limit)
+        return [
+            {
+                "date": s.occurred_at.isoformat(),
+                "reps": s.reps,
+                "weight_lbs": s.weight_lbs,
+                "one_rep_max": s.one_rep_max,
+                "volume_lbs": s.volume_lbs,
+                "is_warm_up": s.is_warm_up,
+                "struggling_score": s.struggling_score,
+            }
+            for s in sets
+        ]
+
+
+@mcp.tool()
+def get_muscle_group_volume(start_date: str, end_date: str) -> list[dict]:
+    """Trained volume by muscle group over a date range, aggregated entirely from locally hydrated Tonal data (no live API call) -- sorted busiest-first, so a muscle group missing from the results, or with an old last_trained date, is the "what have I been neglecting" signal. Only reflects muscle groups from workouts synced at least once via sync_tonal_data or get_tonal_workout_detail."""
+    with _connection() as conn:
+        return repository.get_muscle_group_volume(conn, date.fromisoformat(start_date), date.fromisoformat(end_date))
 
 
 @mcp.tool()

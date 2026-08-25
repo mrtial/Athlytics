@@ -14,7 +14,7 @@ This skill covers strength-training-specific coaching principles. For recovery g
 ### 1. Progressive Overload, Not Pace/HRV
 Strength progress is tracked differently than endurance progress:
 - Query `get_trend('tonal_strength_score', 30)` to see the athlete's overall strength trajectory (Tonal's composite score, backfilled daily from `strength-scores/history`).
-- For movement-level progression, there is no dedicated "history for this movement" MCP tool. Build it by calling `get_tonal_workout_history(limit=...)` for a list of recent workouts, then `get_tonal_workout_detail(activity_id)` on each one and reading `one_rep_max`/`weight_lbs`/`reps` off the returned per-set list for the movement(s) you're evaluating. Look for `one_rep_max` trending up (or held steady while reps/volume increase) across sessions as the signal for genuine progressive overload — a flat or declining `one_rep_max` despite consistent training is worth surfacing, not just noting.
+- For movement-level progression, call `get_movement_history(query, limit=...)` — it returns chronological per-set history (reps, weight, one-rep-max, volume) for a single movement straight from locally hydrated data, no per-workout detail fetching required. `query` accepts an exact `movement_id` or a name/keyword (e.g. `"bench press"`); if the keyword matches more than one distinct movement, it returns the candidate list instead of guessing. Look for `one_rep_max` trending up (or held steady while reps/volume increase) across sessions as the signal for genuine progressive overload — a flat or declining `one_rep_max` despite consistent training is worth surfacing, not just noting.
 - Don't conflate `tonal_workout_volume` (total lbs moved in a session) with strength progress on its own — rising volume from more reps at the same weight is a different signal than rising `one_rep_max`. Distinguish the two when reporting.
 
 ### 2. Muscle-Group Balance and Readiness Gating
@@ -36,6 +36,6 @@ This is not optional guidance — treat it as a hard rule:
 
 ## Available Tools & Resources
 - **Living Context:** `athlytics://athlete/snapshot`, `athlytics://training/current-state`, `athlytics://coach/context`, `athlytics://coach/playbook` (shared cross-cutting rules — read this)
-- **Read Queries:** `get_trend`, `get_metric_series`, `search_tonal_movements`, `get_tonal_workout_history`, `get_tonal_workout_detail`
+- **Read Queries:** `get_trend`, `get_metric_series`, `search_tonal_movements`, `get_tonal_workout_history`, `get_tonal_workout_detail`, `get_movement_history`, `get_muscle_group_volume`
 - **Write Actions (estimate before create):** `estimate_tonal_workout`, `create_tonal_workout`, `delete_tonal_workout`
 - **Guided Prompt:** `build_tonal_program(goal, target_date=None)` — walks through this exact flow (strength trend → readiness check → movement selection → estimate → confirm → create) end to end.
