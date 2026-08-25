@@ -6,6 +6,7 @@ from app.auth import (
     admin_exists,
     authenticate_admin,
     create_admin,
+    create_admin_without_password,
     get_admin,
     hash_password,
     verify_password,
@@ -52,7 +53,30 @@ def test_create_admin_then_admin_exists_and_get_admin_roundtrips(conn):
     admin = get_admin(conn)
     assert admin.username == "athlete"
     assert verify_password("hunter2hunter2", admin.password_hash, admin.salt)
+    assert admin.password_protected is True
     assert isinstance(admin.created_at, datetime)
+
+
+def test_create_admin_without_password_then_admin_exists_and_is_unprotected(conn):
+    create_admin_without_password(conn)
+
+    assert admin_exists(conn) is True
+    admin = get_admin(conn)
+    assert admin.password_protected is False
+    assert isinstance(admin.created_at, datetime)
+
+
+def test_create_admin_without_password_raises_when_admin_already_exists(conn):
+    create_admin_without_password(conn)
+
+    with pytest.raises(ValueError, match="already exists"):
+        create_admin_without_password(conn)
+
+
+def test_authenticate_admin_false_for_passwordless_admin(conn):
+    create_admin_without_password(conn)
+
+    assert authenticate_admin(conn, "", "") is False
 
 
 def test_create_admin_raises_when_admin_already_exists(conn):

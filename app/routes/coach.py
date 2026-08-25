@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request
 
-from app.dependencies import require_admin_page
+from app.dependencies import is_password_protected, require_admin_page
 from app.settings import DEFAULT_SKIN, get_athlete_age, get_athlete_name, get_persona, get_skin, get_theme
 from core.storage import repository
 
@@ -21,6 +21,7 @@ def coach_page(request: Request, conn=Depends(require_admin_page)):
         name="coach.html",
         context={
             "authenticated": True,
+            "password_protected": is_password_protected(conn),
             "theme": get_theme(conn),
             "skin": get_skin(conn) or DEFAULT_SKIN,
             "athlete_name": get_athlete_name(conn),

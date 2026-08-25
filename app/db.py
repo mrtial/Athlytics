@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS admin_user (
     username TEXT NOT NULL,
     password_hash TEXT NOT NULL,
     salt TEXT NOT NULL,
+    password_protected INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL
 );
 
@@ -47,6 +48,17 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     conn.commit()
     _migrate_sync_status_tables(conn)
+    _migrate_admin_user_table(conn)
+
+
+def _migrate_admin_user_table(conn: sqlite3.Connection) -> None:
+    """One-time migration for databases created before admin_user gained
+    password_protected. DEFAULT 1 on the ALTER matches existing rows'
+    actual state (they were all created with a real password)."""
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(admin_user)").fetchall()]
+    if cols and "password_protected" not in cols:
+        conn.execute("ALTER TABLE admin_user ADD COLUMN password_protected INTEGER NOT NULL DEFAULT 1")
+        conn.commit()
 
 
 def _migrate_sync_status_tables(conn: sqlite3.Connection) -> None:

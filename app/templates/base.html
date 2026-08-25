@@ -72,10 +72,13 @@
             <div class="dropdown-divider"></div>
           </div>
           <a href="/settings" class="dropdown-item">Settings</a>
+          <a href="/connections" class="dropdown-item">Connections</a>
+          {% if password_protected|default(true) %}
           <div class="dropdown-divider"></div>
           <form method="post" action="/logout" class="dropdown-form">
             <button type="submit" class="dropdown-item logout-item">Log out</button>
           </form>
+          {% endif %}
         </div>
       </div>
     </nav>

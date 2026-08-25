@@ -29,6 +29,7 @@ class AdminUser:
     username: str
     password_hash: str
     salt: str
+    password_protected: bool
     created_at: datetime
 
 
@@ -46,19 +47,42 @@ def create_admin(conn: sqlite3.Connection, username: str, password: str) -> None
         raise ValueError("admin user already exists")
     password_hash, salt = hash_password(password)
     conn.execute(
-        "INSERT INTO admin_user (id, username, password_hash, salt, created_at) VALUES (1, ?, ?, ?, ?)",
+        "INSERT INTO admin_user (id, username, password_hash, salt, password_protected, created_at) "
+        "VALUES (1, ?, ?, ?, 1, ?)",
         (username, password_hash, salt, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def create_admin_without_password(conn: sqlite3.Connection) -> None:
+    """Creates the single admin account for an athlete who opted out of
+    login protection during onboarding. No username/password is ever set,
+    so authenticate_admin can never succeed for this account -- session
+    re-issuance for it is handled separately in the /login route.
+    """
+    if admin_exists(conn):
+        raise ValueError("admin user already exists")
+    conn.execute(
+        "INSERT INTO admin_user (id, username, password_hash, salt, password_protected, created_at) "
+        "VALUES (1, '', '', '', 0, ?)",
+        (datetime.now(timezone.utc).isoformat(),),
     )
     conn.commit()
 
 
 def get_admin(conn: sqlite3.Connection) -> AdminUser | None:
     row = conn.execute(
-        "SELECT username, password_hash, salt, created_at FROM admin_user WHERE id = 1"
+        "SELECT username, password_hash, salt, password_protected, created_at FROM admin_user WHERE id = 1"
     ).fetchone()
     if row is None:
         return None
-    return AdminUser(username=row[0], password_hash=row[1], salt=row[2], created_at=datetime.fromisoformat(row[3]))
+    return AdminUser(
+        username=row[0],
+        password_hash=row[1],
+        salt=row[2],
+        password_protected=bool(row[3]),
+        created_at=datetime.fromisoformat(row[4]),
+    )
 
 
 def authenticate_admin(conn: sqlite3.Connection, username: str, password: str) -> bool:

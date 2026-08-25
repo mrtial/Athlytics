@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request
 
-from app.dependencies import require_admin_page
+from app.dependencies import is_password_protected, require_admin_page
 from app.qr import apple_health_shortcut_qr_svg
 from app.settings import (
     DEFAULT_SKIN,
@@ -76,6 +76,7 @@ def connections_page(request: Request, conn=Depends(require_admin_page)):
         name="connections.html",
         context={
             "authenticated": True,
+            "password_protected": is_password_protected(conn),
             "active_page": "connections",
             "theme": theme,
             "skin": skin,

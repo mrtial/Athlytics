@@ -15,12 +15,9 @@ With Athlytics, you get complete data privacy, zero subscription lock-in, and an
 
 <div align="center">
 
-<img width="900" alt="Athlytics Dashboard Overview" src="https://github.com/user-attachments/assets/a2d624fc-043b-453e-b4f1-080f2c411afa" />
-
-<br/><br/>
-
-<img width="445" alt="Metric Detail & Analytics" src="https://github.com/user-attachments/assets/ed71a318-1858-43aa-97dc-92aa3831309d" />
-<img width="445" alt="AI Coach & Training Plans" src="https://github.com/user-attachments/assets/9434db06-906b-4c18-a992-7458c7fdbbda" />
+<img width="33%" alt="Athlytics Dashboard Overview" src="https://github.com/user-attachments/assets/a2d624fc-043b-453e-b4f1-080f2c411afa" />
+<img width="33%" alt="Metric Detail & Analytics" src="https://github.com/user-attachments/assets/ed71a318-1858-43aa-97dc-92aa3831309d" />
+<img width="33%" alt="AI Coach & Training Plans" src="https://github.com/user-attachments/assets/9434db06-906b-4c18-a992-7458c7fdbbda" />
 
 </div>
 

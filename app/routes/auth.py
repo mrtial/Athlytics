@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
-from app.auth import authenticate_admin
+from app.auth import authenticate_admin, get_admin
 from app.dependencies import get_conn
 from app.session import SESSION_COOKIE_NAME, SESSION_LIFETIME, create_session, delete_session
 from app.settings import DEFAULT_SKIN, DEFAULT_THEME, get_skin, get_theme
@@ -26,6 +26,17 @@ def clear_session_cookie(response) -> None:
 
 @router.get("/login")
 def login_form(request: Request, conn=Depends(get_conn)):
+    admin = get_admin(conn)
+    if admin is not None and not admin.password_protected:
+        # This athlete opted out of login protection during onboarding, so
+        # there's no password to prompt for -- re-issue a session instead
+        # of showing a login form nobody can complete (e.g. after the
+        # 30-day session cookie expires or gets cleared).
+        token = create_session(conn)
+        response = RedirectResponse(url="/dashboard", status_code=303)
+        set_session_cookie(response, request, token)
+        return response
+
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN

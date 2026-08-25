@@ -52,6 +52,19 @@ def require_admin_api(request: Request, conn: sqlite3.Connection = Depends(get_c
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="not authenticated")
 
 
+def is_password_protected(conn: sqlite3.Connection) -> bool:
+    """Whether the single admin has a login password set. An athlete who
+    skipped that step during onboarding shouldn't be shown a "Log out"
+    option -- /login's passwordless re-issue (routes/auth.py) would just
+    log them straight back in, making it a dead end rather than a real
+    logout.
+    """
+    from app.auth import get_admin
+
+    admin = get_admin(conn)
+    return admin.password_protected if admin else True
+
+
 def onboarding_status(conn: sqlite3.Connection, state: object) -> str:
     """One of "admin"/"profile"/"persona"/"theme"/"connect"/"complete" --
     how far onboarding has progressed. "connect" completes as soon as any

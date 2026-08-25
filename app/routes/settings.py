@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
-from app.dependencies import require_admin_page
+from app.dependencies import is_password_protected, require_admin_page
 from app.settings import (
     DEFAULT_PERSONA,
     DEFAULT_SKIN,
@@ -36,6 +36,7 @@ def _settings_context(conn, request, *, theme, persona_error=None, theme_error=N
     today = date.today()
     return {
         "authenticated": True,
+        "password_protected": is_password_protected(conn),
         "personas": PERSONAS,
         "themes": THEMES,
         "skins": SKINS,

@@ -2,7 +2,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 
-from app.dependencies import onboarding_status, require_admin_page
+from app.dependencies import is_password_protected, onboarding_status, require_admin_page
 from app.settings import (
     DEFAULT_SKIN,
     get_athlete_age,
@@ -79,6 +79,7 @@ def activities_page(request: Request, conn=Depends(require_admin_page)):
             "today_formatted": today_formatted,
             "has_connected_source": has_connected_source,
             "authenticated": True,
+            "password_protected": is_password_protected(conn),
             "active_page": "activities",
         },
     )

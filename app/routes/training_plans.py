@@ -5,7 +5,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
-from app.dependencies import require_admin_page
+from app.dependencies import is_password_protected, require_admin_page
 from app.settings import DEFAULT_SKIN, get_athlete_age, get_athlete_name, get_persona, get_skin, get_theme, get_unit
 from core.storage import repository
 
@@ -312,6 +312,7 @@ def training_plans_page(request: Request, conn=Depends(require_admin_page)):
         name="training_plans.html",
         context={
             "authenticated": True,
+            "password_protected": is_password_protected(conn),
             "theme": get_theme(conn),
             "skin": get_skin(conn) or DEFAULT_SKIN,
             "athlete_name": get_athlete_name(conn),

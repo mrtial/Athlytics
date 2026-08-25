@@ -40,6 +40,61 @@ def test_onboarding_admin_post_rejects_when_admin_already_exists(client):
     assert response.status_code == 400
 
 
+def test_onboarding_admin_post_with_protect_no_skips_password_and_logs_in(app, client):
+    response = client.post(
+        "/onboarding/admin",
+        data={"protect": "no"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/onboarding/profile"
+
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    assert admin_exists(conn) is True
+
+    token = client.cookies.get(SESSION_COOKIE_NAME)
+    assert token is not None
+    assert is_valid_session(conn, token) is True
+
+
+def test_login_get_reissues_session_for_passwordless_admin(app, client):
+    client.post("/onboarding/admin", data={"protect": "no"}, follow_redirects=False)
+    client.cookies.clear()
+
+    response = client.get("/login", follow_redirects=False)
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/dashboard"
+    assert client.cookies.get(SESSION_COOKIE_NAME) is not None
+
+
+def _finish_onboarding_through_theme(client, **admin_form):
+    client.post("/onboarding/admin", data=admin_form)
+    client.post("/onboarding/profile", data={"athlete_name": "Athlete Name", "athlete_dob": "1995-06-15"})
+    client.post("/onboarding/persona", data={"persona": "full_overview"})
+    client.post("/onboarding/theme", data={"theme": "light"})
+
+
+def test_dashboard_shows_logout_when_admin_is_password_protected(client):
+    _finish_onboarding_through_theme(client, username="athlete", password="hunter2hunter2")
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "logout-item" in response.text
+
+
+def test_dashboard_hides_logout_when_admin_skipped_password(client):
+    _finish_onboarding_through_theme(client, protect="no")
+
+    response = client.get("/dashboard")
+
+    assert response.status_code == 200
+    assert "logout-item" not in response.text
+
+
 def test_login_get_renders_form(client):
     response = client.get("/login")
 

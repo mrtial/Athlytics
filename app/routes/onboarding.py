@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 
-from app.auth import create_admin
+from app.auth import create_admin, create_admin_without_password
 from app.dependencies import get_conn, onboarding_progress, require_admin_page
 from app.qr import apple_health_shortcut_qr_svg
 from app.session import SESSION_COOKIE_NAME, SESSION_LIFETIME, create_session
@@ -47,15 +47,21 @@ def onboarding_admin_form(request: Request, conn=Depends(get_conn)):
 @router.post("/onboarding/admin")
 def onboarding_admin_submit(
     request: Request,
-    username: str = Form(...),
-    password: str = Form(...),
+    protect: str = Form("yes"),
+    username: str | None = Form(None),
+    password: str | None = Form(None),
     conn=Depends(get_conn),
 ):
     templates = request.app.state.templates
     theme = get_theme(conn) or DEFAULT_THEME
     skin = get_skin(conn) or DEFAULT_SKIN
     try:
-        create_admin(conn, username, password)
+        if protect == "no":
+            create_admin_without_password(conn)
+        else:
+            if not username or not password:
+                raise ValueError("username and password are required")
+            create_admin(conn, username, password)
     except ValueError as exc:
         return templates.TemplateResponse(
             request=request,

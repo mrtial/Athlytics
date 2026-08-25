@@ -488,6 +488,35 @@ function initThemeToggle() {
   });
 }
 
+// Protect-your-data toggle on the admin onboarding step: shows/hides the
+// username+password fields and keeps their `required` attributes in sync
+// so skipping the password doesn't get blocked by browser validation.
+function initProtectToggle() {
+  const group = document.getElementById("protect-toggle-group");
+  if (!group) return;
+
+  const valueInput = document.getElementById("protect-value");
+  const fields = document.getElementById("protect-fields");
+  const usernameInput = document.getElementById("username");
+  const passwordInput = document.getElementById("password");
+
+  group.addEventListener("click", (evt) => {
+    const btn = evt.target.closest(".protect-toggle-btn");
+    if (!btn) return;
+    const value = btn.dataset.protectValue;
+
+    valueInput.value = value;
+    group.querySelectorAll(".protect-toggle-btn").forEach((b) => {
+      b.classList.toggle("is-active", b === btn);
+    });
+
+    const protect = value === "yes";
+    fields.style.display = protect ? "" : "none";
+    usernameInput.required = protect;
+    passwordInput.required = protect;
+  });
+}
+
 // Accent color swatches on the Settings page: same instant-apply +
 // fire-and-forget persistence pattern as initThemeToggle above.
 function initSkinToggle() {
@@ -564,6 +593,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   initMetricCards();
   initThemeToggle();
+  initProtectToggle();
   initSkinToggle();
   initActivityFilters();
   hydrateLocalTimestamps();
