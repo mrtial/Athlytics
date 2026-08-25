@@ -121,7 +121,13 @@ def test_connections_page_includes_sync_status_poll_script(client):
 
     response = client.get("/connections")
 
-    assert 'addEventListener("DOMContentLoaded", pollSyncStatus)' in response.text
+    # Not the bare identifier `pollSyncStatus` -- app.js (which defines it)
+    # loads after this partial's inline scripts, so passing the bare
+    # identifier to addEventListener resolves it immediately, before it
+    # exists, throwing a ReferenceError. Wrapped in a closure, the lookup
+    # is deferred until DOMContentLoaded actually fires, by which point
+    # app.js has run.
+    assert 'addEventListener("DOMContentLoaded", function() { pollSyncStatus(); })' in response.text
 
 
 def test_connections_page_renders_raw_utc_last_synced_timestamp_not_server_formatted(app, client):

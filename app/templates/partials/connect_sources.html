@@ -442,9 +442,12 @@ onboarding_connect.html and connections.html. Expects in context:
   }
 
   // app.js (which defines pollSyncStatus) loads via a <script src> at the
-  // bottom of the page, after this partial's own inline scripts -- calling
-  // it directly here would run before it's defined. DOMContentLoaded fires
-  // only once every synchronous script up to and including that one has
-  // executed, so deferring to it guarantees pollSyncStatus already exists.
-  document.addEventListener("DOMContentLoaded", pollSyncStatus);
+  // bottom of the page, after this partial's own inline scripts. Passing
+  // the bare identifier `pollSyncStatus` here would resolve it immediately,
+  // at registration time -- before app.js has run -- throwing a
+  // ReferenceError before addEventListener even gets called. Wrapping it in
+  // a closure defers that lookup until DOMContentLoaded actually fires,
+  // by which point every synchronous script up to and including app.js's
+  // has executed and pollSyncStatus exists.
+  document.addEventListener("DOMContentLoaded", function() { pollSyncStatus(); });
 </script>
