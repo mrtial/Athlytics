@@ -822,6 +822,29 @@ main {
   animation: pulse-red 2s infinite;
 }
 
+.pulse-dot.warning {
+  background: var(--warning);
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  animation: pulse-warning 2s infinite;
+}
+
+/* Pulsing dot for the "Syncing…" status badge, as a ::before rather than a
+   real child element -- the badge's JS update path does a plain
+   `el.textContent = label` (see pollSyncStatus in app.js), which would wipe
+   out a real nested element every poll; a pseudo-element survives that. */
+.sync-badge-pulsing::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--warning);
+  box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  animation: pulse-warning 2s infinite;
+  vertical-align: middle;
+}
+
 @keyframes pulse-green {
   0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
   70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
@@ -832,6 +855,47 @@ main {
   0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
   70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+@keyframes pulse-warning {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+/* Sync-in-progress bar: shown only while sync_in_progress is true for this
+   panel's provider, filled to (completed/total)*100% and animated wider as
+   pollSyncStatus's periodic /api/sync-status tick advances it -- without
+   this, a "Syncing 12/14..." badge with no motion looks identical whether
+   it's still working or has silently stalled. */
+.sync-progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin: 0 0 0.6rem;
+}
+
+.sync-progress-fill {
+  height: 100%;
+  min-width: 4px;
+  background: var(--warning);
+  border-radius: 999px;
+  transition: width 0.6s ease;
+}
+
+/* Indeterminate state: no completed/total yet (sync just started, before
+   the first metric_type finishes) -- a sliding stripe instead of a stalled
+   0%-width bar, so there's still visible motion from the very first tick. */
+.sync-progress-fill.indeterminate {
+  width: 35% !important;
+  animation: sync-progress-indeterminate 1.4s ease-in-out infinite;
+}
+
+@keyframes sync-progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(285%); }
 }
 
 .btn-toggle-sync {

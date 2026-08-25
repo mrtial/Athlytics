@@ -40,12 +40,19 @@ onboarding_connect.html and connections.html. Expects in context:
   <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
     <span style="font-size: 0.7rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: var(--fg-muted);">Sync Status</span>
     {% if sync_in_progress and currently_syncing_source == provider_id %}
-    <span data-sync-status-badge="{{ provider_id }}" style="background: var(--warning-soft); color: var(--warning); font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);">Syncing{% if sync_metric_progress %} {{ sync_metric_progress.completed }}/{{ sync_metric_progress.total }}{% endif %}&hellip;</span>
+    <span data-sync-status-badge="{{ provider_id }}" class="sync-badge-pulsing" style="display: inline-flex; align-items: center; gap: 0.35rem; background: var(--warning-soft); color: var(--warning); font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);">Syncing{% if sync_metric_progress %} {{ sync_metric_progress.completed }}/{{ sync_metric_progress.total }}{% endif %}&hellip;</span>
     {% elif status.auth_error %}
     <span data-sync-status-badge="{{ provider_id }}" style="background: var(--danger-soft); color: var(--danger); font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);">Needs attention</span>
     {% else %}
     <span data-sync-status-badge="{{ provider_id }}" style="background: var(--success-soft); color: var(--success); font-size: 0.68rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);">Healthy</span>
     {% endif %}
+  </div>
+  <div data-sync-progress-track="{{ provider_id }}" class="sync-progress-track" style="display: {% if sync_in_progress and currently_syncing_source == provider_id %}block{% else %}none{% endif %};">
+    <div
+      data-sync-progress-fill="{{ provider_id }}"
+      class="sync-progress-fill{% if not sync_metric_progress %} indeterminate{% endif %}"
+      style="width: {% if sync_metric_progress %}{{ (sync_metric_progress.completed / sync_metric_progress.total * 100) | round(1) }}%{% else %}0%{% endif %};"
+    ></div>
   </div>
   {% if status.auth_error %}
   <p style="font-size: 0.78rem; color: var(--danger); margin: 0 0 0.5rem; line-height: 1.4;">{{ status.auth_error }}</p>

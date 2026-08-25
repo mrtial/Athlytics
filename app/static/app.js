@@ -308,10 +308,25 @@ function pollSyncStatus() {
       const progress = data.sync_metric_progress;
       const label = progress ? `Syncing ${progress.completed}/${progress.total}…` : "Syncing…";
       document.querySelectorAll("[data-sync-status-badge]").forEach((el) => {
-        if (el.dataset.syncStatusBadge === data.currently_syncing_source) {
-          el.textContent = label;
-          el.style.background = "var(--warning-soft)";
-          el.style.color = "var(--warning)";
+        if (el.dataset.syncStatusBadge !== data.currently_syncing_source) return;
+        el.textContent = label;
+        el.style.background = "var(--warning-soft)";
+        el.style.color = "var(--warning)";
+        // The pulsing dot is a ::before on this class, not a child element,
+        // so plain textContent assignment above is safe -- no nested node
+        // to accidentally wipe out.
+        el.classList.add("sync-badge-pulsing");
+      });
+      document.querySelectorAll("[data-sync-progress-track]").forEach((trackEl) => {
+        if (trackEl.dataset.syncProgressTrack !== data.currently_syncing_source) return;
+        trackEl.style.display = "block";
+        const fillEl = trackEl.querySelector("[data-sync-progress-fill]");
+        if (!fillEl) return;
+        if (progress) {
+          fillEl.classList.remove("indeterminate");
+          fillEl.style.width = `${(progress.completed / progress.total) * 100}%`;
+        } else {
+          fillEl.classList.add("indeterminate");
         }
       });
       wasSyncing = true;
