@@ -154,6 +154,67 @@ def test_chunk_days_less_than_one_raises_value_error(tmp_path):
         sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5), chunk_days=0)
 
 
+def test_checkpoint_capped_below_today_when_chunk_reaches_today(tmp_path):
+    """Regression: a caller syncing through the real "today" (e.g. every
+    production caller, which always passes end=date.today()) must not have
+    its checkpoint advance all the way to today -- today can still gain new
+    data (a Garmin activity logged an hour after an earlier sync) that a
+    checkpoint sitting at today would cause the next sync to skip entirely,
+    since cursor = today + 1 > end = today reports "up_to_date" without
+    ever re-fetching."""
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 6)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5), today=date(2026, 1, 5))
+
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 4)
+
+
+def test_second_sync_same_day_still_refetches_today_after_capped_checkpoint(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 6)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+    today = date(2026, 1, 5)
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), today, today=today)
+    provider.fetch_calls.clear()
+    # A new reading for "today" arrives between the two sync passes --
+    # simulates a Garmin activity logged after the first Sync Now click.
+    provider._readings_by_metric["steps"] = readings + [_reading(5, value=2.0)]
+
+    results = sync_all_metrics(conn, provider, date(2026, 1, 1), today, today=today)
+
+    assert results == {"steps": "complete"}
+    assert provider.fetch_calls == [("steps", date(2026, 1, 5), date(2026, 1, 5))]
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 4)
+
+
+def test_today_param_has_no_effect_when_chunk_ends_before_today(tmp_path):
+    """A deliberately bounded historical backfill (end well before the real
+    "today") is unaffected by the today param -- every day in such a range
+    is already final, so the checkpoint should still reach end exactly,
+    matching test_backfill_persists_all_readings_and_sets_checkpoint's
+    established contract."""
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 6)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5), today=date(2026, 6, 1))
+
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 5)
+
+
+def test_omitting_today_preserves_unconditional_checkpoint_through_end(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 6)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5))
+
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 5)
+
+
 def test_on_metric_progress_called_once_per_metric_type_with_running_count(tmp_path):
     conn = connect(tmp_path / "test.db")
     provider = FakeProvider(readings_by_metric={"steps": [_reading(1)], "resting_hr": [_reading(1)]})

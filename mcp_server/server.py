@@ -326,7 +326,8 @@ def sync_garmin_data(days: int = 30, force_full_history: bool = False) -> dict[s
 
     with _connection() as conn:
         return sync_all_metrics(
-            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history
+            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
+            today=end_date,
         )
 
 
@@ -362,7 +363,8 @@ def sync_strava_data(days: int = 30, force_full_history: bool = False) -> dict[s
 
     with _connection() as conn:
         return sync_all_metrics(
-            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history
+            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
+            today=end_date,
         )
 
 
@@ -398,7 +400,8 @@ def sync_mi_fitness_data(days: int = 30, force_full_history: bool = False) -> di
 
     with _connection() as conn:
         return sync_all_metrics(
-            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history
+            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
+            today=end_date,
         )
 
 
@@ -442,7 +445,8 @@ def sync_tonal_data(days: int = 30, force_full_history: bool = False) -> dict[st
 
     with _connection() as conn:
         results = sync_all_metrics(
-            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history
+            conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
+            today=end_date,
         )
         if force_full_history:
             results["tonal_strength_sets"] = "skipped (full history sync)"

@@ -22,6 +22,7 @@ def sync_all_metrics(
     sleep_fn: Callable[[float], None] = time.sleep,
     force_full_backfill: bool = False,
     on_metric_progress: Callable[[int, int], None] | None = None,
+    today: date | None = None,
 ) -> dict[str, str]:
     """Sync every metric_type the provider supports from its checkpoint (or
     backfill_start, if none yet) through end.
@@ -32,6 +33,21 @@ def sync_all_metrics(
     tool), distinct from the normal incremental sync that only ever moves
     forward. Refetching already-synced days is safe: upsert_readings is
     idempotent on (source, metric_type, timestamp).
+
+    today, if given, marks the real wall-clock "today". Every real caller
+    passes end=date.today(), and a day that hasn't finished yet can still
+    gain new data after this sync pass runs -- a Garmin activity logged an
+    hour after an earlier "Sync Now" click, for example. Without this, the
+    checkpoint for a chunk reaching `end` gets set to `end` itself, so the
+    *next* sync's cursor (checkpoint + 1 day) lands after `end` and reports
+    "up_to_date" without ever re-fetching that day again -- silently
+    hiding same-day data added after the first sync. Passing `today` caps
+    the checkpoint written for any chunk reaching on-or-past it at
+    `today - 1 day` instead, so the next pass always re-walks today rather
+    than treating it as permanently done. Has no effect on chunks that end
+    before `today` (a bounded historical backfill's days are already
+    final). Omit (the default) to preserve the old unconditional
+    checkpoint-through-chunk_end behavior.
 
     on_metric_progress(completed, total), if given, fires once per
     metric_type immediately after it's done (whether it ended up
@@ -91,7 +107,10 @@ def sync_all_metrics(
                             repository.upsert_activities(conn, activities)
                         except Exception:
                             logger.warning("failed to upsert activities during sync pass", exc_info=True)
-                    repository.set_checkpoint(conn, provider.name, metric_type, chunk_end)
+                    checkpoint_value = chunk_end
+                    if today is not None and chunk_end >= today:
+                        checkpoint_value = min(chunk_end, today - timedelta(days=1))
+                    repository.set_checkpoint(conn, provider.name, metric_type, checkpoint_value)
                     cursor = chunk_end + timedelta(days=1)
                     if pace_seconds and cursor <= end:
                         sleep_fn(pace_seconds)

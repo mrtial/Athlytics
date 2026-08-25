@@ -81,11 +81,17 @@ def _run_provider_sync(
     """Runs sync_all_metrics for an already-constructed, already-authenticated
     provider and records the run/metric statuses. Shared by every provider
     block in perform_sync_pass so a new source is one construction branch,
-    not another copy of this bookkeeping."""
+    not another copy of this bookkeeping.
+
+    `end` is always today's date here (perform_sync_pass computes it fresh
+    on every call), so it doubles as sync_all_metrics's `today` -- caps the
+    checkpoint below today so a same-day re-sync still picks up activity
+    logged after an earlier pass today, instead of silently reporting
+    "up_to_date" forever until the next calendar day."""
     results = sync_all_metrics(
         conn, provider, backfill_start, end,
         chunk_days=chunk_days, pace_seconds=pace_seconds, force_full_backfill=force_full_backfill,
-        on_metric_progress=on_metric_progress,
+        on_metric_progress=on_metric_progress, today=end,
     )
     record_sync_run(conn, source, auth_error=None)
     record_metric_statuses(conn, source, results)
