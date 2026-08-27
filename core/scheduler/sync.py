@@ -23,6 +23,7 @@ def sync_all_metrics(
     force_full_backfill: bool = False,
     on_metric_progress: Callable[[int, int], None] | None = None,
     today: date | None = None,
+    resync_grace_days: int = 1,
 ) -> dict[str, str]:
     """Sync every metric_type the provider supports from its checkpoint (or
     backfill_start, if none yet) through end.
@@ -54,6 +55,22 @@ def sync_all_metrics(
     "complete", "up_to_date", or "failed") -- lets a caller show a running
     "N of TOTAL metrics" count for a backfill that can otherwise take a
     long time with no visible progress between metric_types.
+
+    resync_grace_days extends the `today` capping above to a trailing
+    window instead of just today itself: a chunk landing within
+    resync_grace_days of `today` gets its checkpoint capped at
+    `today - resync_grace_days` rather than advanced through chunk_end.
+    This matters because a provider's response for a day can be
+    incomplete for reasons other than "no data" -- e.g. Garmin computes
+    resting_hr from overnight sleep data with a lag, so a day synced too
+    soon after it ends can come back without a value even though Garmin
+    fills it in a day or two later. Since incremental sync only ever
+    resumes forward from the checkpoint, a day whose value wasn't ready at
+    fetch time would otherwise be skipped permanently. Capping the
+    checkpoint below a trailing grace window makes every sync re-walk
+    those recent days until they age out, so a late-arriving value still
+    gets picked up. Defaults to 1, which reproduces the old today-only
+    capping exactly (has no effect when `today` is omitted).
     """
     if chunk_days < 1:
         raise ValueError(f"chunk_days must be >= 1, got {chunk_days}")
@@ -108,8 +125,8 @@ def sync_all_metrics(
                         except Exception:
                             logger.warning("failed to upsert activities during sync pass", exc_info=True)
                     checkpoint_value = chunk_end
-                    if today is not None and chunk_end >= today:
-                        checkpoint_value = min(chunk_end, today - timedelta(days=1))
+                    if today is not None and chunk_end >= today - timedelta(days=resync_grace_days - 1):
+                        checkpoint_value = min(chunk_end, today - timedelta(days=resync_grace_days))
                     repository.set_checkpoint(conn, provider.name, metric_type, checkpoint_value)
                     cursor = chunk_end + timedelta(days=1)
                     if pace_seconds and cursor <= end:

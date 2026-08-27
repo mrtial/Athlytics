@@ -26,6 +26,11 @@ BACKFILL_LOOKBACK_DAYS = 3650  # ~10 years; sync_all_metrics's chunking/checkpoi
 SYNC_INTERVAL_SECONDS = 24 * 60 * 60
 SYNC_PACE_SECONDS = 1.0
 SYNC_CHUNK_DAYS = 30
+SYNC_RESYNC_GRACE_DAYS = 3  # re-walk the trailing 3 days on every sync so a
+                            # provider value that arrives a day or two late
+                            # (e.g. Garmin's resting_hr lag) still gets
+                            # picked up instead of being skipped forever --
+                            # see sync_all_metrics's resync_grace_days.
 
 
 def record_sync_run(conn: sqlite3.Connection, source: str, auth_error: str | None) -> None:
@@ -84,14 +89,16 @@ def _run_provider_sync(
     not another copy of this bookkeeping.
 
     `end` is always today's date here (perform_sync_pass computes it fresh
-    on every call), so it doubles as sync_all_metrics's `today` -- caps the
-    checkpoint below today so a same-day re-sync still picks up activity
-    logged after an earlier pass today, instead of silently reporting
-    "up_to_date" forever until the next calendar day."""
+    on every call), so it doubles as sync_all_metrics's `today` -- combined
+    with SYNC_RESYNC_GRACE_DAYS, this caps the checkpoint below the
+    trailing few days so a same-day re-sync still picks up activity logged
+    after an earlier pass today, and a value a provider computes with a
+    day or two of lag still gets picked up once it's ready, instead of
+    silently reporting "up_to_date" forever."""
     results = sync_all_metrics(
         conn, provider, backfill_start, end,
         chunk_days=chunk_days, pace_seconds=pace_seconds, force_full_backfill=force_full_backfill,
-        on_metric_progress=on_metric_progress, today=end,
+        on_metric_progress=on_metric_progress, today=end, resync_grace_days=SYNC_RESYNC_GRACE_DAYS,
     )
     record_sync_run(conn, source, auth_error=None)
     record_metric_statuses(conn, source, results)

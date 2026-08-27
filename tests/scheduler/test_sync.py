@@ -205,6 +205,91 @@ def test_today_param_has_no_effect_when_chunk_ends_before_today(tmp_path):
     assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 5)
 
 
+def test_checkpoint_capped_by_resync_grace_days_when_chunk_reaches_grace_window(tmp_path):
+    """resync_grace_days generalizes the today-1 cap above: with
+    resync_grace_days=3, the trailing 3 days (today, today-1, today-2)
+    should stay unconfirmed -- checkpoint caps at today-3 instead of
+    today-1 -- so a routine sync keeps re-walking them until they age out
+    of the window."""
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 6)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+
+    sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 5),
+        today=date(2026, 1, 5), resync_grace_days=3,
+    )
+
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 2)
+
+
+def test_resync_grace_days_defaults_to_one_matching_prior_today_capping_behavior(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    readings = [_reading(d) for d in range(1, 6)]
+    provider = FakeProvider(readings_by_metric={"steps": readings})
+
+    sync_all_metrics(conn, provider, date(2026, 1, 1), date(2026, 1, 5), today=date(2026, 1, 5))
+
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 4)
+
+
+def test_grace_window_recovers_a_reading_the_provider_returns_late(tmp_path):
+    """Regression for the checkpoint-skip bug: without a grace window, once
+    the checkpoint advances past a day, that day is gone for good even if
+    the provider's data for it becomes available on a later sync (e.g.
+    Garmin computes resting_hr from overnight data with a lag, so the value
+    isn't there yet the first time the sync walks past that day). With
+    resync_grace_days, the trailing days are re-walked on every sync until
+    they age out, so a value that shows up late still gets picked up."""
+    conn = connect(tmp_path / "test.db")
+    provider = FakeProvider(readings_by_metric={"steps": [_reading(d) for d in range(1, 5)]})  # day 5 missing
+
+    sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 5),
+        today=date(2026, 1, 5), resync_grace_days=3,
+    )
+    assert repository.get_readings(conn, "steps", date(2026, 1, 5), date(2026, 1, 5)) == []
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 2)
+
+    # Day 5's reading "arrives" late, simulating Garmin finishing the
+    # computation between the two sync passes.
+    provider._readings_by_metric["steps"].append(_reading(5))
+    provider.fetch_calls.clear()
+
+    results = sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 6),
+        today=date(2026, 1, 6), resync_grace_days=3,
+    )
+
+    assert results == {"steps": "complete"}
+    assert provider.fetch_calls == [("steps", date(2026, 1, 3), date(2026, 1, 6))]
+    assert repository.get_readings(conn, "steps", date(2026, 1, 5), date(2026, 1, 5)) == [_reading(5)]
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 3)
+
+
+def test_grace_window_stops_rewalking_a_day_once_it_ages_out(tmp_path):
+    """Once a day falls outside the grace window, it's treated as final
+    again -- the sync shouldn't keep re-fetching it forever."""
+    conn = connect(tmp_path / "test.db")
+    provider = FakeProvider(readings_by_metric={"steps": [_reading(d) for d in range(1, 6)]})
+
+    sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 5),
+        today=date(2026, 1, 5), resync_grace_days=3,
+    )
+    # Advance far enough that day 5 (checkpoint+1 .. today-3 boundary) is
+    # now outside the grace window.
+    provider.fetch_calls.clear()
+
+    sync_all_metrics(
+        conn, provider, date(2026, 1, 1), date(2026, 1, 10),
+        today=date(2026, 1, 10), resync_grace_days=3,
+    )
+
+    assert provider.fetch_calls == [("steps", date(2026, 1, 3), date(2026, 1, 10))]
+    assert repository.get_checkpoint(conn, "fake", "steps") == date(2026, 1, 7)
+
+
 def test_omitting_today_preserves_unconditional_checkpoint_through_end(tmp_path):
     conn = connect(tmp_path / "test.db")
     readings = [_reading(d) for d in range(1, 6)]

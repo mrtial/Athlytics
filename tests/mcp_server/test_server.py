@@ -371,6 +371,112 @@ async def test_sync_garmin_data_tool_forwards_force_full_history(tmp_path, monke
     assert captured.get("force_full_backfill") is True
 
 
+def _save_stub_garmin_credentials(tmp_path):
+    """Write a credentials file so the connected-check passes, mirroring
+    test_sync_garmin_data_tool_forwards_force_full_history's setup."""
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+
+    secret_key_path = tmp_path / ".env"
+    credentials_path = tmp_path / "garmin_credentials.enc"
+    secret_key = get_or_create_secret_key(secret_key_path)
+    CredentialStore(secret_key, credentials_path).save({"email": "a@example.com", "password": "x"})
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_metric_range_tool_raises_when_credentials_not_found(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "refetch_garmin_metric_range",
+            {"metric_type": "resting_hr", "start": "2026-08-17", "end": "2026-08-17"},
+        )
+
+    assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_metric_range_tool_upserts_readings_and_reports_still_missing_dates(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fetch(self, metric_type, start, end):
+            # Simulate Garmin having a value for `start` but not `end` --
+            # a real partial-range response.
+            return [MetricReading("garmin", metric_type, datetime.combine(start, time.min), 55.0, "bpm")]
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "refetch_garmin_metric_range",
+            {"metric_type": "resting_hr", "start": "2026-08-24", "end": "2026-08-25"},
+        )
+
+    assert result.is_error is not True
+    assert result.structured_content["readings_found"] == 1
+    assert result.structured_content["still_missing_dates"] == ["2026-08-25"]
+
+    conn = connect(db_path)
+    stored = repository.get_readings(conn, "resting_hr", date(2026, 8, 24), date(2026, 8, 25))
+    conn.close()
+    assert len(stored) == 1
+    assert stored[0].timestamp.date() == date(2026, 8, 24)
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_metric_range_tool_never_touches_the_sync_checkpoint(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.set_checkpoint(conn, "garmin", "resting_hr", date(2026, 8, 26))
+    conn.close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fetch(self, metric_type, start, end):
+            return [MetricReading("garmin", metric_type, datetime.combine(start, time.min), 55.0, "bpm")]
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "refetch_garmin_metric_range",
+            {"metric_type": "resting_hr", "start": "2026-08-17", "end": "2026-08-17"},
+        )
+
+    conn = connect(db_path)
+    checkpoint = repository.get_checkpoint(conn, "garmin", "resting_hr")
+    conn.close()
+    assert checkpoint == date(2026, 8, 26)  # unchanged by a backfill of an older day
+
+
+def test_refetch_garmin_metric_range_rejects_start_after_end(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    _save_stub_garmin_credentials(tmp_path)
+
+    from mcp_server.server import refetch_garmin_metric_range
+
+    with pytest.raises(ValueError, match="must be on or before"):
+        refetch_garmin_metric_range("resting_hr", "2026-08-25", "2026-08-20")
+
+
 def test_sync_strava_data_raises_when_not_connected(tmp_path, monkeypatch):
     monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
 

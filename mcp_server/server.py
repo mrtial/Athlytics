@@ -35,6 +35,11 @@ from mcp_server.resources import (
 
 DB_PATH_ENV_VAR = "ATHLYTICS_DB_PATH"
 DEFAULT_DB_PATH = Path.home() / ".athlytics" / "athlytics.db"
+SYNC_RESYNC_GRACE_DAYS = 3  # re-walk the trailing 3 days on every sync so a
+                            # provider value that arrives a day or two late
+                            # (e.g. Garmin's resting_hr lag) still gets
+                            # picked up instead of being skipped forever --
+                            # see sync_all_metrics's resync_grace_days.
 
 logger = logging.getLogger(__name__)
 
@@ -327,8 +332,71 @@ def sync_garmin_data(days: int = 30, force_full_history: bool = False) -> dict[s
     with _connection() as conn:
         return sync_all_metrics(
             conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
-            today=end_date,
+            today=end_date, resync_grace_days=SYNC_RESYNC_GRACE_DAYS,
         )
+
+
+@mcp.tool()
+def refetch_garmin_metric_range(metric_type: str, start: str, end: str) -> dict[str, str | int | list[str]]:
+    """Force a direct refetch of one Garmin metric_type over an explicit date range, bypassing the sync checkpoint entirely.
+
+    Routine syncs are incremental and never look backward once a day is
+    behind the checkpoint (see sync_garmin_data) -- if a day's value
+    wasn't ready yet when a routine sync walked past it (Garmin can
+    compute metrics like resting_hr from overnight data with a lag, and
+    the checkpoint-advance doesn't distinguish "not ready yet" from "no
+    data"), it's silently skipped forever. Use this tool to check whether
+    a gap found via get_metric_series or get_anomalies is a real "Garmin
+    has no data for that day" gap or just a stale-checkpoint miss: call it
+    on the missing range and see whether readings come back now.
+
+    Always safe to call on already-synced history -- upserts are
+    idempotent on (source, metric_type, timestamp), and this never reads
+    or writes sync_checkpoint, so it can't move a routine sync's resume
+    point backward or forward.
+    """
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "garmin_credentials.enc"
+    token_cache_dir = data_dir / "garmin_tokens"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Garmin credentials not found. Please connect your Garmin account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.garmin import GarminProvider
+    from datetime import date as dt_date, timedelta
+
+    start_date = dt_date.fromisoformat(start)
+    end_date = dt_date.fromisoformat(end)
+    if start_date > end_date:
+        raise ValueError(f"start ({start}) must be on or before end ({end})")
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = GarminProvider(store, token_cache_dir)
+
+    readings = provider.fetch(metric_type, start_date, end_date)
+
+    with _connection() as conn:
+        repository.upsert_readings(conn, readings)
+
+    found_dates = {r.timestamp.date() for r in readings}
+    still_missing_dates = []
+    day = start_date
+    while day <= end_date:
+        if day not in found_dates:
+            still_missing_dates.append(day.isoformat())
+        day += timedelta(days=1)
+
+    return {
+        "metric_type": metric_type,
+        "start": start,
+        "end": end,
+        "readings_found": len(readings),
+        "still_missing_dates": still_missing_dates,
+    }
 
 
 @mcp.tool()
@@ -364,7 +432,7 @@ def sync_strava_data(days: int = 30, force_full_history: bool = False) -> dict[s
     with _connection() as conn:
         return sync_all_metrics(
             conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
-            today=end_date,
+            today=end_date, resync_grace_days=SYNC_RESYNC_GRACE_DAYS,
         )
 
 
@@ -401,7 +469,7 @@ def sync_mi_fitness_data(days: int = 30, force_full_history: bool = False) -> di
     with _connection() as conn:
         return sync_all_metrics(
             conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
-            today=end_date,
+            today=end_date, resync_grace_days=SYNC_RESYNC_GRACE_DAYS,
         )
 
 
@@ -446,7 +514,7 @@ def sync_tonal_data(days: int = 30, force_full_history: bool = False) -> dict[st
     with _connection() as conn:
         results = sync_all_metrics(
             conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
-            today=end_date,
+            today=end_date, resync_grace_days=SYNC_RESYNC_GRACE_DAYS,
         )
         if force_full_history:
             results["tonal_strength_sets"] = "skipped (full history sync)"
