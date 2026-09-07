@@ -273,7 +273,7 @@ class TonalClient:
         response = self._get_response(path, params=params)
         return {} if response.status_code == 204 else response.json()
 
-    def _post(self, path: str, json_body: dict) -> dict:
+    def _post(self, path: str, json_body: dict | list) -> dict:
         self._ensure_fresh_token()
         response = self._http.post(path, json=json_body, headers=self._headers())
         if response.status_code == 401:
@@ -461,7 +461,7 @@ class TonalClient:
         `expand_blocks`, which raises `ValueError` naming any unknown ids)
         before posting."""
         sets = expand_blocks(blocks, self._get_movement_map())
-        result = self._post("/user-workouts/estimate", {"sets": sets})
+        result = self._post("/user-workouts/estimate", sets)
         return {
             "estimated_duration_min": round(result["duration"] / 60),
             "set_count": len(sets),
