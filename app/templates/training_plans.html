@@ -179,6 +179,45 @@
       </table>
     </div>
     {% endif %}
+
+    {% if item.session_table %}
+    <h4 class="plan-subsection-title">Sessions</h4>
+    <div class="plan-week-table-wrap">
+      <table class="plan-week-table">
+        <thead>
+          <tr>
+            <th>Day</th>
+            <th>Session</th>
+            <th>Focus</th>
+            <th>Movements</th>
+            <th>Sets</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in item.session_table.rows %}
+          <tr>
+            <td class="plan-week-num">{{ row.day or "—" }}</td>
+            <td>{{ row.name }}</td>
+            <td class="plan-day-note">{{ row.focus or "—" }}</td>
+            <td>
+              <ul class="plan-movement-list">
+                {% for m in row.movements %}
+                <li class="plan-movement-row">
+                  <span class="plan-movement-name">{{ m.name }}</span>
+                  <span class="plan-movement-sets">{{ m.sets }}&times;{{ m.reps }}</span>
+                </li>
+                {% endfor %}
+              </ul>
+            </td>
+            <td class="plan-day-cell plan-total-cell">
+              <span class="plan-day-mi">{{ row.set_count }}</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
     </details>
   </div>
   {% endfor %}

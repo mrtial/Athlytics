@@ -190,6 +190,46 @@ def _week_date_range_label(start_iso: str) -> str:
     return f"{start:%b %d} – {end:%b %d}"
 
 
+def _strength_stat_row(plan_data: dict, plan_target_date: date, plan_start_date: date) -> list[dict]:
+    baseline = plan_data.get("baseline") or {}
+    stats = [
+        {"label": "Target date", "value": plan_target_date.strftime("%b %d, %Y")},
+        {"label": "Start date", "value": plan_start_date.strftime("%b %d, %Y")},
+        {"label": "Duration", "value": f"{plan_data.get('total_weeks', '—')} weeks"},
+        {"label": "Sessions / week", "value": f"{len(plan_data.get('sessions') or {})} / week"},
+    ]
+    if baseline.get("tonal_strength_score") is not None:
+        stats.append({"label": "Baseline score", "value": str(baseline["tonal_strength_score"]), "accent": True})
+    return stats
+
+
+def _session_table(plan_data: dict) -> dict:
+    """Strength-plan counterpart to `_week_table` -- one row per named
+    session (e.g. "Upper A") instead of one row per week, since a strength
+    plan's meaningful unit is session -> movements -> sets/reps, not a
+    single daily mileage number."""
+    day_index = {day: i for i, day in enumerate(_DAY_ORDER)}
+    sessions = plan_data.get("sessions") or {}
+    rows = []
+    for name, session in sessions.items():
+        movements = session.get("movements") or []
+        set_count = sum(m.get("sets") or 0 for m in movements if isinstance(m.get("sets"), (int, float)))
+        rows.append(
+            {
+                "name": name,
+                "day": session.get("day"),
+                "focus": session.get("focus"),
+                "movements": [
+                    {"name": m.get("name"), "sets": m.get("sets"), "reps": m.get("reps")}
+                    for m in movements
+                ],
+                "set_count": set_count,
+            }
+        )
+    rows.sort(key=lambda row: day_index.get(row["day"], len(_DAY_ORDER)))
+    return {"rows": rows}
+
+
 def _week_table(plan_data: dict, today: date | None = None) -> dict:
     today = today or date.today()
     schedule = plan_data.get("weekly_schedule") or []
@@ -284,11 +324,19 @@ def training_plans_page(request: Request, conn=Depends(require_admin_page)):
             "target_label": plan.target_date.strftime("%b %d, %Y"),
             "data": plan_data,
         }
-        if plan_data and plan_data.get("weekly_schedule"):
+        plan_type = plan_data.get("plan_type") if plan_data else None
+        is_running = plan_type == "running" or (plan_type is None and plan_data and plan_data.get("weekly_schedule"))
+        is_strength = plan_type == "strength" or (plan_type is None and plan_data and plan_data.get("sessions"))
+
+        if is_running:
             view["stats"] = _stat_row(plan_data, plan.target_date, plan.start_date, unit)
             view["rhythm"] = _weekly_rhythm(plan_data)
             view["timeline"] = _timeline(plan_data)
             view["week_table"] = _week_table(plan_data, today)
+        elif is_strength:
+            view["stats"] = _strength_stat_row(plan_data, plan.target_date, plan.start_date)
+            view["rhythm"] = _weekly_rhythm(plan_data)
+            view["session_table"] = _session_table(plan_data)
         plans_view.append(view)
 
     targets = repository.get_targets(conn)
