@@ -196,8 +196,13 @@ def _strength_stat_row(plan_data: dict, plan_target_date: date, plan_start_date:
         {"label": "Target date", "value": plan_target_date.strftime("%b %d, %Y")},
         {"label": "Start date", "value": plan_start_date.strftime("%b %d, %Y")},
         {"label": "Duration", "value": f"{plan_data.get('total_weeks', '—')} weeks"},
-        {"label": "Sessions / week", "value": f"{len(plan_data.get('sessions') or {})} / week"},
     ]
+    # Session count is only meaningful when this plan prescribes specific
+    # sessions -- a goal-only plan (e.g. "follow Tonal's own program, just
+    # track the score") has no session count to report.
+    sessions = plan_data.get("sessions") or {}
+    if sessions:
+        stats.append({"label": "Sessions / week", "value": f"{len(sessions)} / week"})
     if baseline.get("tonal_strength_score") is not None:
         stats.append({"label": "Baseline score", "value": str(baseline["tonal_strength_score"]), "accent": True})
     return stats
@@ -227,6 +232,37 @@ def _session_table(plan_data: dict) -> dict:
             }
         )
     rows.sort(key=lambda row: day_index.get(row["day"], len(_DAY_ORDER)))
+    return {"rows": rows}
+
+
+def _actual_log_table(plan_data: dict) -> dict:
+    """Actual-only log for a strength plan that doesn't prescribe specific
+    sessions (e.g. the athlete follows Tonal's own guided program) -- just
+    what got done each week, with no plan-vs-actual comparison since there's
+    no plan to compare against. Written by the tonal-weekly-checkin skill.
+    Most recent week first."""
+    entries = plan_data.get("actual_log") or []
+    rows = []
+    for entry in sorted(entries, key=lambda e: e.get("week_start", ""), reverse=True):
+        week_start = entry.get("week_start")
+        rows.append(
+            {
+                "week_label": _week_date_range_label(week_start) if week_start else "",
+                "workouts": [
+                    {
+                        "date": w.get("date"),
+                        "title": w.get("title"),
+                        "duration_min": w.get("duration_min"),
+                        "volume_lbs": w.get("volume_lbs"),
+                        "sets": w.get("sets"),
+                        "movements": w.get("movements") or [],
+                    }
+                    for w in (entry.get("workouts") or [])
+                ],
+                "strength_score": entry.get("strength_score"),
+                "note": entry.get("note"),
+            }
+        )
     return {"rows": rows}
 
 
@@ -336,7 +372,10 @@ def training_plans_page(request: Request, conn=Depends(require_admin_page)):
         elif is_strength:
             view["stats"] = _strength_stat_row(plan_data, plan.target_date, plan.start_date)
             view["rhythm"] = _weekly_rhythm(plan_data)
-            view["session_table"] = _session_table(plan_data)
+            if plan_data.get("sessions"):
+                view["session_table"] = _session_table(plan_data)
+            if plan_data.get("actual_log"):
+                view["actual_log_table"] = _actual_log_table(plan_data)
         plans_view.append(view)
 
     targets = repository.get_targets(conn)

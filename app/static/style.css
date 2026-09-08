@@ -2180,6 +2180,12 @@ html[data-theme="dark"] select:focus {
   white-space: nowrap;
 }
 
+.plan-workout-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
 .plan-day-rest {
   display: block;
   font-size: 0.68rem;

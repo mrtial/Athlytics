@@ -218,6 +218,43 @@
       </table>
     </div>
     {% endif %}
+
+    {% if item.actual_log_table %}
+    <h4 class="plan-subsection-title">Actual Workouts</h4>
+    <div class="plan-week-table-wrap">
+      <table class="plan-week-table">
+        <thead>
+          <tr>
+            <th>Week Of</th>
+            <th>Workouts</th>
+            <th>Score</th>
+            <th>Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in item.actual_log_table.rows %}
+          <tr>
+            <td class="plan-week-dates">{{ row.week_label }}</td>
+            <td>
+              <ul class="plan-movement-list">
+                {% for w in row.workouts %}
+                <li class="plan-workout-entry">
+                  <span class="plan-movement-name">{{ w.date }} — {{ w.title }} ({{ w.duration_min }} min, {{ w.volume_lbs }} lbs, {{ w.sets }} sets)</span>
+                  {% if w.movements %}<span class="plan-day-note">{{ w.movements | join(", ") }}</span>{% endif %}
+                </li>
+                {% endfor %}
+              </ul>
+            </td>
+            <td class="plan-day-cell plan-total-cell">
+              {% if row.strength_score is not none %}<span class="plan-day-mi">{{ row.strength_score }}</span>{% else %}&mdash;{% endif %}
+            </td>
+            <td class="plan-day-note">{{ row.note or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
     </details>
   </div>
   {% endfor %}
