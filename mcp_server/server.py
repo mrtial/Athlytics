@@ -484,10 +484,16 @@ def sync_tonal_data(days: int = 30, force_full_history: bool = False) -> dict[st
     entire history from `days` ago through today.
 
     Incremental (non-force_full_history) runs also hydrate per-set strength
-    detail for workouts since the last hydration, at no extra API cost --
-    see get_movement_history/get_muscle_group_volume for the local-data
-    queries this enables. force_full_history runs skip hydration entirely
-    (years of per-set data is out of proportion to what a backfill needs)
+    detail for workouts since the last hydration -- see
+    get_movement_history/get_muscle_group_volume for the local-data queries
+    this enables. Each such workout also gets one extra get_workout_detail
+    call (a real, non-free API cost, but bounded to just the workouts since
+    the last checkpoint -- typically 0-1 per day) to pull guided-program
+    metadata (program/workout title, target area, level, week/day) and
+    calories into tonal_workout_meta and the activity row's name/calories,
+    neither of which the cheap bulk endpoint carries. force_full_history
+    runs skip hydration entirely (years of per-set data, and per-workout
+    detail calls to match, is out of proportion to what a backfill needs)
     and leave the hydration checkpoint untouched, so the next incremental
     sync resumes it correctly.
     """
@@ -516,29 +522,11 @@ def sync_tonal_data(days: int = 30, force_full_history: bool = False) -> dict[st
             conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
             today=end_date, resync_grace_days=SYNC_RESYNC_GRACE_DAYS,
         )
-        if force_full_history:
-            results["tonal_strength_sets"] = "skipped (full history sync)"
-        else:
-            checkpoint = repository.get_checkpoint(conn, "tonal", "tonal_strength_sets")
-            # Re-hydrate the checkpoint day itself (not checkpoint + 1): unlike
-            # core/scheduler/sync.py's daily-aggregate checkpoints, where
-            # re-processing the checkpoint day would double-count, upsert_strength_sets
-            # is idempotent by id, so re-hydrating it on every sync is free and
-            # correct -- and skipping it would silently drop any workout logged
-            # later the same day as a prior sync, with no in-product recovery path.
-            hydrate_since = checkpoint if checkpoint else start_date
-            try:
-                hydration = provider.hydrate_recent_strength_sets(conn, since=hydrate_since)
-                repository.set_checkpoint(conn, "tonal", "tonal_strength_sets", end_date)
-                results["tonal_strength_sets"] = f"{hydration['sets']} sets across {hydration['workouts']} workouts"
-            except Exception as exc:
-                # Isolate hydration failures (rate limits, HTTP 5xx, auth
-                # errors from the pre-loop fetch calls) from the results
-                # sync_all_metrics already successfully computed above --
-                # don't let a hydration error discard a good sync. Leave the
-                # checkpoint untouched so the next sync retries this window.
-                logger.warning("Tonal strength-set hydration failed", exc_info=True)
-                results["tonal_strength_sets"] = f"hydration failed: {exc}"
+        # provider.sync_hydration is the single shared call site for this
+        # (also used by app.sync.perform_sync_pass's background/manual sync
+        # pass) -- see its docstring for why hydration must run after every
+        # Tonal sync_all_metrics call, not just this one.
+        results["tonal_strength_sets"] = provider.sync_hydration(conn, start_date, end_date, force_full_history)
         return results
 
 

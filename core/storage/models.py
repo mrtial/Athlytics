@@ -181,3 +181,40 @@ class StrengthSet:
                 f"got a timezone-aware value: {self.occurred_at!r}."
             )
 
+
+@dataclass(frozen=True)
+class TonalWorkoutMeta:
+    """Program/guided-workout metadata for one Tonal activity (currently
+    Tonal-only, same rationale as StrengthSet), sourced from the per-workout
+    detail endpoint's `contentCard` object -- absent from the bulk
+    workout-history list, so this is only populated for workouts that have
+    had their detail fetched (on-demand via get_workout_detail, or eagerly
+    during sync via hydrate_recent_strength_sets).
+
+    None fields mean either "not fetched yet" or "this was a free-lift
+    workout with no Tonal program attached" (contentCard itself is null for
+    those) -- the two aren't distinguished at this layer.
+
+    Timezone contract: `created_at` MUST be a naive `datetime` representing
+    UTC wall-clock time, consistent with Activity/StrengthSet.
+    """
+
+    activity_id: str  # FK-by-convention to activity.id (f"{source}:{activity_id}")
+    program_name: str | None
+    workout_title: str | None
+    target_area: str | None
+    level: str | None
+    program_week: int | None
+    program_day: int | None
+    is_guided_workout: bool
+    percent_completed: int | None
+    active_duration_seconds: int | None
+    created_at: datetime  # write-time bookkeeping only -- NOT the workout date
+
+    def __post_init__(self) -> None:
+        if self.created_at.tzinfo is not None:
+            raise ValueError(
+                "TonalWorkoutMeta.created_at must be a naive datetime representing UTC wall-clock time; "
+                f"got a timezone-aware value: {self.created_at!r}."
+            )
+

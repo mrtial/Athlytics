@@ -122,6 +122,20 @@ CREATE TABLE IF NOT EXISTS strength_set_muscle_group (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ssmg_muscle_group ON strength_set_muscle_group(muscle_group);
+
+CREATE TABLE IF NOT EXISTS tonal_workout_meta (
+    activity_id TEXT PRIMARY KEY,     -- FK-by-convention to activity.id (f"tonal:{activity_id}")
+    program_name TEXT,
+    workout_title TEXT,
+    target_area TEXT,
+    level TEXT,
+    program_week INTEGER,
+    program_day INTEGER,
+    is_guided_workout INTEGER NOT NULL DEFAULT 0,
+    percent_completed INTEGER,
+    active_duration_seconds INTEGER,
+    created_at TEXT NOT NULL
+);
 """
 
 

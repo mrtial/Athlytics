@@ -48,7 +48,7 @@ def build_metric_detail(conn, metric_type: str, days: int = WIDGET_WINDOW_DAYS, 
     return {"metric_type": metric_type, "unit": unit, "points": points}
 
 
-def format_activity_for_display(activity, unit: str = "km") -> dict:
+def format_activity_for_display(activity, unit: str = "km", tonal_meta=None) -> dict:
     type_display_map = {
         "running": ("Running", "flag"),
         "cycling": ("Cycling", "disc"),
@@ -148,10 +148,25 @@ def format_activity_for_display(activity, unit: str = "km") -> dict:
         # (per the ECMA-262 default for an offset-less datetime string)
         # silently treating these same digits as already-local.
         "raw_start_time": activity.start_time.isoformat() + "Z",
+        # Tonal-only, from tonal_workout_meta -- None for every other
+        # source, and for a Tonal workout whose detail hasn't been fetched
+        # yet (free-lift sessions leave contentCard-derived fields unset
+        # too, same as "not fetched", since the two aren't distinguished
+        # at the TonalWorkoutMeta layer).
+        "target_area": tonal_meta.target_area.title() if tonal_meta and tonal_meta.target_area else None,
+        "level": tonal_meta.level.title() if tonal_meta and tonal_meta.level else None,
+        "percent_completed": tonal_meta.percent_completed if tonal_meta else None,
     }
 
 
 def build_recent_activities(conn, unit: str = "km", limit: int = 20) -> list[dict]:
     """Fetch and format recent workout activities for dashboard display."""
     activities = repository.get_activities(conn, limit=limit)
-    return [format_activity_for_display(act, unit=unit) for act in activities]
+    return [
+        format_activity_for_display(
+            act,
+            unit=unit,
+            tonal_meta=repository.get_tonal_workout_meta(conn, act.id) if act.source == "tonal" else None,
+        )
+        for act in activities
+    ]

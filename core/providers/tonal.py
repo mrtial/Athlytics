@@ -20,7 +20,7 @@ from typing import Callable
 from core.providers.tonal_client import MUSCLE_READINESS_MUSCLES, TonalClient, _parse_workout_set_activity
 from core.security.credentials import CredentialStore
 from core.storage import repository
-from core.storage.models import Activity, MetricReading, StrengthSet
+from core.storage.models import Activity, MetricReading, StrengthSet, TonalWorkoutMeta
 
 logger = logging.getLogger(__name__)
 
@@ -229,12 +229,47 @@ class TonalProvider:
             )
         return strength_sets
 
+    def _persist_workout_meta(self, conn: sqlite3.Connection, full_activity_id: str, detail: dict) -> None:
+        """Write `tonal_workout_meta` from a get_workout_detail()-shaped
+        dict, and patch the parent `activity` row's name/calories from the
+        same response. `detail` fields absent here mean the workout was
+        free-lift (no Tonal program attached, contentCard was null) --
+        activity_name/calories are left untouched via
+        update_activity_display_fields's COALESCE rather than overwritten
+        with nothing."""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        program_name = detail.get("program_name")
+        workout_title = detail.get("workout_title")
+        repository.upsert_tonal_workout_meta(
+            conn,
+            TonalWorkoutMeta(
+                activity_id=full_activity_id,
+                program_name=program_name,
+                workout_title=workout_title,
+                target_area=detail.get("target_area"),
+                level=detail.get("level"),
+                program_week=detail.get("program_week"),
+                program_day=detail.get("program_day"),
+                is_guided_workout=bool(detail.get("is_guided_workout")),
+                percent_completed=detail.get("percent_completed"),
+                active_duration_seconds=detail.get("active_duration_seconds"),
+                created_at=now,
+            ),
+        )
+        if program_name and workout_title:
+            display_name = f"{program_name} — {workout_title}"
+        else:
+            display_name = program_name or workout_title
+        repository.update_activity_display_fields(conn, full_activity_id, display_name, detail.get("calories"))
+
     def get_workout_detail(self, conn: sqlite3.Connection, activity_id: str) -> dict:
         """Per-set breakdown for one workout: fetches from Tonal, persists
         the sets into `strength_set` and their muscle groups into
         `strength_set_muscle_group` (keyed off the same `activity.id`
-        convention, f"tonal:{activity_id}"), and returns the raw detail dict
-        for direct MCP-tool use."""
+        convention, f"tonal:{activity_id}"), persists guided-program
+        metadata into `tonal_workout_meta` and patches the activity's
+        name/calories (see _persist_workout_meta), and returns the raw
+        detail dict for direct MCP-tool use."""
         detail = self._client.get_workout_detail(activity_id)
         full_activity_id = f"tonal:{activity_id}"
         movement_lookup = self._movement_lookup()
@@ -245,14 +280,23 @@ class TonalProvider:
             for strength_set in strength_sets:
                 muscle_groups = movement_lookup.get(strength_set.movement_id, {}).get("muscle_groups", [])
                 repository.replace_strength_set_muscle_groups(conn, strength_set.id, muscle_groups)
+        self._persist_workout_meta(conn, full_activity_id, detail)
         return detail
 
     def hydrate_recent_strength_sets(self, conn: sqlite3.Connection, since: date) -> dict:
-        """Persist per-set detail for every workout on/after `since`,
-        sourced from the same bulk /workout-activities response already
-        used for tonal_workout_volume/duration -- no extra API call beyond
-        the one-time movement lookup. A single bad workout entry is caught
-        and skipped, not allowed to abort the whole sync pass."""
+        """Persist per-set detail for every workout on/after `since`, sourced
+        from the same bulk /workout-activities response already used for
+        tonal_workout_volume/duration for the sets themselves -- but each
+        workout also gets one additional get_workout_detail() call to pick
+        up guided-program metadata and calories, neither of which the bulk
+        response carries (see TonalClient.get_workout_detail). That's a
+        real extra API call per workout, not free like the set-hydration
+        part -- deliberately accepted so program name/calories/title show
+        up during routine sync rather than only on an explicit
+        get_tonal_workout_detail call. Scope stays bounded because `since`
+        is normally just the last checkpoint (typically 0-1 new workouts
+        per day), not the whole history. A single bad workout entry is
+        caught and skipped, not allowed to abort the whole sync pass."""
         raw_entries = self._client.get_recent_workout_set_activity(limit=self.ACTIVITIES_FETCH_LIMIT)
         movement_lookup = self._movement_lookup()
         workouts_hydrated = 0
@@ -272,6 +316,15 @@ class TonalProvider:
                 for strength_set in strength_sets:
                     muscle_groups = movement_lookup.get(strength_set.movement_id, {}).get("muscle_groups", [])
                     repository.replace_strength_set_muscle_groups(conn, strength_set.id, muscle_groups)
+                try:
+                    detail = self._client.get_workout_detail(entry["id"])
+                    self._persist_workout_meta(conn, full_activity_id, detail)
+                except Exception:
+                    # A failed detail fetch shouldn't drop the per-set data
+                    # already persisted above -- program metadata/calories
+                    # simply stay unset for this workout until a later sync
+                    # or an explicit get_tonal_workout_detail call.
+                    logger.warning("failed to fetch/persist workout meta for a Tonal workout", exc_info=True)
                 workouts_hydrated += 1
                 sets_persisted += len(strength_sets)
             except Exception:
@@ -279,6 +332,56 @@ class TonalProvider:
                 continue
 
         return {"workouts": workouts_hydrated, "sets": sets_persisted}
+
+    def sync_hydration(self, conn: sqlite3.Connection, start_date: date, end_date: date, force_full_history: bool) -> str:
+        """Checkpoint-driven wrapper around hydrate_recent_strength_sets --
+        the single call site both Tonal sync entry points must use
+        (mcp_server.server.sync_tonal_data, and app.sync.perform_sync_pass's
+        own background/manual sync pass), so program-metadata/calories
+        enrichment always runs after *any* Tonal sync, not just one.
+
+        This matters because of a real ordering hazard: the generic
+        sync_all_metrics step (which both entry points also call, and which
+        writes Activity rows from the cheap bulk workout-list endpoint --
+        no contentCard/calories) always runs first, and
+        repository.upsert_activities does a plain overwrite of
+        activity_name/calories on every call, not a COALESCE. If hydration
+        runs right after, it re-enriches those same columns and everything
+        looks fine -- but if a Tonal sync pass ever calls sync_all_metrics
+        WITHOUT this method immediately after, the enrichment silently
+        reverts to the generic bulk values on the next such pass, even
+        though tonal_workout_meta itself is untouched (confirmed live: a
+        background sync pass reverted an already-enriched activity row back
+        to "Linear Workout"/calories=None while tonal_workout_meta kept the
+        correct "Pumped"/"WO1 (W1D1)" data, because that pass's code path
+        predated this method and only called sync_all_metrics).
+
+        Returns a short human-readable status string, matching
+        sync_all_metrics's results-dict value convention -- callers should
+        record it the same way (e.g. results["tonal_strength_sets"] = ...).
+        """
+        if force_full_history:
+            return "skipped (full history sync)"
+        checkpoint = repository.get_checkpoint(conn, "tonal", "tonal_strength_sets")
+        # Re-hydrate the checkpoint day itself (not checkpoint + 1): unlike
+        # daily-aggregate checkpoints, re-processing the checkpoint day
+        # would double-count elsewhere, but upsert_strength_sets/
+        # upsert_tonal_workout_meta are idempotent by id, so re-hydrating
+        # it on every sync is free and correct -- and skipping it would
+        # silently drop any workout logged later the same day as a prior
+        # sync, with no in-product recovery path.
+        hydrate_since = checkpoint if checkpoint else start_date
+        try:
+            hydration = self.hydrate_recent_strength_sets(conn, since=hydrate_since)
+            repository.set_checkpoint(conn, "tonal", "tonal_strength_sets", end_date)
+            return f"{hydration['sets']} sets across {hydration['workouts']} workouts"
+        except Exception as exc:
+            # Isolate hydration failures (rate limits, HTTP 5xx, auth errors
+            # from the pre-loop fetch calls) from a good sync_all_metrics
+            # pass -- don't let a hydration error discard that. Leave the
+            # checkpoint untouched so the next sync retries this window.
+            logger.warning("Tonal strength-set hydration failed", exc_info=True)
+            return f"hydration failed: {exc}"
 
     def search_movements(self, query: str | None = None, muscle_group: str | None = None) -> list[dict]:
         return self._client.search_movements(query=query, muscle_group=muscle_group)

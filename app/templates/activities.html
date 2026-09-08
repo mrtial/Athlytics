@@ -66,7 +66,7 @@
           </div>
           <div style="min-width: 0;">
             <h3 class="workout-title">{{ act.name }}</h3>
-            <span class="workout-sport-type">{{ act.sport_label }}</span>
+            <span class="workout-sport-type">{{ act.sport_label }}{% if act.target_area %} &middot; {{ act.target_area }}{% endif %}{% if act.level %} &middot; {{ act.level }}{% endif %}</span>
           </div>
         </div>
         <div class="workout-time-chip">
@@ -112,6 +112,13 @@
         <div class="workout-stat-item">
           <span class="workout-stat-label">Elevation</span>
           <span class="workout-stat-value">{{ act.elevation_gain }}</span>
+        </div>
+        {% endif %}
+
+        {% if act.percent_completed is not none %}
+        <div class="workout-stat-item">
+          <span class="workout-stat-label">Completion</span>
+          <span class="workout-stat-value">{{ act.percent_completed }}%</span>
         </div>
         {% endif %}
       </div>

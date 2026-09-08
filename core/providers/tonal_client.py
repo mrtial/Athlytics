@@ -437,11 +437,28 @@ class TonalClient:
         return self._fetch_recent_page(limit)
 
     def get_workout_detail(self, activity_id: str) -> dict:
+        """Per-workout detail. Only this endpoint (not the bulk
+        /workout-activities list) carries `contentCard` (guided-program
+        metadata: title, program name, target area, level, week/day) and
+        `calories` -- both null/absent on the bulk list, confirmed by
+        cross-checking a real workout's two responses side by side."""
         raw = self._get(f"/users/{self.user_id}/workout-activities/{activity_id}")
+        content_card = raw.get("contentCard") or {}
+        calories_entries = raw.get("calories") or []
         return {
             "total_duration_seconds": raw.get("totalDuration"),
             "total_volume_lbs": raw.get("totalVolume"),
             "sets": _parse_workout_set_activity(raw.get("workoutSetActivity", [])),
+            "active_duration_seconds": raw.get("activeDuration"),
+            "percent_completed": raw.get("percentCompleted"),
+            "calories": calories_entries[0].get("caloriesBurned") if calories_entries else None,
+            "program_name": content_card.get("programName"),
+            "workout_title": content_card.get("workoutTitle"),
+            "target_area": content_card.get("targetArea"),
+            "level": content_card.get("level"),
+            "program_week": content_card.get("programWeek"),
+            "program_day": content_card.get("programDay"),
+            "is_guided_workout": bool(content_card.get("isGuidedWorkout")),
         }
 
     def _get_movement_map(self) -> dict[str, dict]:

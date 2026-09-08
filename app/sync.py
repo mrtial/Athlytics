@@ -186,6 +186,15 @@ def perform_sync_pass(
                     conn, "tonal", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill,
                     on_metric_progress=(lambda completed, total: on_metric_progress("tonal", completed, total)) if on_metric_progress else None,
                 )
+                # Must run after every Tonal sync_all_metrics call (which
+                # _run_provider_sync just did), not just when sync_tonal_data
+                # (the MCP tool) happens to be the caller -- see
+                # TonalProvider.sync_hydration's docstring: skipping this
+                # here is exactly what silently reverted an already-enriched
+                # activity row's name/calories back to the generic bulk
+                # values on a previous background sync pass.
+                hydration_status = provider.sync_hydration(conn, backfill_start, end, force_full_backfill)
+                record_metric_statuses(conn, "tonal", {"tonal_strength_sets": hydration_status})
         finally:
             conn.close()
 

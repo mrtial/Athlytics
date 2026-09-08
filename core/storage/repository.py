@@ -9,6 +9,7 @@ from core.storage.models import (
     Report,
     StrengthSet,
     Target,
+    TonalWorkoutMeta,
     TrainingPlan,
 )
 
@@ -786,5 +787,88 @@ def get_activity_by_id(conn: sqlite3.Connection, activity_id: str) -> Activity |
         elevation_gain=row[14],
         elevation_loss=row[15],
         created_at=datetime.fromisoformat(row[16]),
+    )
+
+
+def update_activity_display_fields(
+    conn: sqlite3.Connection, full_activity_id: str, activity_name: str | None, calories: float | None
+) -> None:
+    """Patch `activity_name`/`calories` on an already-persisted activity row
+    -- for Tonal, the row is first written from the cheap bulk workout-list
+    endpoint (no calories, and a generic "Linear Workout"-style synthesized
+    name), then optionally enriched once the richer per-workout detail
+    endpoint has been fetched (see TonalProvider.hydrate_recent_strength_sets).
+    A None argument leaves that column untouched rather than nulling it out,
+    since "detail fetch didn't return this field" shouldn't erase a
+    previously-known value."""
+    conn.execute(
+        "UPDATE activity SET activity_name = COALESCE(?, activity_name), calories = COALESCE(?, calories) WHERE id = ?",
+        (activity_name, calories, full_activity_id),
+    )
+    conn.commit()
+
+
+def upsert_tonal_workout_meta(conn: sqlite3.Connection, meta: TonalWorkoutMeta) -> None:
+    conn.execute(
+        """
+        INSERT INTO tonal_workout_meta (
+            activity_id, program_name, workout_title, target_area, level,
+            program_week, program_day, is_guided_workout, percent_completed,
+            active_duration_seconds, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(activity_id) DO UPDATE SET
+            program_name = excluded.program_name,
+            workout_title = excluded.workout_title,
+            target_area = excluded.target_area,
+            level = excluded.level,
+            program_week = excluded.program_week,
+            program_day = excluded.program_day,
+            is_guided_workout = excluded.is_guided_workout,
+            percent_completed = excluded.percent_completed,
+            active_duration_seconds = excluded.active_duration_seconds,
+            created_at = excluded.created_at
+        """,
+        (
+            meta.activity_id,
+            meta.program_name,
+            meta.workout_title,
+            meta.target_area,
+            meta.level,
+            meta.program_week,
+            meta.program_day,
+            int(meta.is_guided_workout),
+            meta.percent_completed,
+            meta.active_duration_seconds,
+            meta.created_at.isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+def get_tonal_workout_meta(conn: sqlite3.Connection, activity_id: str) -> TonalWorkoutMeta | None:
+    row = conn.execute(
+        """
+        SELECT activity_id, program_name, workout_title, target_area, level,
+               program_week, program_day, is_guided_workout, percent_completed,
+               active_duration_seconds, created_at
+        FROM tonal_workout_meta
+        WHERE activity_id = ?
+        """,
+        (activity_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return TonalWorkoutMeta(
+        activity_id=row[0],
+        program_name=row[1],
+        workout_title=row[2],
+        target_area=row[3],
+        level=row[4],
+        program_week=row[5],
+        program_day=row[6],
+        is_guided_workout=bool(row[7]),
+        percent_completed=row[8],
+        active_duration_seconds=row[9],
+        created_at=datetime.fromisoformat(row[10]),
     )
 
