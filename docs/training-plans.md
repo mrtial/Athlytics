@@ -11,7 +11,8 @@ Athlytics combines sports science principles with the reasoning power of your AI
 3. [Training Plan Schema & Dashboard Visualization](#training-plan-schema--dashboard-visualization)
 4. [Adjusting Plans Over Time (Dynamic Adaptation)](#adjusting-plans-over-time-dynamic-adaptation)
 5. [Managing Plan Lifecycle & Status](#managing-plan-lifecycle--status)
-6. [Interactive AI Coaching Prompt Flows](#interactive-ai-coaching-prompt-flows)
+6. [Mobile Access via Shareable Snapshots](#mobile-access-via-shareable-snapshots)
+7. [Interactive AI Coaching Prompt Flows](#interactive-ai-coaching-prompt-flows)
 
 ---
 
@@ -164,6 +165,35 @@ Athlytics tracks four lifecycle states for training plans:
 | `paused` | Temporarily paused due to illness, injury, or scheduled off-season. | `update_plan_status(plan_id, "paused")` |
 | `completed` | Successfully finished race or training block. | `update_plan_status(plan_id, "completed")` |
 | `archived` | Superseded or replaced by a new training program. | `update_plan_status(plan_id, "archived")` |
+
+---
+
+## 📱 Mobile Access via Shareable Snapshots
+
+The `/training-plans` dashboard runs on your local Athlytics server, which usually isn't reachable from your phone unless you've gone out of your way to expose it on your network. If you want to check your plan on the go, ask your AI Coach to publish a **snapshot** of it as a standalone, shareable page instead — a Claude Artifact, or any HTML file hosted somewhere reachable from your phone. It's a copy of the plan view, not a live connection to your Athlytics server, so nothing needs to be exposed to the internet for it to work.
+
+### Creating a snapshot
+Describe the plan you want captured, and ask your coach to build and publish it:
+
+```text
+"Can you publish my Rome Marathon training plan as an artifact I can check from my phone?"
+```
+
+The coach reads your live plan and target data and builds a self-contained HTML page — a lightweight version of the weekly-schedule view from the dashboard — and publishes it to a link you can save to your phone's home screen.
+
+### Keeping it current
+A snapshot is a copy, not a live view — it won't update on its own when you log a run or complete a weekly check-in. Ask your coach to refresh it as part of that flow:
+
+```text
+"After this check-in, refresh my plan artifact too."
+```
+
+Once a snapshot exists for a plan, your coach can refresh it automatically at the end of every weekly check-in from then on: it re-reads the live plan, updates the week that just closed out (actual mileage or workouts, verdict, which week is "current"), and republishes to the *same* link — so the URL you saved never changes, and you're not re-creating or re-sharing a new page every week.
+
+### Notes
+- This only happens if you've explicitly asked for a snapshot to be created — the coach won't publish one unprompted.
+- A refresh updates the data, not the design — the snapshot keeps whatever visual layout was chosen when it was first built.
+- Works for any plan type (running, strength) — the same mechanism applies regardless of what the plan tracks.
 
 ---
 
