@@ -2,6 +2,7 @@
 
 > **Your personal health data, 100% self-hosted and private — paired with an evidence-based AI sports coach that speaks MCP.**
 
+[![Tests](https://github.com/mrtial/Athlytics/actions/workflows/tests.yml/badge.svg)](https://github.com/mrtial/Athlytics/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![Docker Ready](https://img.shields.io/badge/docker-ready-2496ED.svg?logo=docker&logoColor=white)](https://www.docker.com/)

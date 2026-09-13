@@ -245,14 +245,6 @@ athlytics/
 
 ## 🤝 Contributing Guidelines
 
-We welcome contributions from the community! Whether you want to add support for a new wearable device, refine sports science algorithms, or improve the UI:
-
-1. **Fork and Branch**: Create a feature branch with a descriptive name (`git checkout -b feature/whoop-provider`).
-2. **Follow Architecture Principles**:
-   - Keep `core/` decoupled from web frameworks (`app/`).
-   - Store all timestamps as naive UTC in models (`MetricReading`, `Activity`).
-   - Keep all credentials encrypted using `CredentialStore`.
-   - Ensure all provider syncs are idempotent and respect checkpoint dates.
-3. **Write Tests**: Add unit and integration tests under `tests/` for any new logic.
-4. **Verify**: Ensure the full test suite passes (`pytest -v`).
-5. **Submit a PR**: Open a Pull Request with a clear description of the problem solved and test coverage added.
+See **[CONTRIBUTING.md](../CONTRIBUTING.md)** for the full guide — where help is
+most needed right now, the provider architecture, a step-by-step checklist for
+adding a new data source, and the PR process.
