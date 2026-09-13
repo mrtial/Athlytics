@@ -603,6 +603,25 @@ class _StubTonalProvider:
         self.hydrate_calls.append(since)
         return {"workouts": 1, "sets": 5}
 
+    def sync_hydration(self, conn, start_date, end_date, force_full_history):
+        """Mirrors TonalProvider.sync_hydration's checkpoint-driven wrapper
+        (core/providers/tonal.py) so tests exercising sync_tonal_data's
+        composition of sync_all_metrics + hydration get the same contract a
+        real provider gives it: skip entirely on a full-history run, resume
+        from the checkpoint day itself (not day-after) or start_date if
+        there's no checkpoint yet, and never advance the checkpoint on a
+        hydration failure."""
+        if force_full_history:
+            return "skipped (full history sync)"
+        checkpoint = repository.get_checkpoint(conn, "tonal", "tonal_strength_sets")
+        hydrate_since = checkpoint if checkpoint else start_date
+        try:
+            hydration = self.hydrate_recent_strength_sets(conn, since=hydrate_since)
+            repository.set_checkpoint(conn, "tonal", "tonal_strength_sets", end_date)
+            return f"{hydration['sets']} sets across {hydration['workouts']} workouts"
+        except Exception as exc:
+            return f"hydration failed: {exc}"
+
 
 class _StubTonalClient:
     """Stand-in for TonalClient (get_tonal_workout_history talks to TonalClient

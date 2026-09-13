@@ -853,10 +853,14 @@ def _movements_and_route_handler(routes):
 def test_estimate_workout_posts_expanded_sets_and_returns_summary(tmp_path):
     def handle_estimate(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
-        assert body == {"sets": expand_blocks(
+        # Tonal's estimate endpoint wants a bare set array, not {"sets": [...]}
+        # -- see the "fix: send bare set array to Tonal's estimate endpoint,
+        # not wrapped" commit; create_workout's /user-workouts POST is the
+        # one that wants the wrapped {"title", "sets"} shape.
+        assert body == expand_blocks(
             [{"exercises": [{"movement_id": "m1", "sets": 3, "reps": 10}]}],
             {"m1": {"countReps": True, "isAlternating": False}},
-        )}
+        )
         return httpx.Response(200, json={"duration": 600})
 
     api_handler = _movements_and_route_handler({

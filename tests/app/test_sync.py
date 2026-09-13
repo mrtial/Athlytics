@@ -518,6 +518,9 @@ def test_perform_sync_pass_runs_tonal_when_connected(tmp_path, monkeypatch):
         def fetch(self, metric_type, start, end):
             return []
 
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            return "0 sets across 0 workouts"
+
     monkeypatch.setattr("app.sync.TonalProvider", _FakeTonalProvider)
 
     perform_sync_pass(
@@ -529,7 +532,10 @@ def test_perform_sync_pass_runs_tonal_when_connected(tmp_path, monkeypatch):
     status = get_sync_status(conn, "tonal")
     assert status["auth_error"] is None
     assert status["last_run_at"] is not None
-    assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {"tonal_strength_score": "complete"}
+    assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {
+        "tonal_strength_score": "complete",
+        "tonal_strength_sets": "0 sets across 0 workouts",
+    }
 
 
 def test_perform_sync_pass_records_auth_error_when_tonal_provider_construction_fails(tmp_path, monkeypatch):
