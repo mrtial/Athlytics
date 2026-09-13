@@ -138,13 +138,26 @@ def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
 
     import threading
 
+    from app.sync import record_metric_statuses
+
     pass_finished = threading.Event()
 
     def fake_sync_all_metrics(conn, provider, backfill_start, end, chunk_days=30, pace_seconds=0.0, **kwargs):
-        pass_finished.set()
         return {"resting_hr": "complete"}
 
+    def fake_record_metric_statuses(conn, source, results):
+        # Signal completion only once the metric-status rows this test reads
+        # back below are actually persisted, not as soon as sync_all_metrics
+        # is called -- _run_provider_sync still has record_sync_run and this
+        # call left to run on the background thread at that point, so
+        # setting the event any earlier is a race: on a slower CI runner the
+        # main thread can query /api/sync-status before either write lands,
+        # seeing an empty metrics list instead of {"resting_hr": "complete"}.
+        record_metric_statuses(conn, source, results)
+        pass_finished.set()
+
     monkeypatch.setattr("app.sync.sync_all_metrics", fake_sync_all_metrics)
+    monkeypatch.setattr("app.sync.record_metric_statuses", fake_record_metric_statuses)
 
     # Step 1: first run redirects to admin creation.
     assert client.get("/", follow_redirects=False).headers["location"] == "/onboarding/admin"
