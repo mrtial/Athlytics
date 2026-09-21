@@ -61,6 +61,19 @@ class _E2EStubGarminClient:
     def login(self, tokenstore=None):
         return (False, None)
 
+    def get_sleep_data(self, date_str):
+        # perform_sync_pass's Garmin branch runs provider.sync_hydration
+        # after _run_provider_sync (see GarminProvider.sync_hydration), so
+        # any stub standing in for the real Garmin client on that path must
+        # answer get_sleep_data or hydration blows up with AttributeError.
+        # Returning {} is the real "no sleep recorded" case, which
+        # hydrate_recent_sleep skips -- the end-to-end onboarding flow this
+        # stub serves asserts nothing about sleep detail, so a clean no-op
+        # is what it wants. Same fix shape as the Tonal test doubles in
+        # "fix: update stale Tonal test doubles for the sync_hydration
+        # contract".
+        return {}
+
 
 def test_root_redirects_to_dashboard_when_only_apple_health_connected(app, client):
     client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
@@ -208,7 +221,14 @@ def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
     assert garmin_status["connected"] is True
     assert garmin_status["auth_error"] is None
     metrics = {m["metric_type"]: m["status"] for m in garmin_status["metrics"]}
-    assert metrics == {"resting_hr": "complete"}
+    # perform_sync_pass's Garmin branch records GarminProvider.sync_hydration's
+    # status alongside sync_all_metrics's own results (same shape Tonal's
+    # tonal_strength_sets row already uses). _E2EStubGarminClient.get_sleep_data
+    # returns {} for every day, so hydration is a clean no-op here.
+    assert metrics == {
+        "resting_hr": "complete",
+        "garmin_sleep_detail": "0 nights (0 stage segments, 0 restless moments)",
+    }
 
     # Settings: persona/theme are changeable after onboarding.
     response = client.post("/settings/persona", data={"persona": "sleep_recovery_focus"}, follow_redirects=False)

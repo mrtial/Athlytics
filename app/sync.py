@@ -134,6 +134,17 @@ def perform_sync_pass(
                     conn, "garmin", provider, backfill_start, end, SYNC_CHUNK_DAYS, SYNC_PACE_SECONDS, force_full_backfill,
                     on_metric_progress=(lambda completed, total: on_metric_progress("garmin", completed, total)) if on_metric_progress else None,
                 )
+                # Must run after every Garmin sync_all_metrics call (which
+                # _run_provider_sync just did), not just when
+                # sync_garmin_data (the MCP tool) happens to be the caller
+                # -- see GarminProvider.sync_hydration's docstring: skipping
+                # this here means sleep_session/segment/restless-moment
+                # rows would only ever get populated by a direct MCP tool
+                # call, never by the app's normal scheduled/background
+                # sync, exactly the same class of gap Tonal's sync_hydration
+                # was added to close for activity enrichment.
+                hydration_status = provider.sync_hydration(conn, backfill_start, end, force_full_backfill)
+                record_metric_statuses(conn, "garmin", {"garmin_sleep_detail": hydration_status})
         finally:
             conn.close()
 

@@ -1,0 +1,49 @@
+{
+  "dailySleepDTO": {
+    "calendarDate": "2026-09-15",
+    "sleepStartTimestampGMT": 1789444012000,
+    "sleepEndTimestampGMT": 1789468792000,
+    "sleepStartTimestampLocal": 1789429612000,
+    "sleepEndTimestampLocal": 1789454392000,
+    "sleepTimeSeconds": 5460,
+    "totalSleepSeconds": null,
+    "napTimeSeconds": 0,
+    "deepSleepSeconds": 3120,
+    "lightSleepSeconds": 2340,
+    "remSleepSeconds": 0,
+    "awakeSleepSeconds": 2340,
+    "unmeasurableSleepSeconds": 0,
+    "awakeCount": 0,
+    "avgSleepStress": 26.0,
+    "avgHeartRate": 65.0,
+    "averageRespirationValue": 17.0,
+    "lowestRespirationValue": 13.0,
+    "highestRespirationValue": 22.0,
+    "sleepScoreFeedback": "NEGATIVE_NOT_RESTORATIVE",
+    "sleepScoreInsight": "NONE",
+    "sleepScorePersonalizedInsight": "GENERAL_NEG_FAIR_OR_POOR_SLEEP",
+    "sleepScores": {
+      "totalDuration": {"qualifierKey": "FAIR"},
+      "stress": {"qualifierKey": "POOR"},
+      "awakeCount": {"qualifierKey": "EXCELLENT"},
+      "overall": {"value": 76, "qualifierKey": "FAIR"},
+      "remPercentage": {"value": 0, "qualifierKey": "POOR"},
+      "restlessness": {"qualifierKey": "EXCELLENT"},
+      "lightPercentage": {"value": 43, "qualifierKey": "GOOD"},
+      "deepPercentage": {"value": 57, "qualifierKey": "EXCELLENT"}
+    },
+    "sleepNeed": {"baseline": 470, "actual": 500, "feedback": "INCREASED"}
+  },
+  "restlessMomentsCount": 2,
+  "avgOvernightHrv": 26.0,
+  "sleepLevels": [
+    {"startGMT": "2026-09-15T03:46:52.0", "endGMT": "2026-09-15T03:47:52.0", "activityLevel": 1.0},
+    {"startGMT": "2026-09-15T03:47:52.0", "endGMT": "2026-09-15T04:39:52.0", "activityLevel": 0.0},
+    {"startGMT": "2026-09-15T04:39:52.0", "endGMT": "2026-09-15T05:17:52.0", "activityLevel": 1.0},
+    {"startGMT": "2026-09-15T05:17:52.0", "endGMT": "2026-09-15T05:56:52.0", "activityLevel": 3.0}
+  ],
+  "sleepRestlessMoments": [
+    {"value": 1, "startGMT": 1789444732000},
+    {"value": 1, "startGMT": 1789447792000}
+  ]
+}

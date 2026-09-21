@@ -1,3 +1,5 @@
+import dataclasses
+import json
 import re
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -355,6 +357,9 @@ async def test_sync_garmin_data_tool_forwards_force_full_history(tmp_path, monke
         def __init__(self, *args, **kwargs):
             pass
 
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            return "skipped (full history sync)" if force_full_history else "0 nights"
+
     captured = {}
 
     def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
@@ -381,6 +386,85 @@ def _save_stub_garmin_credentials(tmp_path):
     credentials_path = tmp_path / "garmin_credentials.enc"
     secret_key = get_or_create_secret_key(secret_key_path)
     CredentialStore(secret_key, credentials_path).save({"email": "a@example.com", "password": "x"})
+
+
+@pytest.mark.anyio
+async def test_sync_garmin_data_hydrates_sleep_detail_and_advances_checkpoint(tmp_path, monkeypatch):
+    """sync_garmin_data now delegates its checkpoint math entirely to
+    GarminProvider.sync_hydration (core/providers/garmin.py) -- this test
+    only exercises that sync_garmin_data plumbs that call's return value
+    into results["garmin_sleep_detail"] unmodified, mirroring how
+    sync_tonal_data delegates to TonalProvider.sync_hydration. The
+    grace-days checkpoint math itself is exercised directly against the
+    real GarminProvider.sync_hydration in tests/providers/test_garmin.py."""
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            assert force_full_history is False
+            repository.set_checkpoint(conn, "garmin", "garmin_sleep_detail", end_date)
+            return "2 nights (8 stage segments, 5 restless moments)"
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
+        return {"resting_hr": "complete"}
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("sync_garmin_data", {"days": 3})
+
+    assert result.is_error is not True
+    assert "2 nights" in result.structured_content["garmin_sleep_detail"]
+
+    conn = connect(db_path)
+    checkpoint = repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail")
+    conn.close()
+    assert checkpoint == date.today()
+
+
+@pytest.mark.anyio
+async def test_sync_garmin_data_skips_sleep_hydration_on_full_history(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            if force_full_history:
+                return "skipped (full history sync)"
+            raise AssertionError("must not hydrate on force_full_history=True")
+
+    def fake_sync_all_metrics(conn, provider, backfill_start, end, **kwargs):
+        return {"resting_hr": "complete"}
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", fake_sync_all_metrics)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("sync_garmin_data", {"days": 3, "force_full_history": True})
+
+    assert result.is_error is not True
+    assert result.structured_content["garmin_sleep_detail"] == "skipped (full history sync)"
+
+    conn = connect(db_path)
+    checkpoint = repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail")
+    conn.close()
+    assert checkpoint is None
 
 
 @pytest.mark.anyio
@@ -925,3 +1009,267 @@ def test_get_muscle_group_volume_empty_for_range_with_no_hydrated_data(tmp_path,
     from mcp_server.server import get_muscle_group_volume
 
     assert get_muscle_group_volume("2020-01-01", "2020-01-31") == []
+
+
+def _load_fixture(name: str):
+    """Load a Garmin fixture from tests/fixtures/garmin/{name}.json"""
+    fixture_dir = Path(__file__).resolve().parent.parent / "fixtures" / "garmin"
+    return json.loads((fixture_dir / f"{name}.json").read_text())
+
+
+@pytest.mark.anyio
+async def test_get_sleep_detail_not_hydrated(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_sleep_detail", {"date": "2026-01-01"})
+
+    assert result.is_error is not True
+    body = result.structured_content or (json.loads(result.content[0].text) if result.content else None)
+    assert body == {"status": "not_hydrated", "date": "2026-01-01"}
+
+
+@pytest.mark.anyio
+async def test_get_sleep_detail_returns_full_detail(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+
+    from core.providers.garmin import GarminProvider
+
+    fixture = _load_fixture("get_sleep_data")
+    session = GarminProvider._parse_sleep_session(fixture, source_id_prefix="garmin")
+    segments = GarminProvider._parse_sleep_stage_segments(fixture, session_id=session.id)
+    moments = GarminProvider._parse_sleep_restless_moments(fixture, session_id=session.id)
+    repository.upsert_sleep_session(conn, session)
+    repository.replace_sleep_stage_segments(conn, session.id, segments)
+    repository.replace_sleep_restless_moments(conn, session.id, moments)
+    conn.close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_sleep_detail", {"date": "2026-09-15"})
+
+    assert result.is_error is not True
+    body = result.structured_content or (json.loads(result.content[0].text) if result.content else None)
+    assert body["overall_score"] == 76.0
+    assert body["duration_qualifier"] == "FAIR"
+    assert len(body["stage_timeline"]) == 4
+    assert body["stage_timeline"][0]["stage"] == "light"
+    # stage_timeline must report local wall-clock times, not UTC, so it's
+    # consistent with bedtime_local for the same instant: the fixture's
+    # sleepStartTimestampGMT/Local pair implies a -4h offset, so the first
+    # segment's 03:46:52 UTC start becomes 23:46:52 the prior local day,
+    # matching bedtime_local ("23:46") rather than contradicting it.
+    assert "start_utc" not in body["stage_timeline"][0]
+    assert body["bedtime_local"] == "23:46"
+    assert body["stage_timeline"][0]["start_local"] == "2026-09-14T23:46:52"
+    assert body["stage_timeline"][0]["end_local"] == "2026-09-14T23:47:52"
+    assert len(body["restless_moments"]) == 2
+    assert "time_utc" not in body["restless_moments"][0]
+    assert body["restless_moments"][0]["time_local"] == "2026-09-14T23:58:52"
+    assert body["restless_moments"][1]["time_local"] == "2026-09-15T00:49:52"
+    # Verify zero nap time is preserved as 0.0, not None (fixture has napTimeSeconds: 0)
+    assert body["nap_time_minutes"] == 0.0
+
+
+def test_median_clock_time_handles_midnight_wrap():
+    from mcp_server.server import _median_clock_time_local
+
+    # Bedtimes straddling midnight: 23:50 and 00:10. A naive mean of the raw
+    # hour:minute numbers would land near 12:00 (wrong); anchor-space median
+    # must land at 00:00 (the actual midpoint of that 20-minute window).
+    result = _median_clock_time_local([time(23, 50), time(0, 10)], anchor_hour=18)
+    assert result == "00:00"
+
+    # Non-wrapping case: sanity check the anchor logic doesn't break ordinary times.
+    result2 = _median_clock_time_local([time(22, 0), time(23, 0), time(0, 30)], anchor_hour=18)
+    assert result2 == "23:00"
+
+
+def _make_sleep_pattern_session(session_id, d, total_sleep_seconds, overall_score, duration_qualifier, sleep_start_local):
+    from core.storage.models import SleepSession
+
+    return SleepSession(
+        id=session_id, calendar_date=d,
+        sleep_start_utc=None, sleep_end_utc=None,
+        sleep_start_local=sleep_start_local, sleep_end_local=None,
+        total_sleep_seconds=total_sleep_seconds, nap_time_seconds=0.0,
+        deep_sleep_seconds=total_sleep_seconds * 0.25, light_sleep_seconds=total_sleep_seconds * 0.5,
+        rem_sleep_seconds=total_sleep_seconds * 0.25, awake_sleep_seconds=0.0,
+        unmeasurable_sleep_seconds=0.0, awake_count=0, restless_moments_count=10,
+        avg_sleep_stress=20.0, avg_heart_rate=60.0, avg_overnight_hrv=25.0,
+        avg_respiration=15.0, lowest_respiration=12.0, highest_respiration=20.0,
+        overall_score=overall_score, overall_score_qualifier="FAIR",
+        duration_qualifier=duration_qualifier, stress_qualifier="FAIR",
+        awake_count_qualifier="EXCELLENT", restlessness_qualifier="EXCELLENT",
+        rem_percentage=25.0, rem_percentage_qualifier="EXCELLENT",
+        light_percentage=50.0, light_percentage_qualifier="EXCELLENT",
+        deep_percentage=25.0, deep_percentage_qualifier="EXCELLENT",
+        sleep_need_baseline_minutes=470, sleep_need_actual_minutes=470,
+        sleep_need_feedback="NO_CHANGE", score_feedback="NEUTRAL",
+        score_insight="NONE", score_personalized_insight="NONE",
+        created_at=datetime(2026, 9, 15, 12, 0, 0),
+    )
+
+
+@pytest.mark.anyio
+async def test_get_sleep_pattern_aggregates_correctly(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.upsert_sleep_session(conn, _make_sleep_pattern_session(
+        "garmin:2026-09-13", date(2026, 9, 13), 20880.0, 58.0, "POOR", datetime(2026, 9, 12, 23, 50),
+    ))
+    repository.upsert_sleep_session(conn, _make_sleep_pattern_session(
+        "garmin:2026-09-14", date(2026, 9, 14), 23472.0, 78.0, "FAIR", datetime(2026, 9, 14, 0, 32),
+    ))
+    repository.upsert_sleep_session(conn, _make_sleep_pattern_session(
+        "garmin:2026-09-15", date(2026, 9, 15), 24780.0, 76.0, "FAIR", datetime(2026, 9, 14, 23, 46),
+    ))
+    conn.close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_sleep_pattern", {"start_date": "2026-09-13", "end_date": "2026-09-15"})
+
+    assert result.is_error is not True
+    body = result.structured_content or (json.loads(result.content[0].text) if result.content else None)
+    assert body["nights_with_data"] == 3
+    assert body["duration_qualifier_counts"] == {"POOR": 1, "FAIR": 2}
+    assert body["avg_overall_score"] == round((58.0 + 78.0 + 76.0) / 3, 2)
+    assert len(body["worst_nights"]) == 3
+    assert body["worst_nights"][0]["date"] == "2026-09-13"  # lowest score first
+
+
+@pytest.mark.anyio
+async def test_get_sleep_pattern_empty_range(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_sleep_pattern", {"start_date": "2020-01-01", "end_date": "2020-01-02"})
+
+    assert result.is_error is not True
+    body = result.structured_content or (json.loads(result.content[0].text) if result.content else None)
+    assert body["nights_with_data"] == 0
+    assert body["avg_duration_hours"] is None
+
+
+@pytest.mark.anyio
+async def test_get_sleep_pattern_includes_zero_duration_and_zero_need_nights(tmp_path, monkeypatch):
+    """A session with total_sleep_seconds == 0 or sleep_need_baseline_minutes == 0 is a real
+    zero value (not "unknown") and must be counted in the averages, not silently dropped by a
+    truthy check -- the same class of bug already fixed for get_sleep_detail in 19bebc3."""
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+
+    zero_session = dataclasses.replace(
+        _make_sleep_pattern_session(
+            "garmin:2026-09-13", date(2026, 9, 13), 0.0, 50.0, "POOR", datetime(2026, 9, 12, 23, 0),
+        ),
+        sleep_need_baseline_minutes=0,
+    )
+    repository.upsert_sleep_session(conn, zero_session)
+    repository.upsert_sleep_session(conn, _make_sleep_pattern_session(
+        "garmin:2026-09-14", date(2026, 9, 14), 7200.0, 80.0, "FAIR", datetime(2026, 9, 13, 23, 0),
+    ))
+    conn.close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_sleep_pattern", {"start_date": "2026-09-13", "end_date": "2026-09-14"})
+
+    assert result.is_error is not True
+    body = result.structured_content or (json.loads(result.content[0].text) if result.content else None)
+    assert body["nights_with_data"] == 2
+    # avg of [0.0, 2.0] hours is 1.0 -- a truthy-check bug would exclude the zero night
+    # entirely and report 2.0 instead.
+    assert body["avg_duration_hours"] == 1.0
+    # avg of [0, 470/60] minutes-as-hours -- a truthy-check bug would exclude the zero
+    # need entirely and report 7.83 instead.
+    assert body["avg_sleep_need_target_hours"] == round((0 + 470 / 60.0) / 2, 2)
+    assert body["avg_deficit_hours"] == round(body["avg_sleep_need_target_hours"] - body["avg_duration_hours"], 2)
+    # worst_nights is sorted by overall_score ascending, so the zero-duration
+    # session (score 50.0) is worst_nights[0] -- its duration_hours must be
+    # 0.0, not None. Same truthy-check bug class as above, but in the
+    # worst_nights list-comprehension branch rather than the aggregate avg.
+    assert body["worst_nights"][0]["date"] == "2026-09-13"
+    assert body["worst_nights"][0]["duration_hours"] == 0.0
+
+
+def test_refetch_garmin_sleep_detail_range_rejects_start_after_end(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    _save_stub_garmin_credentials(tmp_path)
+
+    from mcp_server.server import refetch_garmin_sleep_detail_range
+
+    with pytest.raises(ValueError, match="must be on or before"):
+        refetch_garmin_sleep_detail_range("2026-08-25", "2026-08-20")
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_sleep_detail_range_does_not_touch_checkpoint(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.set_checkpoint(conn, "garmin", "garmin_sleep_detail", date(2026, 9, 1))
+    conn.close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def hydrate_recent_sleep(self, conn, since, until=None):
+            return {"nights": 3, "segments": 12, "restless_moments": 7}
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "refetch_garmin_sleep_detail_range", {"start": "2026-09-10", "end": "2026-09-12"}
+        )
+
+    assert result.is_error is not True
+    body = result.structured_content or (json.loads(result.content[0].text) if result.content else None)
+    assert body == {"nights": 3, "segments": 12, "restless_moments": 7}
+
+    conn = connect(db_path)
+    checkpoint = repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail")
+    conn.close()
+    assert checkpoint == date(2026, 9, 1)  # unchanged
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_sleep_detail_range_passes_explicit_bounds(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    captured = {}
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def hydrate_recent_sleep(self, conn, since, until=None):
+            captured["since"] = since
+            captured["until"] = until
+            return {"nights": 0, "segments": 0, "restless_moments": 0}
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "refetch_garmin_sleep_detail_range", {"start": "2026-09-10", "end": "2026-09-12"}
+        )
+
+    assert captured["since"] == date(2026, 9, 10)
+    assert captured["until"] == date(2026, 9, 12)

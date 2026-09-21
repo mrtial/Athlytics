@@ -130,6 +130,8 @@ Athlytics ships with pre-configured playbooks in the `skills/` directory (automa
 - `get_trend(metric_type, window=30)`: Computes rolling average and period-over-period delta.
 - `get_anomalies(since=None)`: Flags readings exceeding 2 standard deviations ($|z| \ge 2.0$) from baseline.
 - `get_activities(start_date, end_date, activity_type, limit)`: Fetches normalized workout sessions.
+- `get_sleep_detail(date)`: Full per-night sleep detail (stage breakdown, timing, sub-score qualifiers, stage timeline, restlessness) for one date, from locally hydrated Garmin data.
+- `get_sleep_pattern(start_date, end_date)`: Aggregated sleep-pattern analysis over a date range (avg/min/max duration vs. sleep-need target, qualifier-band counts, stage split, bedtime/wake-time consistency, worst nights).
 - `get_targets(status='active')`: Fetches active, completed, or abandoned targets.
 - `get_training_plans(status='active')`: Fetches periodized training blocks.
 - `get_coach_notes(limit=10, category=None)`: Fetches qualitative coaching and injury logs.
@@ -142,6 +144,7 @@ Athlytics ships with pre-configured playbooks in the `skills/` directory (automa
 - `update_plan_status(plan_id, status)`: Sets plan status (`active`, `paused`, `completed`, `archived`).
 - `log_coach_note(date, category, note, tags)`: Records qualitative observations (categories: `injury`, `nutrition`, `feeling`, `gear`, `milestone`, `general`).
 - `sync_garmin_data(days=30, force_full_history=False)`: On-demand sync from Garmin Connect.
+- `refetch_garmin_sleep_detail_range(start, end)`: Force a direct re-hydration of Garmin sleep detail (session, stage timeline, restlessness) over an explicit date range, bypassing the sync checkpoint.
 - `sync_strava_data(days=30, force_full_history=False)`: On-demand sync from Strava.
 - `sync_mi_fitness_data(days=30, force_full_history=False)`: On-demand sync from Mi Fitness.
 - `sync_tonal_data(days=30, force_full_history=False)`: On-demand sync from Tonal.

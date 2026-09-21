@@ -183,6 +183,115 @@ class StrengthSet:
 
 
 @dataclass(frozen=True)
+class SleepSession:
+    """One night's Garmin sleep summary, from the rich get_sleep_data()
+    endpoint (distinct from the flat sleep_score/sleep_duration
+    MetricReadings, which come from the summary get_sleep_daily() endpoint).
+
+    Timezone contract: all *_utc fields MUST be naive datetimes representing
+    UTC wall-clock time, consistent with MetricReading/Activity. The
+    *_local fields are naive datetimes representing local wall-clock time
+    as Garmin reported it -- no further timezone conversion is performed;
+    they exist for bedtime/wake-time display and consistency analysis only.
+    """
+
+    id: str
+    calendar_date: date
+    sleep_start_utc: datetime | None
+    sleep_end_utc: datetime | None
+    sleep_start_local: datetime | None
+    sleep_end_local: datetime | None
+    total_sleep_seconds: float | None
+    nap_time_seconds: float | None
+    deep_sleep_seconds: float | None
+    light_sleep_seconds: float | None
+    rem_sleep_seconds: float | None
+    awake_sleep_seconds: float | None
+    unmeasurable_sleep_seconds: float | None
+    awake_count: int | None
+    restless_moments_count: int | None
+    avg_sleep_stress: float | None
+    avg_heart_rate: float | None
+    avg_overnight_hrv: float | None
+    avg_respiration: float | None
+    lowest_respiration: float | None
+    highest_respiration: float | None
+    overall_score: float | None
+    overall_score_qualifier: str | None
+    duration_qualifier: str | None
+    stress_qualifier: str | None
+    awake_count_qualifier: str | None
+    restlessness_qualifier: str | None
+    rem_percentage: float | None
+    rem_percentage_qualifier: str | None
+    light_percentage: float | None
+    light_percentage_qualifier: str | None
+    deep_percentage: float | None
+    deep_percentage_qualifier: str | None
+    sleep_need_baseline_minutes: int | None
+    sleep_need_actual_minutes: int | None
+    sleep_need_feedback: str | None
+    score_feedback: str | None
+    score_insight: str | None
+    score_personalized_insight: str | None
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        if self.sleep_start_utc is not None and self.sleep_start_utc.tzinfo is not None:
+            raise ValueError(
+                "SleepSession.sleep_start_utc must be a naive datetime representing "
+                f"UTC wall-clock time; got a timezone-aware value: {self.sleep_start_utc!r}."
+            )
+        if self.sleep_end_utc is not None and self.sleep_end_utc.tzinfo is not None:
+            raise ValueError(
+                "SleepSession.sleep_end_utc must be a naive datetime representing "
+                f"UTC wall-clock time; got a timezone-aware value: {self.sleep_end_utc!r}."
+            )
+        if self.created_at.tzinfo is not None:
+            raise ValueError(
+                "SleepSession.created_at must be a naive datetime representing "
+                f"UTC wall-clock time; got a timezone-aware value: {self.created_at!r}."
+            )
+
+
+@dataclass(frozen=True)
+class SleepStageSegment:
+    id: str
+    sleep_session_id: str
+    segment_index: int
+    stage: str  # 'deep' | 'light' | 'rem' | 'awake'
+    start_utc: datetime
+    end_utc: datetime
+    duration_seconds: float
+
+    def __post_init__(self) -> None:
+        if self.start_utc.tzinfo is not None:
+            raise ValueError(
+                "SleepStageSegment.start_utc must be a naive datetime representing "
+                f"UTC wall-clock time; got a timezone-aware value: {self.start_utc!r}."
+            )
+        if self.end_utc.tzinfo is not None:
+            raise ValueError(
+                "SleepStageSegment.end_utc must be a naive datetime representing "
+                f"UTC wall-clock time; got a timezone-aware value: {self.end_utc!r}."
+            )
+
+
+@dataclass(frozen=True)
+class SleepRestlessMoment:
+    sleep_session_id: str
+    occurred_at_utc: datetime
+    value: int
+
+    def __post_init__(self) -> None:
+        if self.occurred_at_utc.tzinfo is not None:
+            raise ValueError(
+                "SleepRestlessMoment.occurred_at_utc must be a naive datetime representing "
+                f"UTC wall-clock time; got a timezone-aware value: {self.occurred_at_utc!r}."
+            )
+
+
+@dataclass(frozen=True)
 class TonalWorkoutMeta:
     """Program/guided-workout metadata for one Tonal activity (currently
     Tonal-only, same rationale as StrengthSet), sourced from the per-workout

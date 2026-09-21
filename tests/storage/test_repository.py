@@ -1,11 +1,149 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import sqlite3
 
 import pytest
 
 from core.storage import repository
 from core.storage.db import connect
-from core.storage.models import Activity, MetricReading, StrengthSet
+from core.storage.models import Activity, MetricReading, StrengthSet, SleepSession, SleepStageSegment, SleepRestlessMoment
+
+
+def test_sleep_tables_exist(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    tables = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    assert {"sleep_session", "sleep_stage_segment", "sleep_restless_moment"} <= tables
+
+
+def test_sleep_session_rejects_timezone_aware_sleep_start_utc():
+    with pytest.raises(ValueError, match="sleep_start_utc must be a naive datetime"):
+        SleepSession(
+            id="s-1",
+            calendar_date=date(2026, 1, 1),
+            sleep_start_utc=datetime(2026, 1, 1, 22, 0, tzinfo=timezone.utc),
+            sleep_end_utc=None,
+            sleep_start_local=None,
+            sleep_end_local=None,
+            total_sleep_seconds=None,
+            nap_time_seconds=None,
+            deep_sleep_seconds=None,
+            light_sleep_seconds=None,
+            rem_sleep_seconds=None,
+            awake_sleep_seconds=None,
+            unmeasurable_sleep_seconds=None,
+            awake_count=None,
+            restless_moments_count=None,
+            avg_sleep_stress=None,
+            avg_heart_rate=None,
+            avg_overnight_hrv=None,
+            avg_respiration=None,
+            lowest_respiration=None,
+            highest_respiration=None,
+            overall_score=None,
+            overall_score_qualifier=None,
+            duration_qualifier=None,
+            stress_qualifier=None,
+            awake_count_qualifier=None,
+            restlessness_qualifier=None,
+            rem_percentage=None,
+            rem_percentage_qualifier=None,
+            light_percentage=None,
+            light_percentage_qualifier=None,
+            deep_percentage=None,
+            deep_percentage_qualifier=None,
+            sleep_need_baseline_minutes=None,
+            sleep_need_actual_minutes=None,
+            sleep_need_feedback=None,
+            score_feedback=None,
+            score_insight=None,
+            score_personalized_insight=None,
+            created_at=datetime(2026, 1, 2, 12, 0),
+        )
+
+
+def test_sleep_session_rejects_timezone_aware_created_at():
+    with pytest.raises(ValueError, match="created_at must be a naive datetime"):
+        SleepSession(
+            id="s-1",
+            calendar_date=date(2026, 1, 1),
+            sleep_start_utc=None,
+            sleep_end_utc=None,
+            sleep_start_local=None,
+            sleep_end_local=None,
+            total_sleep_seconds=None,
+            nap_time_seconds=None,
+            deep_sleep_seconds=None,
+            light_sleep_seconds=None,
+            rem_sleep_seconds=None,
+            awake_sleep_seconds=None,
+            unmeasurable_sleep_seconds=None,
+            awake_count=None,
+            restless_moments_count=None,
+            avg_sleep_stress=None,
+            avg_heart_rate=None,
+            avg_overnight_hrv=None,
+            avg_respiration=None,
+            lowest_respiration=None,
+            highest_respiration=None,
+            overall_score=None,
+            overall_score_qualifier=None,
+            duration_qualifier=None,
+            stress_qualifier=None,
+            awake_count_qualifier=None,
+            restlessness_qualifier=None,
+            rem_percentage=None,
+            rem_percentage_qualifier=None,
+            light_percentage=None,
+            light_percentage_qualifier=None,
+            deep_percentage=None,
+            deep_percentage_qualifier=None,
+            sleep_need_baseline_minutes=None,
+            sleep_need_actual_minutes=None,
+            sleep_need_feedback=None,
+            score_feedback=None,
+            score_insight=None,
+            score_personalized_insight=None,
+            created_at=datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc),
+        )
+
+
+def test_sleep_stage_segment_rejects_timezone_aware_start_utc():
+    with pytest.raises(ValueError, match="start_utc must be a naive datetime"):
+        SleepStageSegment(
+            id="seg-1",
+            sleep_session_id="s-1",
+            segment_index=0,
+            stage="deep",
+            start_utc=datetime(2026, 1, 1, 22, 0, tzinfo=timezone.utc),
+            end_utc=datetime(2026, 1, 1, 23, 0),
+            duration_seconds=3600.0,
+        )
+
+
+def test_sleep_stage_segment_rejects_timezone_aware_end_utc():
+    with pytest.raises(ValueError, match="end_utc must be a naive datetime"):
+        SleepStageSegment(
+            id="seg-1",
+            sleep_session_id="s-1",
+            segment_index=0,
+            stage="deep",
+            start_utc=datetime(2026, 1, 1, 22, 0),
+            end_utc=datetime(2026, 1, 1, 23, 0, tzinfo=timezone.utc),
+            duration_seconds=3600.0,
+        )
+
+
+def test_sleep_restless_moment_rejects_timezone_aware_occurred_at_utc():
+    with pytest.raises(ValueError, match="occurred_at_utc must be a naive datetime"):
+        SleepRestlessMoment(
+            sleep_session_id="s-1",
+            occurred_at_utc=datetime(2026, 1, 1, 22, 30, tzinfo=timezone.utc),
+            value=1,
+        )
 
 
 def test_upsert_and_get_readings_roundtrip(tmp_path):
@@ -758,3 +896,103 @@ def test_find_known_movements_matches_by_exact_id_or_name_substring(tmp_path):
 
     no_match = repository.find_known_movements(conn, "deadlift")
     assert no_match == []
+
+
+def _make_session(session_id="garmin:2026-09-15", d=date(2026, 9, 15)):
+    return SleepSession(
+        id=session_id, calendar_date=d,
+        sleep_start_utc=datetime(2026, 9, 15, 3, 46, 52),
+        sleep_end_utc=datetime(2026, 9, 15, 10, 39, 52),
+        sleep_start_local=datetime(2026, 9, 14, 23, 46, 52),
+        sleep_end_local=datetime(2026, 9, 15, 6, 39, 52),
+        total_sleep_seconds=24780.0, nap_time_seconds=0.0,
+        deep_sleep_seconds=7140.0, light_sleep_seconds=12060.0,
+        rem_sleep_seconds=5580.0, awake_sleep_seconds=0.0,
+        unmeasurable_sleep_seconds=0.0, awake_count=0,
+        restless_moments_count=31, avg_sleep_stress=26.0, avg_heart_rate=65.0,
+        avg_overnight_hrv=26.0, avg_respiration=17.0, lowest_respiration=13.0,
+        highest_respiration=22.0, overall_score=76.0, overall_score_qualifier="FAIR",
+        duration_qualifier="FAIR", stress_qualifier="POOR", awake_count_qualifier="EXCELLENT",
+        restlessness_qualifier="EXCELLENT", rem_percentage=23.0, rem_percentage_qualifier="EXCELLENT",
+        light_percentage=49.0, light_percentage_qualifier="EXCELLENT", deep_percentage=29.0,
+        deep_percentage_qualifier="EXCELLENT", sleep_need_baseline_minutes=470,
+        sleep_need_actual_minutes=500, sleep_need_feedback="INCREASED",
+        score_feedback="NEGATIVE_NOT_RESTORATIVE", score_insight="NONE",
+        score_personalized_insight="GENERAL_NEG_FAIR_OR_POOR_SLEEP",
+        created_at=datetime(2026, 9, 15, 12, 0, 0),
+    )
+
+
+def test_upsert_and_get_sleep_session(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    session = _make_session()
+    repository.upsert_sleep_session(conn, session)
+    fetched = repository.get_sleep_session(conn, "garmin:2026-09-15")
+    assert fetched is not None
+    assert fetched.overall_score == 76.0
+    assert fetched.duration_qualifier == "FAIR"
+    assert fetched.calendar_date == date(2026, 9, 15)
+
+    # upsert again with a changed score -- should update, not duplicate
+    updated = _make_session()
+    object.__setattr__(updated, "overall_score", 80.0)  # frozen dataclass, test-only mutation
+    repository.upsert_sleep_session(conn, updated)
+    assert repository.get_sleep_session(conn, "garmin:2026-09-15").overall_score == 80.0
+
+
+def test_replace_sleep_stage_segments_deletes_stale_rows(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_sleep_session(conn, _make_session())
+    first_pass = [
+        SleepStageSegment(
+            id="garmin:2026-09-15:0", sleep_session_id="garmin:2026-09-15",
+            segment_index=0, stage="light",
+            start_utc=datetime(2026, 9, 15, 3, 46, 52),
+            end_utc=datetime(2026, 9, 15, 3, 47, 52), duration_seconds=60.0,
+        ),
+        SleepStageSegment(
+            id="garmin:2026-09-15:1", sleep_session_id="garmin:2026-09-15",
+            segment_index=1, stage="deep",
+            start_utc=datetime(2026, 9, 15, 3, 47, 52),
+            end_utc=datetime(2026, 9, 15, 4, 39, 52), duration_seconds=3120.0,
+        ),
+    ]
+    repository.replace_sleep_stage_segments(conn, "garmin:2026-09-15", first_pass)
+    assert len(repository.get_sleep_stage_segments(conn, "garmin:2026-09-15")) == 2
+
+    # Re-hydration with a different (reclassified) segment set -- old rows must be gone
+    second_pass = [
+        SleepStageSegment(
+            id="garmin:2026-09-15:0", sleep_session_id="garmin:2026-09-15",
+            segment_index=0, stage="rem",
+            start_utc=datetime(2026, 9, 15, 3, 46, 52),
+            end_utc=datetime(2026, 9, 15, 4, 30, 0), duration_seconds=2588.0,
+        ),
+    ]
+    repository.replace_sleep_stage_segments(conn, "garmin:2026-09-15", second_pass)
+    segments = repository.get_sleep_stage_segments(conn, "garmin:2026-09-15")
+    assert len(segments) == 1
+    assert segments[0].stage == "rem"
+
+
+def test_replace_sleep_restless_moments(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_sleep_session(conn, _make_session())
+    moments = [
+        SleepRestlessMoment(
+            sleep_session_id="garmin:2026-09-15",
+            occurred_at_utc=datetime(2026, 9, 15, 4, 5, 32), value=1,
+        ),
+    ]
+    repository.replace_sleep_restless_moments(conn, "garmin:2026-09-15", moments)
+    fetched = repository.get_sleep_restless_moments(conn, "garmin:2026-09-15")
+    assert len(fetched) == 1 and fetched[0].value == 1
+
+
+def test_get_sleep_sessions_range(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_sleep_session(conn, _make_session("garmin:2026-09-14", date(2026, 9, 14)))
+    repository.upsert_sleep_session(conn, _make_session("garmin:2026-09-15", date(2026, 9, 15)))
+    repository.upsert_sleep_session(conn, _make_session("garmin:2026-09-20", date(2026, 9, 20)))
+    in_range = repository.get_sleep_sessions_range(conn, date(2026, 9, 14), date(2026, 9, 15))
+    assert {s.id for s in in_range} == {"garmin:2026-09-14", "garmin:2026-09-15"}

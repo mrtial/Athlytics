@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -14,9 +15,17 @@ from garminconnect import (
 from core.providers.base import RateLimitError
 from core.providers.normalize import normalize_activity_type
 from core.security.credentials import CredentialStore
-from core.storage.models import Activity, MetricReading
+from core.storage.models import (
+    Activity,
+    MetricReading,
+    SleepRestlessMoment,
+    SleepSession,
+    SleepStageSegment,
+)
 
 logger = logging.getLogger(__name__)
+
+STAGE_CODE_TO_NAME: dict[float, str] = {0.0: "deep", 1.0: "light", 2.0: "rem", 3.0: "awake"}
 
 GARMIN_METRIC_TYPES: list[str] = [
     "resting_hr",
@@ -38,6 +47,38 @@ GARMIN_METRIC_TYPES: list[str] = [
     "activity_distance",
     "activity_calories",
 ]
+
+SYNC_RESYNC_GRACE_DAYS = 3  # re-walk the trailing 3 days on every sync so a
+                            # provider value that arrives a day or two late
+                            # (e.g. Garmin's resting_hr lag, or an overnight
+                            # sleep summary that finalizes after this
+                            # provider's own checkpoint has already moved
+                            # past it) still gets picked up instead of being
+                            # skipped forever. Duplicated from
+                            # mcp_server.server/app.sync's identical
+                            # constant of the same name rather than imported
+                            # from either -- both of those modules import
+                            # GarminProvider from here, so importing back
+                            # from them would be a cycle, and this module
+                            # has no lower-level shared home for the
+                            # constant to live instead.
+
+SLEEP_HYDRATION_MAX_BACKFILL_DAYS = 30  # first-run cap: sleep hydration is
+                                         # one Garmin API call per day (unlike
+                                         # Tonal's single bulk fetch), so an
+                                         # unbounded since= here would issue
+                                         # thousands of sequential calls on a
+                                         # brand-new connection's first sync
+                                         # -- app.sync's BACKFILL_LOOKBACK_DAYS
+                                         # is 3650 days, and with no
+                                         # sleep-detail checkpoint yet that
+                                         # would otherwise become ~3650
+                                         # sequential get_sleep_data() calls
+                                         # on the first background sync.
+                                         # Deeper history stays reachable on
+                                         # demand via the
+                                         # refetch_garmin_sleep_detail_range
+                                         # MCP tool.
 
 
 class GarminAuthError(Exception):
@@ -394,6 +435,114 @@ class GarminProvider:
             )
         return readings
 
+    @staticmethod
+    def _parse_sleep_session(raw: dict, source_id_prefix: str) -> SleepSession | None:
+        """Map get_sleep_data()'s rich per-day response to a SleepSession.
+        Distinct from _parse_sleep (which reads the summary get_sleep_daily()
+        shape) -- several field names differ between the two endpoints, see
+        docs/superpowers/plans/2026-09-20-garmin-sleep-detail.md Task 3's
+        field-mapping table."""
+        dto = raw.get("dailySleepDTO") or {}
+        calendar_date = dto.get("calendarDate")
+        if calendar_date is None:
+            return None
+
+        def _ms_to_dt(ms):
+            return (
+                datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+                if ms is not None
+                else None
+            )
+
+        scores = dto.get("sleepScores") or {}
+
+        def _score_value(key):
+            return (scores.get(key) or {}).get("value")
+
+        def _score_qualifier(key):
+            return (scores.get(key) or {}).get("qualifierKey")
+
+        need = dto.get("sleepNeed") or {}
+        d = date.fromisoformat(calendar_date)
+
+        return SleepSession(
+            id=f"{source_id_prefix}:{calendar_date}",
+            calendar_date=d,
+            sleep_start_utc=_ms_to_dt(dto.get("sleepStartTimestampGMT")),
+            sleep_end_utc=_ms_to_dt(dto.get("sleepEndTimestampGMT")),
+            sleep_start_local=_ms_to_dt(dto.get("sleepStartTimestampLocal")),
+            sleep_end_local=_ms_to_dt(dto.get("sleepEndTimestampLocal")),
+            total_sleep_seconds=dto.get("sleepTimeSeconds"),
+            nap_time_seconds=dto.get("napTimeSeconds"),
+            deep_sleep_seconds=dto.get("deepSleepSeconds"),
+            light_sleep_seconds=dto.get("lightSleepSeconds"),
+            rem_sleep_seconds=dto.get("remSleepSeconds"),
+            awake_sleep_seconds=dto.get("awakeSleepSeconds"),
+            unmeasurable_sleep_seconds=dto.get("unmeasurableSleepSeconds"),
+            awake_count=dto.get("awakeCount"),
+            restless_moments_count=raw.get("restlessMomentsCount"),
+            avg_sleep_stress=dto.get("avgSleepStress"),
+            avg_heart_rate=dto.get("avgHeartRate"),
+            avg_overnight_hrv=raw.get("avgOvernightHrv"),
+            avg_respiration=dto.get("averageRespirationValue"),
+            lowest_respiration=dto.get("lowestRespirationValue"),
+            highest_respiration=dto.get("highestRespirationValue"),
+            overall_score=_score_value("overall"),
+            overall_score_qualifier=_score_qualifier("overall"),
+            duration_qualifier=_score_qualifier("totalDuration"),
+            stress_qualifier=_score_qualifier("stress"),
+            awake_count_qualifier=_score_qualifier("awakeCount"),
+            restlessness_qualifier=_score_qualifier("restlessness"),
+            rem_percentage=_score_value("remPercentage"),
+            rem_percentage_qualifier=_score_qualifier("remPercentage"),
+            light_percentage=_score_value("lightPercentage"),
+            light_percentage_qualifier=_score_qualifier("lightPercentage"),
+            deep_percentage=_score_value("deepPercentage"),
+            deep_percentage_qualifier=_score_qualifier("deepPercentage"),
+            sleep_need_baseline_minutes=need.get("baseline"),
+            sleep_need_actual_minutes=need.get("actual"),
+            sleep_need_feedback=need.get("feedback"),
+            score_feedback=dto.get("sleepScoreFeedback"),
+            score_insight=dto.get("sleepScoreInsight"),
+            score_personalized_insight=dto.get("sleepScorePersonalizedInsight"),
+            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+
+    @staticmethod
+    def _parse_sleep_stage_segments(raw: dict, session_id: str) -> list[SleepStageSegment]:
+        segments = []
+        for i, entry in enumerate(raw.get("sleepLevels") or []):
+            stage = STAGE_CODE_TO_NAME.get(entry.get("activityLevel"))
+            start_str, end_str = entry.get("startGMT"), entry.get("endGMT")
+            if stage is None or start_str is None or end_str is None:
+                continue
+            start = datetime.fromisoformat(start_str)
+            end = datetime.fromisoformat(end_str)
+            segments.append(
+                SleepStageSegment(
+                    id=f"{session_id}:{i}", sleep_session_id=session_id, segment_index=i,
+                    stage=stage, start_utc=start, end_utc=end,
+                    duration_seconds=(end - start).total_seconds(),
+                )
+            )
+        return segments
+
+    @staticmethod
+    def _parse_sleep_restless_moments(raw: dict, session_id: str) -> list[SleepRestlessMoment]:
+        moments = []
+        for entry in raw.get("sleepRestlessMoments") or []:
+            ms, value = entry.get("startGMT"), entry.get("value")
+            if ms is None or value is None:
+                continue
+            moments.append(
+                SleepRestlessMoment(
+                    sleep_session_id=session_id,
+                    occurred_at_utc=datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc).replace(tzinfo=None),
+                    value=int(value),
+                )
+            )
+        return moments
+
     def _fetch_sleep(self, start: date, end: date) -> list[MetricReading]:
         if hasattr(self._client, "get_sleep_daily"):
             raw = self._call(self._client.get_sleep_daily, start.isoformat(), end.isoformat())
@@ -401,6 +550,111 @@ class GarminProvider:
         return self._fetch_single_day_metric(
             self._client.get_sleep_data, lambda r, d: self._parse_sleep(r), start, end
         )
+
+    def hydrate_recent_sleep(self, conn: sqlite3.Connection, since: date, until: date | None = None) -> dict:
+        """Fetch and persist rich per-night sleep detail (session + stage
+        timeline + restlessness events) for every day from `since` through
+        `until` (defaults to today). A genuinely separate fetch from
+        _fetch_sleep/_parse_sleep -- see this file's module docstring /
+        docs/superpowers/specs/2026-09-20-garmin-sleep-detail-design.md
+        Section 2 for why the two can't share a cache or call pattern."""
+        from core.storage import repository
+
+        nights = 0
+        segments_total = 0
+        moments_total = 0
+        day = since
+        until = until or date.today()
+        while day <= until:
+            try:
+                raw = self._call(self._client.get_sleep_data, day.isoformat())
+                if not raw:
+                    day += timedelta(days=1)
+                    continue
+                session = self._parse_sleep_session(raw, source_id_prefix=self.name)
+                if session is None:
+                    day += timedelta(days=1)
+                    continue
+                segments = self._parse_sleep_stage_segments(raw, session_id=session.id)
+                moments = self._parse_sleep_restless_moments(raw, session_id=session.id)
+
+                repository.upsert_sleep_session(conn, session)
+                repository.replace_sleep_stage_segments(conn, session.id, segments)
+                repository.replace_sleep_restless_moments(conn, session.id, moments)
+
+                nights += 1
+                segments_total += len(segments)
+                moments_total += len(moments)
+            except (RateLimitError, GarminAuthError):
+                raise
+            except Exception:
+                logger.warning("failed to hydrate sleep detail for %s", day, exc_info=True)
+            day += timedelta(days=1)
+
+        return {"nights": nights, "segments": segments_total, "restless_moments": moments_total}
+
+    def sync_hydration(self, conn: sqlite3.Connection, start_date: date, end_date: date, force_full_history: bool) -> str:
+        """Checkpoint-driven wrapper around hydrate_recent_sleep -- the
+        single call site both Garmin sync entry points must use
+        (mcp_server.server.sync_garmin_data, and app.sync.perform_sync_pass's
+        own background/manual sync pass), so rich per-night sleep detail
+        (session, stage-timeline segments, restless-moment events) always
+        gets hydrated after *any* Garmin sync, not just an MCP-triggered
+        one -- mirroring TonalProvider.sync_hydration, whose docstring
+        documents a real regression from a hydration step existing only on
+        one of two sync entry points (a background pass silently skipped
+        it because it predated that method and only called
+        sync_all_metrics). Without this method wired into both entry
+        points the same way, sleep_session/segment/restless-moment rows
+        would only ever get populated when someone calls the
+        sync_garmin_data MCP tool directly -- never from the app's normal
+        scheduled/background sync.
+
+        Returns a short human-readable status string, matching
+        sync_all_metrics's results-dict value convention -- callers should
+        record it the same way (e.g. results["garmin_sleep_detail"] = ...).
+        """
+        from core.storage import repository
+
+        if force_full_history:
+            return "skipped (full history sync)"
+        checkpoint = repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail")
+        # Unlike Tonal's sync_hydration (which only re-walks the checkpoint
+        # day itself), Garmin sleep summaries can finalize a day or two
+        # after the fact -- the same reason the regular Garmin metric sync
+        # already re-walks a trailing grace window (see
+        # SYNC_RESYNC_GRACE_DAYS / sync_all_metrics's resync_grace_days) --
+        # so re-hydrating just the checkpoint day isn't enough here.
+        #
+        # Also clamp to SLEEP_HYDRATION_MAX_BACKFILL_DAYS regardless of how
+        # far back start_date reaches: a first-ever hydration (no
+        # checkpoint yet) with app.sync's 3650-day backfill_start would
+        # otherwise walk ~3650 individual get_sleep_data() calls and risk a
+        # rate-limit livelock (see SLEEP_HYDRATION_MAX_BACKFILL_DAYS's
+        # docstring).
+        hydrate_since = max(
+            start_date,
+            end_date - timedelta(days=SLEEP_HYDRATION_MAX_BACKFILL_DAYS),
+            (checkpoint - timedelta(days=SYNC_RESYNC_GRACE_DAYS)) if checkpoint else date.min,
+        )
+        try:
+            hydration = self.hydrate_recent_sleep(conn, since=hydrate_since)
+            repository.set_checkpoint(conn, "garmin", "garmin_sleep_detail", end_date)
+            nights_word = "night" if hydration["nights"] == 1 else "nights"
+            return (
+                f"{hydration['nights']} {nights_word} "
+                f"({hydration['segments']} stage segments, "
+                f"{hydration['restless_moments']} restless moments)"
+            )
+        except Exception as exc:
+            # Isolate hydration failures (rate limits, auth errors,
+            # unexpected per-day parse errors that escaped
+            # hydrate_recent_sleep's own per-day try/except) from a good
+            # sync_all_metrics pass -- don't let a hydration error discard
+            # that. Leave the checkpoint untouched so the next sync retries
+            # this window.
+            logger.warning("Garmin sleep-detail hydration failed", exc_info=True)
+            return f"hydration failed: {exc}"
 
     @staticmethod
     def _parse_steps(raw: list[dict], day: date) -> list[MetricReading]:

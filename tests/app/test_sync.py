@@ -119,6 +119,19 @@ class _StubGarminClient:
     def get_rhr_daily(self, start, end):
         return []
 
+    def get_sleep_data(self, date_str):
+        # perform_sync_pass's Garmin branch now always calls
+        # provider.sync_hydration after _run_provider_sync (see
+        # GarminProvider.sync_hydration) -- with no garmin_sleep_detail
+        # checkpoint yet, hydrate_since falls back to backfill_start
+        # (~10 years ago per BACKFILL_LOOKBACK_DAYS), so hydrate_recent_sleep
+        # walks that entire window day by day. Returning {} (the real "no
+        # sleep recorded" case) keeps every test that doesn't care about
+        # sleep-detail hydration on the fast no-op path instead of hitting
+        # AttributeError on every single day and paying for a warning-level
+        # traceback format each time.
+        return {}
+
 
 def test_perform_sync_pass_is_noop_when_no_credentials_saved(tmp_path):
     db_path = tmp_path / "test.db"
@@ -181,7 +194,12 @@ def test_perform_sync_pass_calls_sync_all_metrics_and_records_results(tmp_path, 
     assert status["auth_error"] is None
     assert status["last_run_at"] is not None
     metrics = {m["metric_type"]: m["status"] for m in status["metrics"]}
-    assert metrics == {"resting_hr": "complete"}
+    # The Garmin branch now also runs GarminProvider.sync_hydration after
+    # sync_all_metrics (see test_perform_sync_pass_hydrates_garmin_sleep_detail_when_connected
+    # for a dedicated test of that value) -- this test only cares that
+    # sync_all_metrics's own "resting_hr" result survives untouched.
+    assert metrics["resting_hr"] == "complete"
+    assert "garmin_sleep_detail" in metrics
 
 
 def test_perform_sync_pass_forwards_force_full_backfill_to_sync_all_metrics(tmp_path, monkeypatch):
@@ -535,6 +553,53 @@ def test_perform_sync_pass_runs_tonal_when_connected(tmp_path, monkeypatch):
     assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {
         "tonal_strength_score": "complete",
         "tonal_strength_sets": "0 sets across 0 workouts",
+    }
+
+
+def test_perform_sync_pass_hydrates_garmin_sleep_detail_when_connected(tmp_path, monkeypatch):
+    """Regression: perform_sync_pass's Garmin branch previously only called
+    _run_provider_sync (sync_all_metrics) with no hydration step at all, so
+    a connected Garmin account never got sleep_session/segment/restless-
+    moment rows populated except via a direct sync_garmin_data MCP tool
+    call -- never from the app's normal scheduled/background sync."""
+    from app.db import ensure_app_schema
+    from core.security.credentials import CredentialStore
+    from cryptography.fernet import Fernet
+
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_credentials.enc")
+    garmin_store.save({"email": "a@example.com", "password": "x"})
+
+    class _FakeGarminProvider:
+        name = "garmin"
+
+        def __init__(self, credential_store, token_cache_dir, garmin_client_factory=None):
+            self.credential_store = credential_store
+
+        def supported_metric_types(self):
+            return ["resting_hr"]
+
+        def fetch(self, metric_type, start, end):
+            return []
+
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            return "2 nights (8 stage segments, 5 restless moments)"
+
+    monkeypatch.setattr("app.sync.GarminProvider", _FakeGarminProvider)
+
+    perform_sync_pass(db_path, garmin_store, tmp_path / "garmin_tokens")
+
+    conn = connect(db_path)
+    status = get_sync_status(conn, "garmin")
+    assert status["auth_error"] is None
+    assert status["last_run_at"] is not None
+    assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {
+        "resting_hr": "complete",
+        "garmin_sleep_detail": "2 nights (8 stage segments, 5 restless moments)",
     }
 
 

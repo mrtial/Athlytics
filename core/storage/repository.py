@@ -7,6 +7,9 @@ from core.storage.models import (
     MetricReading,
     MetricSummary,
     Report,
+    SleepSession,
+    SleepStageSegment,
+    SleepRestlessMoment,
     StrengthSet,
     Target,
     TonalWorkoutMeta,
@@ -871,4 +874,196 @@ def get_tonal_workout_meta(conn: sqlite3.Connection, activity_id: str) -> TonalW
         active_duration_seconds=row[9],
         created_at=datetime.fromisoformat(row[10]),
     )
+
+
+def upsert_sleep_session(conn: sqlite3.Connection, session: SleepSession) -> None:
+    conn.execute(
+        """
+        INSERT INTO sleep_session (
+            id, calendar_date, sleep_start_utc, sleep_end_utc, sleep_start_local, sleep_end_local,
+            total_sleep_seconds, nap_time_seconds, deep_sleep_seconds, light_sleep_seconds,
+            rem_sleep_seconds, awake_sleep_seconds, unmeasurable_sleep_seconds, awake_count,
+            restless_moments_count, avg_sleep_stress, avg_heart_rate, avg_overnight_hrv,
+            avg_respiration, lowest_respiration, highest_respiration, overall_score,
+            overall_score_qualifier, duration_qualifier, stress_qualifier, awake_count_qualifier,
+            restlessness_qualifier, rem_percentage, rem_percentage_qualifier, light_percentage,
+            light_percentage_qualifier, deep_percentage, deep_percentage_qualifier,
+            sleep_need_baseline_minutes, sleep_need_actual_minutes, sleep_need_feedback,
+            score_feedback, score_insight, score_personalized_insight, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            calendar_date = excluded.calendar_date,
+            sleep_start_utc = excluded.sleep_start_utc,
+            sleep_end_utc = excluded.sleep_end_utc,
+            sleep_start_local = excluded.sleep_start_local,
+            sleep_end_local = excluded.sleep_end_local,
+            total_sleep_seconds = excluded.total_sleep_seconds,
+            nap_time_seconds = excluded.nap_time_seconds,
+            deep_sleep_seconds = excluded.deep_sleep_seconds,
+            light_sleep_seconds = excluded.light_sleep_seconds,
+            rem_sleep_seconds = excluded.rem_sleep_seconds,
+            awake_sleep_seconds = excluded.awake_sleep_seconds,
+            unmeasurable_sleep_seconds = excluded.unmeasurable_sleep_seconds,
+            awake_count = excluded.awake_count,
+            restless_moments_count = excluded.restless_moments_count,
+            avg_sleep_stress = excluded.avg_sleep_stress,
+            avg_heart_rate = excluded.avg_heart_rate,
+            avg_overnight_hrv = excluded.avg_overnight_hrv,
+            avg_respiration = excluded.avg_respiration,
+            lowest_respiration = excluded.lowest_respiration,
+            highest_respiration = excluded.highest_respiration,
+            overall_score = excluded.overall_score,
+            overall_score_qualifier = excluded.overall_score_qualifier,
+            duration_qualifier = excluded.duration_qualifier,
+            stress_qualifier = excluded.stress_qualifier,
+            awake_count_qualifier = excluded.awake_count_qualifier,
+            restlessness_qualifier = excluded.restlessness_qualifier,
+            rem_percentage = excluded.rem_percentage,
+            rem_percentage_qualifier = excluded.rem_percentage_qualifier,
+            light_percentage = excluded.light_percentage,
+            light_percentage_qualifier = excluded.light_percentage_qualifier,
+            deep_percentage = excluded.deep_percentage,
+            deep_percentage_qualifier = excluded.deep_percentage_qualifier,
+            sleep_need_baseline_minutes = excluded.sleep_need_baseline_minutes,
+            sleep_need_actual_minutes = excluded.sleep_need_actual_minutes,
+            sleep_need_feedback = excluded.sleep_need_feedback,
+            score_feedback = excluded.score_feedback,
+            score_insight = excluded.score_insight,
+            score_personalized_insight = excluded.score_personalized_insight,
+            created_at = excluded.created_at
+        """,
+        (
+            session.id, session.calendar_date.isoformat(),
+            session.sleep_start_utc.isoformat() if session.sleep_start_utc else None,
+            session.sleep_end_utc.isoformat() if session.sleep_end_utc else None,
+            session.sleep_start_local.isoformat() if session.sleep_start_local else None,
+            session.sleep_end_local.isoformat() if session.sleep_end_local else None,
+            session.total_sleep_seconds, session.nap_time_seconds, session.deep_sleep_seconds,
+            session.light_sleep_seconds, session.rem_sleep_seconds, session.awake_sleep_seconds,
+            session.unmeasurable_sleep_seconds, session.awake_count, session.restless_moments_count,
+            session.avg_sleep_stress, session.avg_heart_rate, session.avg_overnight_hrv,
+            session.avg_respiration, session.lowest_respiration, session.highest_respiration,
+            session.overall_score, session.overall_score_qualifier, session.duration_qualifier,
+            session.stress_qualifier, session.awake_count_qualifier, session.restlessness_qualifier,
+            session.rem_percentage, session.rem_percentage_qualifier, session.light_percentage,
+            session.light_percentage_qualifier, session.deep_percentage, session.deep_percentage_qualifier,
+            session.sleep_need_baseline_minutes, session.sleep_need_actual_minutes,
+            session.sleep_need_feedback, session.score_feedback, session.score_insight,
+            session.score_personalized_insight, session.created_at.isoformat(),
+        ),
+    )
+    conn.commit()
+
+
+_SLEEP_SESSION_COLUMNS = """
+    id, calendar_date, sleep_start_utc, sleep_end_utc, sleep_start_local, sleep_end_local,
+    total_sleep_seconds, nap_time_seconds, deep_sleep_seconds, light_sleep_seconds,
+    rem_sleep_seconds, awake_sleep_seconds, unmeasurable_sleep_seconds, awake_count,
+    restless_moments_count, avg_sleep_stress, avg_heart_rate, avg_overnight_hrv,
+    avg_respiration, lowest_respiration, highest_respiration, overall_score,
+    overall_score_qualifier, duration_qualifier, stress_qualifier, awake_count_qualifier,
+    restlessness_qualifier, rem_percentage, rem_percentage_qualifier, light_percentage,
+    light_percentage_qualifier, deep_percentage, deep_percentage_qualifier,
+    sleep_need_baseline_minutes, sleep_need_actual_minutes, sleep_need_feedback,
+    score_feedback, score_insight, score_personalized_insight, created_at
+"""
+
+
+def _row_to_sleep_session(row: tuple) -> SleepSession:
+    def _dt(v):
+        return datetime.fromisoformat(v) if v else None
+
+    return SleepSession(
+        id=row[0], calendar_date=date.fromisoformat(row[1]),
+        sleep_start_utc=_dt(row[2]), sleep_end_utc=_dt(row[3]),
+        sleep_start_local=_dt(row[4]), sleep_end_local=_dt(row[5]),
+        total_sleep_seconds=row[6], nap_time_seconds=row[7], deep_sleep_seconds=row[8],
+        light_sleep_seconds=row[9], rem_sleep_seconds=row[10], awake_sleep_seconds=row[11],
+        unmeasurable_sleep_seconds=row[12], awake_count=row[13], restless_moments_count=row[14],
+        avg_sleep_stress=row[15], avg_heart_rate=row[16], avg_overnight_hrv=row[17],
+        avg_respiration=row[18], lowest_respiration=row[19], highest_respiration=row[20],
+        overall_score=row[21], overall_score_qualifier=row[22], duration_qualifier=row[23],
+        stress_qualifier=row[24], awake_count_qualifier=row[25], restlessness_qualifier=row[26],
+        rem_percentage=row[27], rem_percentage_qualifier=row[28], light_percentage=row[29],
+        light_percentage_qualifier=row[30], deep_percentage=row[31], deep_percentage_qualifier=row[32],
+        sleep_need_baseline_minutes=row[33], sleep_need_actual_minutes=row[34],
+        sleep_need_feedback=row[35], score_feedback=row[36], score_insight=row[37],
+        score_personalized_insight=row[38], created_at=datetime.fromisoformat(row[39]),
+    )
+
+
+def get_sleep_session(conn: sqlite3.Connection, session_id: str) -> SleepSession | None:
+    row = conn.execute(
+        f"SELECT {_SLEEP_SESSION_COLUMNS} FROM sleep_session WHERE id = ?", (session_id,)
+    ).fetchone()
+    return _row_to_sleep_session(row) if row else None
+
+
+def get_sleep_sessions_range(conn: sqlite3.Connection, start: date, end: date) -> list[SleepSession]:
+    rows = conn.execute(
+        f"SELECT {_SLEEP_SESSION_COLUMNS} FROM sleep_session "
+        "WHERE calendar_date >= ? AND calendar_date <= ? ORDER BY calendar_date ASC",
+        (start.isoformat(), end.isoformat()),
+    ).fetchall()
+    return [_row_to_sleep_session(row) for row in rows]
+
+
+def replace_sleep_stage_segments(
+    conn: sqlite3.Connection, session_id: str, segments: list[SleepStageSegment]
+) -> None:
+    conn.execute("DELETE FROM sleep_stage_segment WHERE sleep_session_id = ?", (session_id,))
+    conn.executemany(
+        """
+        INSERT INTO sleep_stage_segment
+            (id, sleep_session_id, segment_index, stage, start_utc, end_utc, duration_seconds)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (s.id, s.sleep_session_id, s.segment_index, s.stage,
+             s.start_utc.isoformat(), s.end_utc.isoformat(), s.duration_seconds)
+            for s in segments
+        ],
+    )
+    conn.commit()
+
+
+def get_sleep_stage_segments(conn: sqlite3.Connection, session_id: str) -> list[SleepStageSegment]:
+    rows = conn.execute(
+        """
+        SELECT id, sleep_session_id, segment_index, stage, start_utc, end_utc, duration_seconds
+        FROM sleep_stage_segment WHERE sleep_session_id = ? ORDER BY segment_index ASC
+        """,
+        (session_id,),
+    ).fetchall()
+    return [
+        SleepStageSegment(
+            id=r[0], sleep_session_id=r[1], segment_index=r[2], stage=r[3],
+            start_utc=datetime.fromisoformat(r[4]), end_utc=datetime.fromisoformat(r[5]),
+            duration_seconds=r[6],
+        )
+        for r in rows
+    ]
+
+
+def replace_sleep_restless_moments(
+    conn: sqlite3.Connection, session_id: str, moments: list[SleepRestlessMoment]
+) -> None:
+    conn.execute("DELETE FROM sleep_restless_moment WHERE sleep_session_id = ?", (session_id,))
+    conn.executemany(
+        "INSERT OR REPLACE INTO sleep_restless_moment (sleep_session_id, occurred_at_utc, value) VALUES (?, ?, ?)",
+        [(m.sleep_session_id, m.occurred_at_utc.isoformat(), m.value) for m in moments],
+    )
+    conn.commit()
+
+
+def get_sleep_restless_moments(conn: sqlite3.Connection, session_id: str) -> list[SleepRestlessMoment]:
+    rows = conn.execute(
+        "SELECT sleep_session_id, occurred_at_utc, value FROM sleep_restless_moment "
+        "WHERE sleep_session_id = ? ORDER BY occurred_at_utc ASC",
+        (session_id,),
+    ).fetchall()
+    return [
+        SleepRestlessMoment(sleep_session_id=r[0], occurred_at_utc=datetime.fromisoformat(r[1]), value=r[2])
+        for r in rows
+    ]
 

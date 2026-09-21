@@ -1,11 +1,21 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import pytest
 from cryptography.fernet import Fernet
 
 from core.providers.base import RateLimitError
-from core.providers.garmin import GARMIN_METRIC_TYPES, GarminAuthError, GarminMfaRequired, GarminProvider, complete_garmin_mfa
+from core.providers.garmin import (
+    GARMIN_METRIC_TYPES,
+    SLEEP_HYDRATION_MAX_BACKFILL_DAYS,
+    SYNC_RESYNC_GRACE_DAYS,
+    GarminAuthError,
+    GarminMfaRequired,
+    GarminProvider,
+    complete_garmin_mfa,
+)
 from core.security.credentials import CredentialStore
+from core.storage.db import connect
+from core.storage import repository
 from core.storage.models import MetricReading
 
 
@@ -483,3 +493,304 @@ def test_supported_metric_types_covers_all_v1_metrics(tmp_path):
             "activity_calories",
         ]
     )
+
+
+def test_stage_code_to_name_mapping():
+    from core.providers.garmin import STAGE_CODE_TO_NAME
+    assert STAGE_CODE_TO_NAME == {0.0: "deep", 1.0: "light", 2.0: "rem", 3.0: "awake"}
+
+
+def test_parse_sleep_session_maps_all_fields():
+    raw = _load_fixture("get_sleep_data")
+    session = GarminProvider._parse_sleep_session(raw, source_id_prefix="garmin")
+    assert session is not None
+    assert session.id == "garmin:2026-09-15"
+    assert session.calendar_date == date(2026, 9, 15)
+    assert session.total_sleep_seconds == 5460.0
+    assert session.deep_sleep_seconds == 3120.0
+    assert session.overall_score == 76.0
+    assert session.overall_score_qualifier == "FAIR"
+    assert session.duration_qualifier == "FAIR"
+    assert session.stress_qualifier == "POOR"
+    assert session.rem_percentage == 0.0
+    assert session.restless_moments_count == 2
+    assert session.avg_overnight_hrv == 26.0
+    assert session.sleep_need_baseline_minutes == 470
+    assert session.sleep_need_actual_minutes == 500
+    assert session.score_feedback == "NEGATIVE_NOT_RESTORATIVE"
+
+
+def test_parse_sleep_session_returns_none_when_no_sleep_recorded():
+    assert GarminProvider._parse_sleep_session({}, source_id_prefix="garmin") is None
+    assert GarminProvider._parse_sleep_session({"dailySleepDTO": {}}, source_id_prefix="garmin") is None
+
+
+def test_parse_sleep_stage_segments():
+    raw = _load_fixture("get_sleep_data")
+    segments = GarminProvider._parse_sleep_stage_segments(raw, session_id="garmin:2026-09-15")
+    assert len(segments) == 4
+    assert [s.stage for s in segments] == ["light", "deep", "light", "awake"]
+    assert segments[0].id == "garmin:2026-09-15:0"
+    assert segments[1].duration_seconds == 3120.0  # 04:39:52 - 03:47:52
+
+
+def test_parse_sleep_stage_segments_handles_non_zero_fractional_seconds():
+    """Regression test: a naive `.replace(".0", "")` substring strip (as a
+    previous version of this parser used to normalize Garmin's trailing
+    fractional-seconds artifact) corrupts any startGMT/endGMT whose
+    fraction isn't exactly ".0" -- e.g. ".05" becomes "5" appended to the
+    seconds digit, producing an invalid isoformat string. Python 3.11+'s
+    datetime.fromisoformat natively parses these fractional-second
+    timestamps directly, so no preprocessing is needed or safe to do."""
+    raw = {
+        "sleepLevels": [
+            {"startGMT": "2026-09-15T03:46:52.05", "endGMT": "2026-09-15T03:47:52.0", "activityLevel": 1.0},
+        ]
+    }
+    segments = GarminProvider._parse_sleep_stage_segments(raw, session_id="garmin:2026-09-15")
+    assert len(segments) == 1
+    assert segments[0].start_utc == datetime(2026, 9, 15, 3, 46, 52, 50000)
+    assert segments[0].start_utc.microsecond == 50000
+
+
+def test_stage_segment_sums_match_daily_sleep_dto_totals():
+    """Operationalizes the STAGE_CODE_TO_NAME mapping's validation (spec
+    Section 2): summing sleepLevels segments grouped by stage must equal
+    dailySleepDTO's own per-stage second totals for the same night. This
+    fixture was deliberately built so its dailySleepDTO totals equal the
+    sum of its own (trimmed, 4-segment) sleepLevels list -- unlike real
+    Garmin data, which satisfies this by construction across its full
+    ~14-segment night, a hand-built fixture only does if built carefully
+    (this one previously didn't, until corrected while writing this plan)."""
+    raw = _load_fixture("get_sleep_data")
+    segments = GarminProvider._parse_sleep_stage_segments(raw, session_id="garmin:2026-09-15")
+    summed = {}
+    for s in segments:
+        summed[s.stage] = summed.get(s.stage, 0.0) + s.duration_seconds
+
+    dto = raw["dailySleepDTO"]
+    assert summed.get("deep", 0.0) == dto["deepSleepSeconds"]
+    assert summed.get("light", 0.0) == dto["lightSleepSeconds"]
+    assert summed.get("rem", 0.0) == dto["remSleepSeconds"]
+    assert summed.get("awake", 0.0) == dto["awakeSleepSeconds"]
+
+
+def test_parse_sleep_restless_moments():
+    raw = _load_fixture("get_sleep_data")
+    moments = GarminProvider._parse_sleep_restless_moments(raw, session_id="garmin:2026-09-15")
+    assert len(moments) == 2
+    assert moments[0].value == 1
+    assert moments[0].sleep_session_id == "garmin:2026-09-15"
+
+
+def test_hydrate_recent_sleep_persists_session_and_children(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    fixture = _load_fixture("get_sleep_data")
+
+    class _SleepDetailClient(_StubGarminClient):
+        def get_sleep_data(self, date_str):
+            return fixture if date_str == "2026-09-15" else {}
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_SleepDetailClient)
+
+    result = provider.hydrate_recent_sleep(conn, since=date(2026, 9, 15), until=date(2026, 9, 15))
+    assert result == {"nights": 1, "segments": 4, "restless_moments": 2}
+    assert repository.get_sleep_session(conn, "garmin:2026-09-15") is not None
+    assert len(repository.get_sleep_stage_segments(conn, "garmin:2026-09-15")) == 4
+
+
+def test_hydrate_recent_sleep_skips_day_with_no_sleep_recorded(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+
+    class _NoSleepClient(_StubGarminClient):
+        def get_sleep_data(self, date_str):
+            return {}  # matches the real "no sleep recorded" case (3/30 nights observed live)
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_NoSleepClient)
+    result = provider.hydrate_recent_sleep(conn, since=date(2026, 9, 15), until=date(2026, 9, 15))
+    assert result == {"nights": 0, "segments": 0, "restless_moments": 0}
+
+
+def test_hydrate_recent_sleep_isolates_per_day_failures(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    fixture_14 = dict(_load_fixture("get_sleep_data"))
+    fixture_14["dailySleepDTO"] = dict(fixture_14["dailySleepDTO"])
+    fixture_14["dailySleepDTO"]["calendarDate"] = "2026-09-14"
+
+    class _OneBadDayClient(_StubGarminClient):
+        def get_sleep_data(self, date_str):
+            if date_str == "2026-09-14":
+                return fixture_14
+            raise RuntimeError("simulated malformed response")
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_OneBadDayClient)
+    result = provider.hydrate_recent_sleep(conn, since=date(2026, 9, 14), until=date(2026, 9, 15))
+    assert result["nights"] == 1  # the bad day (09-15) is skipped, not fatal
+    assert repository.get_sleep_session(conn, "garmin:2026-09-14") is not None
+    assert repository.get_sleep_session(conn, "garmin:2026-09-15") is None
+
+
+def test_hydrate_recent_sleep_replaces_not_merges_on_rehydration(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    state = {"raw": _load_fixture("get_sleep_data")}
+
+    class _MutableSleepClient(_StubGarminClient):
+        def get_sleep_data(self, date_str):
+            return state["raw"] if date_str == "2026-09-15" else {}
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_MutableSleepClient)
+    provider.hydrate_recent_sleep(conn, since=date(2026, 9, 15), until=date(2026, 9, 15))
+    assert len(repository.get_sleep_stage_segments(conn, "garmin:2026-09-15")) == 4
+
+    # simulate Garmin reclassifying the night with fewer segments on a second pull
+    reclassified = dict(_load_fixture("get_sleep_data"))
+    reclassified["sleepLevels"] = reclassified["sleepLevels"][:1]
+    state["raw"] = reclassified
+    provider.hydrate_recent_sleep(conn, since=date(2026, 9, 15), until=date(2026, 9, 15))
+    assert len(repository.get_sleep_stage_segments(conn, "garmin:2026-09-15")) == 1
+
+
+def test_sync_hydration_skips_on_force_full_history(tmp_path):
+    """Regression guard for the sync_garmin_data/perform_sync_pass wiring:
+    a full-history resync must not call hydrate_recent_sleep at all (years
+    of per-night detail calls is out of proportion to what a metric
+    backfill needs) and must leave the sleep-detail checkpoint untouched."""
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+
+    class _ExplodingClient(_StubGarminClient):
+        def get_sleep_data(self, date_str):
+            raise AssertionError("must not be called on force_full_history=True")
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_ExplodingClient)
+    result = provider.sync_hydration(conn, date(2026, 9, 1), date(2026, 9, 15), True)
+
+    assert result == "skipped (full history sync)"
+    assert repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail") is None
+
+
+def test_sync_hydration_hydrates_and_advances_checkpoint_with_no_prior_checkpoint(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    fixture = _load_fixture("get_sleep_data")
+
+    class _SleepDetailClient(_StubGarminClient):
+        def get_sleep_data(self, date_str):
+            return fixture if date_str == "2026-09-15" else {}
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_SleepDetailClient)
+    result = provider.sync_hydration(conn, date(2026, 9, 15), date(2026, 9, 15), False)
+
+    assert result == "1 night (4 stage segments, 2 restless moments)"
+    assert repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail") == date(2026, 9, 15)
+
+
+def test_sync_hydration_uses_grace_days_window_from_existing_checkpoint(tmp_path):
+    """Regression: unlike Tonal's sync_hydration (which only re-walks the
+    checkpoint day itself), Garmin sleep summaries can finalize a day or
+    two after the fact, so sync_hydration must re-walk a trailing
+    SYNC_RESYNC_GRACE_DAYS window behind the existing checkpoint -- not
+    just resume from the checkpoint day. Captures the `since` hydrate_recent_sleep
+    actually receives to verify the grace-days math directly, rather than
+    just asserting on hydrate_recent_sleep's return value."""
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    checkpoint_day = date(2026, 9, 10)
+    repository.set_checkpoint(conn, "garmin", "garmin_sleep_detail", checkpoint_day)
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
+    captured = {}
+
+    def _capturing_hydrate(conn, since, until=None):
+        captured["since"] = since
+        return {"nights": 0, "segments": 0, "restless_moments": 0}
+
+    provider.hydrate_recent_sleep = _capturing_hydrate
+
+    provider.sync_hydration(conn, date(2026, 8, 1), date(2026, 9, 15), False)
+
+    assert captured["since"] == checkpoint_day - timedelta(days=SYNC_RESYNC_GRACE_DAYS)
+
+
+def test_sync_hydration_clamps_grace_days_window_to_start_date(tmp_path):
+    """If checkpoint - SYNC_RESYNC_GRACE_DAYS would land before start_date
+    (a checkpoint from very early in the requested window), hydrate_since
+    must clamp to start_date rather than walking earlier than the sync's
+    own requested range."""
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    start_date = date(2026, 9, 1)
+    checkpoint_day = date(2026, 9, 2)  # checkpoint_day - grace_days(3) = 2026-08-30, before start_date
+    repository.set_checkpoint(conn, "garmin", "garmin_sleep_detail", checkpoint_day)
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
+    captured = {}
+
+    def _capturing_hydrate(conn, since, until=None):
+        captured["since"] = since
+        return {"nights": 0, "segments": 0, "restless_moments": 0}
+
+    provider.hydrate_recent_sleep = _capturing_hydrate
+
+    provider.sync_hydration(conn, start_date, date(2026, 9, 15), False)
+
+    assert captured["since"] == start_date
+
+
+def test_sync_hydration_caps_first_run_backfill_to_30_days(tmp_path):
+    """Critical regression guard: app.sync's BACKFILL_LOOKBACK_DAYS is 3650
+    days, and with no garmin_sleep_detail checkpoint yet (a brand-new
+    connection's first background sync), hydrate_since used to collapse to
+    that 10-year-old start_date -- hydrate_recent_sleep's day-by-day loop
+    would then issue ~3651 sequential get_sleep_data() calls, and if that
+    trips a rate limit partway through, the checkpoint is deliberately left
+    untouched (so a transient failure can retry), meaning the *next* sync
+    restarts from day 1 and fails again at roughly the same point: a
+    permanent livelock. sync_hydration must clamp hydrate_since to
+    SLEEP_HYDRATION_MAX_BACKFILL_DAYS before start_date, even when
+    start_date reaches far into the past and there is no checkpoint to
+    otherwise bound it. Captures the actual `since` hydrate_recent_sleep
+    receives, same pattern as the existing grace-days tests above."""
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    far_past_start = date(2016, 9, 15)  # ~3650 days before end_date below
+    end_date = date(2026, 9, 15)
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
+    captured = {}
+
+    def _capturing_hydrate(conn, since, until=None):
+        captured["since"] = since
+        return {"nights": 0, "segments": 0, "restless_moments": 0}
+
+    provider.hydrate_recent_sleep = _capturing_hydrate
+
+    provider.sync_hydration(conn, far_past_start, end_date, False)
+
+    assert captured["since"] == end_date - timedelta(days=SLEEP_HYDRATION_MAX_BACKFILL_DAYS)
+    assert captured["since"] != far_past_start
+
+
+def test_sync_hydration_isolates_failure_and_leaves_checkpoint_untouched(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+
+    provider = GarminProvider(store, tmp_path / "tokens", garmin_client_factory=_StubGarminClient)
+
+    def _raising_hydrate(conn, since, until=None):
+        raise RuntimeError("simulated rate limit error")
+
+    provider.hydrate_recent_sleep = _raising_hydrate
+
+    result = provider.sync_hydration(conn, date(2026, 9, 1), date(2026, 9, 15), False)
+
+    # sync_all_metrics's already-successful results must survive a
+    # hydration failure, not be discarded by a propagating exception.
+    assert "hydration failed" in result
+    assert "simulated rate limit error" in result
+    # The checkpoint must not advance past a failed hydration.
+    assert repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail") is None

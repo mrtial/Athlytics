@@ -136,6 +136,69 @@ CREATE TABLE IF NOT EXISTS tonal_workout_meta (
     active_duration_seconds INTEGER,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sleep_session (
+    id TEXT PRIMARY KEY,
+    calendar_date TEXT NOT NULL,
+    sleep_start_utc TEXT,
+    sleep_end_utc TEXT,
+    sleep_start_local TEXT,
+    sleep_end_local TEXT,
+    total_sleep_seconds REAL,
+    nap_time_seconds REAL,
+    deep_sleep_seconds REAL,
+    light_sleep_seconds REAL,
+    rem_sleep_seconds REAL,
+    awake_sleep_seconds REAL,
+    unmeasurable_sleep_seconds REAL,
+    awake_count INTEGER,
+    restless_moments_count INTEGER,
+    avg_sleep_stress REAL,
+    avg_heart_rate REAL,
+    avg_overnight_hrv REAL,
+    avg_respiration REAL,
+    lowest_respiration REAL,
+    highest_respiration REAL,
+    overall_score REAL,
+    overall_score_qualifier TEXT,
+    duration_qualifier TEXT,
+    stress_qualifier TEXT,
+    awake_count_qualifier TEXT,
+    restlessness_qualifier TEXT,
+    rem_percentage REAL,
+    rem_percentage_qualifier TEXT,
+    light_percentage REAL,
+    light_percentage_qualifier TEXT,
+    deep_percentage REAL,
+    deep_percentage_qualifier TEXT,
+    sleep_need_baseline_minutes INTEGER,
+    sleep_need_actual_minutes INTEGER,
+    sleep_need_feedback TEXT,
+    score_feedback TEXT,
+    score_insight TEXT,
+    score_personalized_insight TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sleep_session_date ON sleep_session(calendar_date);
+
+CREATE TABLE IF NOT EXISTS sleep_stage_segment (
+    id TEXT PRIMARY KEY,
+    sleep_session_id TEXT NOT NULL REFERENCES sleep_session(id),
+    segment_index INTEGER NOT NULL,
+    stage TEXT NOT NULL CHECK(stage IN ('deep','light','rem','awake')),
+    start_utc TEXT NOT NULL,
+    end_utc TEXT NOT NULL,
+    duration_seconds REAL NOT NULL,
+    UNIQUE(sleep_session_id, segment_index)
+);
+CREATE INDEX IF NOT EXISTS idx_sleep_stage_segment_session ON sleep_stage_segment(sleep_session_id);
+
+CREATE TABLE IF NOT EXISTS sleep_restless_moment (
+    sleep_session_id TEXT NOT NULL REFERENCES sleep_session(id),
+    occurred_at_utc TEXT NOT NULL,
+    value INTEGER NOT NULL,
+    PRIMARY KEY (sleep_session_id, occurred_at_utc)
+);
 """
 
 

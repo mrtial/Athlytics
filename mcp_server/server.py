@@ -10,7 +10,7 @@ import logging
 import os
 import uuid
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from mcp.server import MCPServer
@@ -180,6 +180,186 @@ def get_activities(
         return [_with_utc_tzinfo(a) for a in activities]
 
 
+@mcp.tool()
+def get_sleep_detail(date: str) -> dict:
+    """Full per-night sleep detail for one date (stage breakdown, timing, sub-score qualifiers, stage timeline, restlessness) -- entirely from locally hydrated Garmin data, no live API call. Only dates covered by sync_garmin_data's hydration (or refetch_garmin_sleep_detail_range) are resolvable; an un-hydrated date returns {"status": "not_hydrated", "date": ...} rather than raising."""
+    session_id = f"garmin:{date}"
+    with _connection() as conn:
+        session = repository.get_sleep_session(conn, session_id)
+        if session is None:
+            return {"status": "not_hydrated", "date": date}
+
+        segments = repository.get_sleep_stage_segments(conn, session_id)
+        moments = repository.get_sleep_restless_moments(conn, session_id)
+
+    def _local_time(dt):
+        return dt.strftime("%H:%M") if dt else None
+
+    # sleep_stage_segment/sleep_restless_moment only ever store UTC
+    # timestamps (that's the correct storage contract -- see
+    # core/providers/garmin.py) -- but this tool's response is for
+    # human/coach reading (docs/superpowers/specs/2026-09-20-garmin-sleep-detail-design.md
+    # Section 5), so stage_timeline/restless_moments must report local wall-clock
+    # times, not UTC, matching bedtime_local/wake_time_local above. Derive
+    # the per-night UTC-to-local offset from the one pair of timestamps
+    # SleepSession stores in both frames for the same instant, since the
+    # DST/timezone offset itself isn't stored anywhere.
+    if session.sleep_start_local is not None and session.sleep_start_utc is not None:
+        local_offset = session.sleep_start_local - session.sleep_start_utc
+    else:
+        local_offset = timedelta(0)
+
+    return {
+        "date": date,
+        "bedtime_local": _local_time(session.sleep_start_local),
+        "wake_time_local": _local_time(session.sleep_end_local),
+        "total_sleep_hours": round(session.total_sleep_seconds / 3600.0, 2) if session.total_sleep_seconds is not None else None,
+        "nap_time_minutes": round(session.nap_time_seconds / 60.0, 1) if session.nap_time_seconds is not None else None,
+        "stage_seconds": {
+            "deep": session.deep_sleep_seconds, "light": session.light_sleep_seconds,
+            "rem": session.rem_sleep_seconds, "awake": session.awake_sleep_seconds,
+        },
+        "stage_percentage": {
+            "deep": session.deep_percentage, "light": session.light_percentage, "rem": session.rem_percentage,
+        },
+        "overall_score": session.overall_score, "overall_score_qualifier": session.overall_score_qualifier,
+        "duration_qualifier": session.duration_qualifier, "stress_qualifier": session.stress_qualifier,
+        "awake_count_qualifier": session.awake_count_qualifier,
+        "restlessness_qualifier": session.restlessness_qualifier,
+        "avg_sleep_stress": session.avg_sleep_stress, "avg_heart_rate": session.avg_heart_rate,
+        "avg_overnight_hrv": session.avg_overnight_hrv, "avg_respiration": session.avg_respiration,
+        "awake_count": session.awake_count, "restless_moments_count": session.restless_moments_count,
+        "sleep_need_target_hours": round(session.sleep_need_baseline_minutes / 60.0, 2) if session.sleep_need_baseline_minutes is not None else None,
+        "sleep_need_feedback": session.sleep_need_feedback,
+        "score_feedback": session.score_feedback,
+        "score_personalized_insight": session.score_personalized_insight,
+        "stage_timeline": [
+            {
+                "stage": s.stage,
+                "start_local": (s.start_utc + local_offset).isoformat(),
+                "end_local": (s.end_utc + local_offset).isoformat(),
+                "duration_minutes": round(s.duration_seconds / 60.0, 1),
+            }
+            for s in segments
+        ],
+        "restless_moments": [
+            {"time_local": (m.occurred_at_utc + local_offset).isoformat(), "value": m.value} for m in moments
+        ],
+    }
+
+
+def _median_clock_time_local(times: list, anchor_hour: int = 18) -> str | None:
+    """Median of a list of datetime.time values that may straddle midnight
+    (e.g. bedtimes), expressed as "HH:MM". Naive mean/median on raw
+    datetime.time objects is wrong here: 23:50 and 00:10 would average to
+    ~12:00, not ~00:00. Fix: shift each time into "minutes since anchor_hour
+    today" space (wrapping forward past midnight adds 24h), where the whole
+    typical range is monotonically increasing, THEN take the median, THEN
+    convert back to HH:MM."""
+    if not times:
+        return None
+    anchored_minutes = []
+    for t in times:
+        minutes = t.hour * 60 + t.minute
+        anchor_minutes = anchor_hour * 60
+        delta = minutes - anchor_minutes
+        if delta < 0:
+            delta += 24 * 60
+        anchored_minutes.append(delta)
+    anchored_minutes.sort()
+    n = len(anchored_minutes)
+    mid = anchored_minutes[n // 2] if n % 2 else (anchored_minutes[n // 2 - 1] + anchored_minutes[n // 2]) / 2
+    real_minutes = (mid + anchor_hour * 60) % (24 * 60)
+    return f"{int(real_minutes // 60):02d}:{int(real_minutes % 60):02d}"
+
+
+@mcp.tool()
+def get_sleep_pattern(start_date: str, end_date: str) -> dict:
+    """Aggregated sleep-pattern analysis over a date range (avg/min/max duration vs. personal sleep-need target, qualifier-band counts, avg stage split, stress, bedtime/wake-time consistency, worst nights) -- entirely from locally hydrated Garmin sleep data, no live API call. The tool-ified version of manually comparing sleep_session rows; empty for any range predating hydration or never synced (returns nights_with_data: 0, not an error)."""
+    from datetime import date as dt_date
+    from collections import Counter
+
+    with _connection() as conn:
+        sessions = repository.get_sleep_sessions_range(
+            conn, dt_date.fromisoformat(start_date), dt_date.fromisoformat(end_date)
+        )
+
+    nights_requested = (dt_date.fromisoformat(end_date) - dt_date.fromisoformat(start_date)).days + 1
+    if not sessions:
+        return {
+            "start_date": start_date, "end_date": end_date,
+            "nights_with_data": 0, "nights_requested": nights_requested,
+            "avg_duration_hours": None, "min_duration_hours": None, "max_duration_hours": None,
+            "avg_sleep_need_target_hours": None, "avg_deficit_hours": None,
+            "duration_qualifier_counts": {}, "avg_stage_percentage": {},
+            "avg_sleep_stress": None, "stress_qualifier_counts": {},
+            "avg_awake_count": None, "avg_restless_moments": None,
+            "bedtime_local": {}, "wake_time_local": {},
+            "avg_overall_score": None, "score_qualifier_counts": {},
+            "worst_nights": [],
+        }
+
+    durations = [s.total_sleep_seconds / 3600.0 for s in sessions if s.total_sleep_seconds is not None]
+    needs = [s.sleep_need_baseline_minutes / 60.0 for s in sessions if s.sleep_need_baseline_minutes is not None]
+    scores = [s.overall_score for s in sessions if s.overall_score is not None]
+    stresses = [s.avg_sleep_stress for s in sessions if s.avg_sleep_stress is not None]
+    awake_counts = [s.awake_count for s in sessions if s.awake_count is not None]
+    restless_counts = [s.restless_moments_count for s in sessions if s.restless_moments_count is not None]
+    rem_pcts = [s.rem_percentage for s in sessions if s.rem_percentage is not None]
+    light_pcts = [s.light_percentage for s in sessions if s.light_percentage is not None]
+    deep_pcts = [s.deep_percentage for s in sessions if s.deep_percentage is not None]
+
+    def _avg(xs):
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    bedtimes = [s.sleep_start_local.time() for s in sessions if s.sleep_start_local]
+    waketimes = [s.sleep_end_local.time() for s in sessions if s.sleep_end_local]
+
+    avg_duration = _avg(durations)
+    avg_need = _avg(needs)
+
+    worst = sorted((s for s in sessions if s.overall_score is not None), key=lambda s: s.overall_score)[:3]
+
+    return {
+        "start_date": start_date, "end_date": end_date,
+        "nights_with_data": len(sessions), "nights_requested": nights_requested,
+        "avg_duration_hours": avg_duration,
+        "min_duration_hours": round(min(durations), 2) if durations else None,
+        "max_duration_hours": round(max(durations), 2) if durations else None,
+        "avg_sleep_need_target_hours": avg_need,
+        "avg_deficit_hours": round(avg_need - avg_duration, 2) if (avg_need is not None and avg_duration is not None) else None,
+        "duration_qualifier_counts": dict(Counter(s.duration_qualifier for s in sessions if s.duration_qualifier)),
+        "avg_stage_percentage": {"deep": _avg(deep_pcts), "light": _avg(light_pcts), "rem": _avg(rem_pcts)},
+        "avg_sleep_stress": _avg(stresses),
+        "stress_qualifier_counts": dict(Counter(s.stress_qualifier for s in sessions if s.stress_qualifier)),
+        "avg_awake_count": _avg(awake_counts), "avg_restless_moments": _avg(restless_counts),
+        "bedtime_local": {
+            "earliest": min(bedtimes).strftime("%H:%M") if bedtimes else None,
+            "latest": max(bedtimes).strftime("%H:%M") if bedtimes else None,
+            # anchor_hour=18 (6pm): sits roughly opposite the typical bedtime
+            # cluster (evening into past-midnight), so the anchor-space cut
+            # falls in the middle of the day, well away from any real bedtime.
+            "median": _median_clock_time_local(bedtimes),
+        },
+        "wake_time_local": {
+            "earliest": min(waketimes).strftime("%H:%M") if waketimes else None,
+            "latest": max(waketimes).strftime("%H:%M") if waketimes else None,
+            # anchor_hour=12 (noon): sits roughly opposite the typical wake-time
+            # cluster (early-to-mid morning). anchor_hour=0 would put the cut
+            # at midnight itself, making the midnight-wrap branch this helper
+            # exists for unreachable -- silently reinstating the bug it fixes.
+            "median": _median_clock_time_local(waketimes, anchor_hour=12),
+        },
+        "avg_overall_score": _avg(scores),
+        "score_qualifier_counts": dict(Counter(s.overall_score_qualifier for s in sessions if s.overall_score_qualifier)),
+        "worst_nights": [
+            {"date": s.calendar_date.isoformat(), "overall_score": s.overall_score,
+             "duration_hours": round(s.total_sleep_seconds / 3600.0, 2) if s.total_sleep_seconds is not None else None}
+            for s in worst
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Action / Write Tools
 # ---------------------------------------------------------------------------
@@ -307,6 +487,15 @@ def sync_garmin_data(days: int = 30, force_full_history: bool = False) -> dict[s
     entire history from `days` ago through today -- a deliberate, slower,
     one-off resync (this can take minutes and issue many Garmin API calls),
     not something to pass on routine syncs.
+
+    Incremental (non-force_full_history) runs also hydrate rich per-night
+    sleep detail (session, stage-timeline segments, and restless-moment
+    events) for nights since the last hydration checkpoint, re-walking a
+    trailing grace window so a night whose data wasn't ready yet gets
+    picked up on a later sync -- see get_report/get_metric_series for the
+    local-data queries this enables. force_full_history runs skip sleep
+    hydration entirely and leave its checkpoint untouched, so the next
+    incremental sync resumes it correctly.
     """
     data_dir = _db_path().parent
     secret_key_path = data_dir / ".env"
@@ -330,10 +519,16 @@ def sync_garmin_data(days: int = 30, force_full_history: bool = False) -> dict[s
     start_date = end_date - timedelta(days=days)
 
     with _connection() as conn:
-        return sync_all_metrics(
+        results = sync_all_metrics(
             conn, provider, backfill_start=start_date, end=end_date, force_full_backfill=force_full_history,
             today=end_date, resync_grace_days=SYNC_RESYNC_GRACE_DAYS,
         )
+        # provider.sync_hydration is the single shared call site for this
+        # (also used by app.sync.perform_sync_pass's background/manual sync
+        # pass) -- see its docstring for why hydration must run after every
+        # Garmin sync, not just this one.
+        results["garmin_sleep_detail"] = provider.sync_hydration(conn, start_date, end_date, force_full_history)
+        return results
 
 
 @mcp.tool()
@@ -397,6 +592,38 @@ def refetch_garmin_metric_range(metric_type: str, start: str, end: str) -> dict[
         "readings_found": len(readings),
         "still_missing_dates": still_missing_dates,
     }
+
+
+@mcp.tool()
+def refetch_garmin_sleep_detail_range(start: str, end: str) -> dict:
+    """Force a direct re-hydration of Garmin sleep detail (session, stage timeline, restlessness) over an explicit date range, bypassing the sync checkpoint entirely -- same rationale as refetch_garmin_metric_range, for the sleep-detail hydration path instead of a flat metric_type.
+
+    Always safe to call on already-hydrated nights: sleep_session is upserted and the two child tables use delete-then-insert per session, so a retry or overlapping range is idempotent. Never reads or writes sync_checkpoint, so it can't move a routine sync's resume point.
+    """
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "garmin_credentials.enc"
+    token_cache_dir = data_dir / "garmin_tokens"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Garmin credentials not found. Please connect your Garmin account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.garmin import GarminProvider
+    from datetime import date as dt_date
+
+    start_date = dt_date.fromisoformat(start)
+    end_date = dt_date.fromisoformat(end)
+    if start_date > end_date:
+        raise ValueError(f"start ({start}) must be on or before end ({end})")
+
+    secret_key = get_or_create_secret_key(secret_key_path)
+    store = CredentialStore(secret_key, credentials_path)
+    provider = GarminProvider(store, token_cache_dir)
+
+    with _connection() as conn:
+        return provider.hydrate_recent_sleep(conn, since=start_date, until=end_date)
 
 
 @mcp.tool()
