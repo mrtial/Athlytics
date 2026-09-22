@@ -96,7 +96,7 @@ def test_garmin_metric_types_constant_is_importable_without_instantiation():
     # No CredentialStore, no login -- this must work as a bare import.
     assert GARMIN_METRIC_TYPES == [
         "resting_hr", "hrv", "vo2max", "body_battery", "weight", "sleep_score",
-        "steps", "stress", "respiration", "spo2", "training_load",
+        "sleep_duration", "steps", "stress", "respiration", "spo2", "training_load",
         "race_predictor_5k", "race_predictor_10k", "race_predictor_half_marathon",
         "race_predictor_marathon", "activity_duration", "activity_distance", "activity_calories",
     ]
@@ -288,9 +288,39 @@ def test_parse_sleep_produces_naive_utc_score_readings():
 
     readings = GarminProvider._parse_sleep(raw)
 
-    assert len(readings) > 0
-    for reading in readings:
+    score_readings = [r for r in readings if r.metric_type == "sleep_score"]
+    assert len(score_readings) > 0
+    for reading in score_readings:
         _assert_valid_reading(reading, "sleep_score", "score")
+
+
+def test_parse_sleep_produces_sleep_duration_readings_in_hours():
+    raw = _load_fixture("get_sleep_daily")
+
+    readings = GarminProvider._parse_sleep(raw)
+
+    duration_readings = [r for r in readings if r.metric_type == "sleep_duration"]
+    # Fixture has 4 days, all with a totalSleepSeconds value (including a
+    # 0-second day), so none should be skipped as missing/null.
+    assert len(duration_readings) == 4
+    for reading in duration_readings:
+        _assert_valid_reading(reading, "sleep_duration", "hr")
+
+    first = duration_readings[0]
+    assert first.timestamp == datetime(2026, 1, 1, 0, 0)
+    assert first.value == pytest.approx(28800 / 3600.0)  # 8.0 hours
+
+    last = duration_readings[-1]
+    assert last.timestamp == datetime(2026, 1, 4, 0, 0)
+    assert last.value == 0.0  # totalSleepSeconds: 0 is a real value, not skipped
+
+
+def test_parse_sleep_skips_duration_reading_when_total_sleep_seconds_missing():
+    raw = [{"calendarDate": "2026-01-05", "overallSleepScore": {"value": 90}}]
+
+    readings = GarminProvider._parse_sleep(raw)
+
+    assert [r.metric_type for r in readings] == ["sleep_score"]
 
 
 def test_parse_steps_sums_intraday_entries_into_one_daily_reading():
@@ -479,6 +509,7 @@ def test_supported_metric_types_covers_all_v1_metrics(tmp_path):
             "body_battery",
             "weight",
             "sleep_score",
+            "sleep_duration",
             "steps",
             "stress",
             "respiration",

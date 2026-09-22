@@ -34,6 +34,7 @@ GARMIN_METRIC_TYPES: list[str] = [
     "body_battery",
     "weight",
     "sleep_score",
+    "sleep_duration",
     "steps",
     "stress",
     "respiration",
@@ -141,6 +142,7 @@ class GarminProvider:
         self._race_predictor_cache: dict[tuple[date, date], list[MetricReading]] = {}
         self._activities_cache: dict[tuple[date, date], list[MetricReading]] = {}
         self._activity_records_cache: dict[tuple[date, date], list[Activity]] = {}
+        self._sleep_cache: dict[tuple[date, date], list[MetricReading]] = {}
 
         self._registry: dict[str, Callable[[date, date], list[MetricReading]]] = {
             "resting_hr": self._fetch_resting_hr,
@@ -148,7 +150,8 @@ class GarminProvider:
             "vo2max": self._fetch_vo2max,
             "body_battery": self._fetch_body_battery,
             "weight": self._fetch_weight,
-            "sleep_score": self._fetch_sleep,
+            "sleep_score": lambda s, e: self._fetch_sleep("sleep_score", s, e),
+            "sleep_duration": lambda s, e: self._fetch_sleep("sleep_duration", s, e),
             "steps": self._fetch_steps,
             "stress": self._fetch_stress,
             "respiration": self._fetch_respiration,
@@ -404,7 +407,9 @@ class GarminProvider:
 
     @staticmethod
     def _parse_sleep(raw: list[dict] | dict) -> list[MetricReading]:
-        """Map get_sleep_daily() or get_sleep_data() response to MetricReading list."""
+        """Map get_sleep_daily() or get_sleep_data() response to MetricReading
+        list: a sleep_score reading and/or a sleep_duration reading per day,
+        each independently skipped if its source field is missing/null."""
         if not raw:
             return []
         if isinstance(raw, dict):
@@ -413,6 +418,10 @@ class GarminProvider:
         readings = []
         for entry in raw:
             calendar_date = entry.get("calendarDate")
+            if calendar_date is None:
+                continue
+            timestamp = datetime.combine(date.fromisoformat(calendar_date), time.min)
+
             overall_score_obj = (
                 entry.get("overallSleepScore")
                 or entry.get("sleepScores", {}).get("overall")
@@ -422,17 +431,28 @@ class GarminProvider:
                 sleep_score = overall_score_obj.get("value")
             else:
                 sleep_score = overall_score_obj
-            if calendar_date is None or sleep_score is None:
-                continue
-            readings.append(
-                MetricReading(
-                    source="garmin",
-                    metric_type="sleep_score",
-                    timestamp=datetime.combine(date.fromisoformat(calendar_date), time.min),
-                    value=float(sleep_score),
-                    unit="score",
+            if sleep_score is not None:
+                readings.append(
+                    MetricReading(
+                        source="garmin",
+                        metric_type="sleep_score",
+                        timestamp=timestamp,
+                        value=float(sleep_score),
+                        unit="score",
+                    )
                 )
-            )
+
+            total_sleep_seconds = entry.get("totalSleepSeconds")
+            if total_sleep_seconds is not None:
+                readings.append(
+                    MetricReading(
+                        source="garmin",
+                        metric_type="sleep_duration",
+                        timestamp=timestamp,
+                        value=float(total_sleep_seconds) / 3600.0,  # seconds -> hours, matching apple_health's sleep_duration unit
+                        unit="hr",
+                    )
+                )
         return readings
 
     @staticmethod
@@ -543,13 +563,22 @@ class GarminProvider:
             )
         return moments
 
-    def _fetch_sleep(self, start: date, end: date) -> list[MetricReading]:
-        if hasattr(self._client, "get_sleep_daily"):
-            raw = self._call(self._client.get_sleep_daily, start.isoformat(), end.isoformat())
-            return self._parse_sleep(raw)
-        return self._fetch_single_day_metric(
-            self._client.get_sleep_data, lambda r, d: self._parse_sleep(r), start, end
-        )
+    def _fetch_sleep(self, metric_type: str, start: date, end: date) -> list[MetricReading]:
+        """Shared fetch for sleep_score and sleep_duration: both are derived
+        from the same underlying get_sleep_daily()/get_sleep_data() response,
+        so it's fetched and parsed once per (start, end) and cached, then
+        filtered down to the requested metric_type -- same pattern as
+        _fetch_race_predictor and _fetch_activity_metric below."""
+        cache_key = (start, end)
+        if cache_key not in self._sleep_cache:
+            if hasattr(self._client, "get_sleep_daily"):
+                raw = self._call(self._client.get_sleep_daily, start.isoformat(), end.isoformat())
+                self._sleep_cache[cache_key] = self._parse_sleep(raw)
+            else:
+                self._sleep_cache[cache_key] = self._fetch_single_day_metric(
+                    self._client.get_sleep_data, lambda r, d: self._parse_sleep(r), start, end
+                )
+        return [r for r in self._sleep_cache[cache_key] if r.metric_type == metric_type]
 
     def hydrate_recent_sleep(self, conn: sqlite3.Connection, since: date, until: date | None = None) -> dict:
         """Fetch and persist rich per-night sleep detail (session + stage
