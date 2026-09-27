@@ -159,15 +159,22 @@ def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
         return {"resting_hr": "complete"}
 
     def fake_record_metric_statuses(conn, source, results):
-        # Signal completion only once the metric-status rows this test reads
-        # back below are actually persisted, not as soon as sync_all_metrics
-        # is called -- _run_provider_sync still has record_sync_run and this
-        # call left to run on the background thread at that point, so
-        # setting the event any earlier is a race: on a slower CI runner the
-        # main thread can query /api/sync-status before either write lands,
-        # seeing an empty metrics list instead of {"resting_hr": "complete"}.
+        # Signal completion only once the LAST metric-status row this test
+        # reads back below is actually persisted, not on the first call --
+        # perform_sync_pass's Garmin branch now calls record_metric_statuses
+        # twice per pass: once from inside _run_provider_sync for
+        # sync_all_metrics's own results, and again afterwards for
+        # GarminProvider.sync_hydration's "garmin_sleep_detail" status. The
+        # original version of this fix (82b1326) only accounted for one
+        # call; setting the event on that first call reintroduces the exact
+        # same class of race one level deeper -- on a slower CI runner the
+        # main thread can query /api/sync-status after the first write but
+        # before the second, seeing "resting_hr" but missing
+        # "garmin_sleep_detail". Wait for the call that actually carries the
+        # data this test asserts on.
         record_metric_statuses(conn, source, results)
-        pass_finished.set()
+        if "garmin_sleep_detail" in results:
+            pass_finished.set()
 
     monkeypatch.setattr("app.sync.sync_all_metrics", fake_sync_all_metrics)
     monkeypatch.setattr("app.sync.record_metric_statuses", fake_record_metric_statuses)
