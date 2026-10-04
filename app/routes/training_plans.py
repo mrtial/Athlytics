@@ -268,9 +268,12 @@ def _actual_log_table(plan_data: dict) -> dict:
     rows = []
     for entry in sorted(entries, key=lambda e: e.get("week_start", ""), reverse=True):
         week_start = entry.get("week_start")
+        workouts = entry.get("workouts") or []
         rows.append(
             {
                 "week_label": _week_date_range_label(week_start) if week_start else "",
+                "session_count": len(workouts),
+                "total_volume_lbs": sum(w.get("volume_lbs") or 0 for w in workouts),
                 "workouts": [
                     {
                         "date": w.get("date"),

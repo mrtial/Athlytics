@@ -222,20 +222,39 @@
     {% if item.actual_log_table %}
     <h4 class="plan-subsection-title">Actual Workouts</h4>
     <div class="plan-week-table-wrap">
-      <table class="plan-week-table">
+      <table class="plan-week-table plan-log-table">
+        <colgroup>
+          <col class="plan-log-col-week">
+          <col class="plan-log-col-summary">
+          <col class="plan-log-col-score">
+        </colgroup>
         <thead>
           <tr>
             <th>Week Of</th>
-            <th>Workouts</th>
+            <th>Summary</th>
             <th>Score</th>
-            <th>Note</th>
           </tr>
         </thead>
         <tbody>
           {% for row in item.actual_log_table.rows %}
-          <tr>
+          {% set log_row_id = "log-" ~ item.plan.id ~ "-" ~ loop.index %}
+          {# Newest week (first row) starts expanded; older weeks start collapsed. #}
+          <tr class="plan-week-row-toggle"
+            onclick="toggleActualRow('{{ log_row_id }}')"
+            onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleActualRow('{{ log_row_id }}');}"
+            tabindex="0" role="button" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="{{ log_row_id }}">
             <td class="plan-week-dates">{{ row.week_label }}</td>
             <td>
+              <span class="plan-movement-name">{{ row.session_count }} session{{ '' if row.session_count == 1 else 's' }}</span>
+              {% if row.total_volume_lbs %}<span class="plan-day-note">{{ "{:,}".format(row.total_volume_lbs|round|int) }} lbs</span>{% endif %}
+            </td>
+            <td class="plan-day-cell plan-total-cell">
+              {% if row.strength_score is not none %}<span class="plan-day-mi">{{ row.strength_score }}</span>{% else %}&mdash;{% endif %}
+            </td>
+          </tr>
+          <tr id="{{ log_row_id }}" class="plan-actual-row"{% if not loop.first %} hidden{% endif %}>
+            <td class="plan-actual-label">Workouts</td>
+            <td colspan="2">
               <ul class="plan-movement-list">
                 {% for w in row.workouts %}
                 <li class="plan-workout-entry">
@@ -244,11 +263,8 @@
                 </li>
                 {% endfor %}
               </ul>
+              {% if row.note %}<p class="plan-day-note plan-log-note">{{ row.note }}</p>{% endif %}
             </td>
-            <td class="plan-day-cell plan-total-cell">
-              {% if row.strength_score is not none %}<span class="plan-day-mi">{{ row.strength_score }}</span>{% else %}&mdash;{% endif %}
-            </td>
-            <td class="plan-day-note">{{ row.note or "—" }}</td>
           </tr>
           {% endfor %}
         </tbody>

@@ -2,6 +2,7 @@ import json
 from datetime import date, datetime
 
 from app.routes.training_plans import (
+    _actual_log_table,
     _format_target_value,
     _goal_pace_label,
     _operator_symbol,
@@ -244,6 +245,43 @@ def test_week_table_marks_has_actual_when_week_has_a_checked_in_actual():
     assert first_week["verdict_label"] == "Ahead"
 
 
+def test_actual_log_table_summarizes_each_week_newest_first():
+    plan_data = {
+        "actual_log": [
+            {
+                "week_start": "2026-09-21",
+                "workouts": [{"date": "2026-09-21", "volume_lbs": 100, "sets": 5}],
+                "strength_score": 705,
+            },
+            {
+                "week_start": "2026-09-28",
+                "workouts": [
+                    {"date": "2026-09-28", "volume_lbs": 7359, "sets": 21},
+                    {"date": "2026-09-29", "volume_lbs": 8840, "sets": 22},
+                ],
+                "strength_score": 700,
+                "note": "two sessions",
+            },
+        ]
+    }
+
+    rows = _actual_log_table(plan_data)["rows"]
+
+    assert [r["week_label"] for r in rows] == ["Sep 28 – Oct 04", "Sep 21 – Sep 27"]
+    assert rows[0]["session_count"] == 2
+    assert rows[0]["total_volume_lbs"] == 16199
+    assert rows[1]["session_count"] == 1
+
+
+def test_actual_log_table_summary_tolerates_missing_volume_and_no_workouts():
+    plan_data = {"actual_log": [{"week_start": "2026-09-28", "workouts": [{"date": "2026-09-28"}]}, {"week_start": "2026-09-21"}]}
+
+    rows = _actual_log_table(plan_data)["rows"]
+
+    assert rows[0]["session_count"] == 1 and rows[0]["total_volume_lbs"] == 0
+    assert rows[1]["session_count"] == 0 and rows[1]["total_volume_lbs"] == 0
+
+
 def _plan_data_with_rest_day_change():
     """Weeks 1-2 use the plan-level Mon/Fri rest days; from 2026-09-14 Thursday
     is the rest day and Thursday's run moves to Friday."""
@@ -400,3 +438,37 @@ def test_training_plans_route_renders_plan_without_weekly_schedule_gracefully(ap
 
     assert response.status_code == 200
     assert "Rome Marathon 2027" in response.text
+
+
+def test_training_plans_route_renders_actual_log_weeks_collapsible_newest_open(app, client):
+    from core.storage import repository
+    from core.storage.db import connect
+    from app.db import ensure_app_schema
+
+    plan_json = json.dumps(
+        {
+            "plan_type": "strength",
+            "actual_log": [
+                {"week_start": "2026-09-21", "workouts": [{"date": "2026-09-21", "title": "Linear Workout", "duration_min": 30, "volume_lbs": 1000, "sets": 5, "movements": ["Old Lift"]}], "strength_score": 705},
+                {"week_start": "2026-09-28", "workouts": [{"date": "2026-09-28", "title": "Linear Workout", "duration_min": 39, "volume_lbs": 7359, "sets": 21, "movements": ["New Lift"]}], "strength_score": 700, "note": "newest note"},
+            ],
+        }
+    )
+    client.post("/onboarding/admin", data={"username": "athlete", "password": "hunter2hunter2"})
+    conn = connect(app.state.db_path)
+    ensure_app_schema(conn)
+    repository.save_training_plan(conn, _plan(plan_json=plan_json))
+    conn.close()
+
+    html = client.get("/training-plans").text
+
+    # One clickable summary row per week; the newest week (listed first) starts expanded.
+    assert html.count('aria-controls="log-') == 2
+    assert 'aria-expanded="true" aria-controls="log-' in html
+    assert 'aria-expanded="false" aria-controls="log-' in html
+    assert "1 session" in html and "7,359 lbs" in html
+    # Only the older week's detail row is hidden; the newest week's note is rendered.
+    assert html.count('class="plan-actual-row" hidden') == 1
+    assert "newest note" in html
+    # Fixed column widths keep the table from reflowing when a week expands.
+    assert "plan-log-table" in html and html.count("<col class=\"plan-log-col-") == 3
