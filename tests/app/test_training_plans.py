@@ -244,6 +244,69 @@ def test_week_table_marks_has_actual_when_week_has_a_checked_in_actual():
     assert first_week["verdict_label"] == "Ahead"
 
 
+def _plan_data_with_rest_day_change():
+    """Weeks 1-2 use the plan-level Mon/Fri rest days; from 2026-09-14 Thursday
+    is the rest day and Thursday's run moves to Friday."""
+    data = _plan_data_with_schedule()
+    data["schedule_changes"] = [
+        {"effective_from": "2026-09-14", "rest_days": ["Mon", "Thu"]},
+    ]
+    # Week 5 (2026-09-14) is after the change: Fri run, no Thu run.
+    week5 = data["weekly_schedule"][2]
+    del week5["thu"]
+    week5["fri"] = 2.5
+    return data
+
+
+def test_week_table_rest_days_follow_schedule_change_from_its_effective_week():
+    result = _week_table(_plan_data_with_rest_day_change())
+
+    weeks = [r for r in result["rows"] if r["kind"] == "week"]
+    before, after = weeks[0], weeks[2]
+    assert [c["is_rest"] for c in before["cells"]] == [True, False, False, False, True, False, False]
+    assert [c["is_rest"] for c in after["cells"]] == [True, False, False, True, False, False, False]
+    assert after["cells"][4]["value"] == 2.5
+
+
+def test_week_table_past_weeks_keep_original_rest_days_after_a_schedule_change():
+    result = _week_table(_plan_data_with_rest_day_change())
+
+    weeks = [r for r in result["rows"] if r["kind"] == "week"]
+    assert [c["is_rest"] for c in weeks[1]["cells"]] == [True, False, False, False, True, False, False]
+
+
+def test_week_table_unplanned_flag_uses_that_weeks_rest_days():
+    data = _plan_data_with_rest_day_change()
+    data["weekly_schedule"][2]["actual"] = {"total": 5, "verdict": "on_track", "days": {"thu": 2.5, "fri": 2.5}}
+
+    result = _week_table(data)
+
+    after = [r for r in result["rows"] if r["kind"] == "week"][2]
+    unplanned = [c["day"] for c in after["actual_cells"] if c["is_unplanned"]]
+    assert unplanned == ["Thu"]
+
+
+def test_weekly_rhythm_uses_latest_schedule_change_effective_today():
+    data = {
+        "rest_days": ["Mon", "Fri"],
+        "weekly_rhythm": {"Mon": "Rest", "Thu": "Easy run", "Fri": "Rest", "Sun": "Long run"},
+        "schedule_changes": [
+            {
+                "effective_from": "2026-10-05",
+                "rest_days": ["Mon", "Thu"],
+                "weekly_rhythm": {"Mon": "Rest", "Thu": "Rest", "Fri": "Easy run", "Sun": "Long run"},
+            }
+        ],
+    }
+
+    before = {r["day"]: r for r in _weekly_rhythm(data, today=date(2026, 10, 4))}
+    after = {r["day"]: r for r in _weekly_rhythm(data, today=date(2026, 10, 5))}
+
+    assert before["Fri"]["is_rest"] is True and before["Thu"]["is_rest"] is False
+    assert after["Thu"]["is_rest"] is True and after["Fri"]["is_rest"] is False
+    assert after["Fri"]["role"] == "Easy run"
+
+
 def test_week_table_falls_back_to_total_training_for_race_week():
     result = _week_table(_plan_data_with_schedule())
 
