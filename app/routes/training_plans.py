@@ -104,9 +104,32 @@ def _stat_row(plan_data: dict, plan_target_date: date, plan_start_date: date, un
     return stats
 
 
-def _weekly_rhythm(plan_data: dict) -> list[dict]:
-    rhythm = plan_data.get("weekly_rhythm") or {}
+def _effective_schedule(plan_data: dict, on: date | None) -> tuple[set[str], dict]:
+    """Rest days and weekly rhythm in force on `on`.
+
+    The plan-level `rest_days`/`weekly_rhythm` describe the original schedule.
+    Each `schedule_changes` entry (`effective_from` ISO date, plus optional
+    `rest_days` / `weekly_rhythm`) overrides them from that date forward, so a
+    mid-plan change never rewrites how earlier weeks render.
+    """
     rest_days = set(plan_data.get("rest_days") or [])
+    rhythm = plan_data.get("weekly_rhythm") or {}
+    if on is None:
+        return rest_days, rhythm
+    changes = sorted(plan_data.get("schedule_changes") or [], key=lambda c: c.get("effective_from") or "")
+    for change in changes:
+        effective_from = change.get("effective_from")
+        if not effective_from or date.fromisoformat(effective_from) > on:
+            continue
+        if "rest_days" in change:
+            rest_days = set(change["rest_days"] or [])
+        if "weekly_rhythm" in change:
+            rhythm = change["weekly_rhythm"] or {}
+    return rest_days, rhythm
+
+
+def _weekly_rhythm(plan_data: dict, today: date | None = None) -> list[dict]:
+    rest_days, rhythm = _effective_schedule(plan_data, today or date.today())
     rows = []
     for day in _DAY_ORDER:
         role = rhythm.get(day)
@@ -245,9 +268,12 @@ def _actual_log_table(plan_data: dict) -> dict:
     rows = []
     for entry in sorted(entries, key=lambda e: e.get("week_start", ""), reverse=True):
         week_start = entry.get("week_start")
+        workouts = entry.get("workouts") or []
         rows.append(
             {
                 "week_label": _week_date_range_label(week_start) if week_start else "",
+                "session_count": len(workouts),
+                "total_volume_lbs": sum(w.get("volume_lbs") or 0 for w in workouts),
                 "workouts": [
                     {
                         "date": w.get("date"),
@@ -269,7 +295,6 @@ def _actual_log_table(plan_data: dict) -> dict:
 def _week_table(plan_data: dict, today: date | None = None) -> dict:
     today = today or date.today()
     schedule = plan_data.get("weekly_schedule") or []
-    rest_days = set(plan_data.get("rest_days") or [])
     day_keys = [day[:3].lower() for day in _DAY_ORDER]
     subphase_dates = _subphase_date_ranges(plan_data)
 
@@ -285,6 +310,9 @@ def _week_table(plan_data: dict, today: date | None = None) -> dict:
             rows.append({"kind": "divider", "phase_name": phase_name, "date_range_label": date_range_label})
             previous_phase = phase_name
 
+        week_start = date.fromisoformat(week["start_date"]) if week.get("start_date") else None
+        rest_days, _ = _effective_schedule(plan_data, week_start)
+
         flag = week.get("flag")
         cells = []
         for day, key in zip(_DAY_ORDER, day_keys):
@@ -298,7 +326,6 @@ def _week_table(plan_data: dict, today: date | None = None) -> dict:
                 }
             )
 
-        week_start = date.fromisoformat(week["start_date"]) if week.get("start_date") else None
         is_current = bool(week_start and week_start <= today <= week_start + timedelta(days=6))
 
         # Weekly check-ins write an "actual" object onto the week entry after
@@ -366,12 +393,12 @@ def training_plans_page(request: Request, conn=Depends(require_admin_page)):
 
         if is_running:
             view["stats"] = _stat_row(plan_data, plan.target_date, plan.start_date, unit)
-            view["rhythm"] = _weekly_rhythm(plan_data)
+            view["rhythm"] = _weekly_rhythm(plan_data, today)
             view["timeline"] = _timeline(plan_data)
             view["week_table"] = _week_table(plan_data, today)
         elif is_strength:
             view["stats"] = _strength_stat_row(plan_data, plan.target_date, plan.start_date)
-            view["rhythm"] = _weekly_rhythm(plan_data)
+            view["rhythm"] = _weekly_rhythm(plan_data, today)
             if plan_data.get("sessions"):
                 view["session_table"] = _session_table(plan_data)
             if plan_data.get("actual_log"):

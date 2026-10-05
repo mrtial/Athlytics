@@ -2216,6 +2216,23 @@ html[data-theme="dark"] select:focus {
   color: var(--fg-muted);
 }
 
+.plan-log-note {
+  margin: 0.5rem 0 0;
+}
+
+/* Fixed layout so expanding a week's long detail row can't resize the columns. */
+.plan-log-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.plan-log-col-week { width: 9.5rem; }
+.plan-log-col-score { width: 6rem; }
+
+.plan-log-table td {
+  overflow-wrap: anywhere;
+}
+
 .plan-unplanned-cell {
   background: var(--warning-soft);
 }
