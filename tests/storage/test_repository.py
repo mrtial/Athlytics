@@ -5,7 +5,7 @@ import pytest
 
 from core.storage import repository
 from core.storage.db import connect
-from core.storage.models import Activity, MetricReading, StrengthSet, SleepSession, SleepStageSegment, SleepRestlessMoment
+from core.storage.models import Activity, ActivityLap, MetricReading, StrengthSet, SleepSession, SleepStageSegment, SleepRestlessMoment
 
 
 def test_sleep_tables_exist(tmp_path):
@@ -1101,3 +1101,56 @@ def test_upsert_activities_updates_detail_fields_when_row_already_exists(tmp_pat
     got = repository.get_activity_by_id(conn, "garmin:555")
     assert got.hr_zone_3_s == 3328.8
     assert got.aerobic_training_effect == 3.8
+
+
+def _lap(activity_id="garmin:555", lap_index=1, **overrides):
+    kwargs = dict(
+        activity_id=activity_id, lap_index=lap_index, distance_meters=1609.34, duration_seconds=601.7,
+        avg_speed_mps=2.675, avg_hr=138.0, max_hr=156.0, avg_cadence=171.1, avg_power_watts=287.0,
+        elevation_gain_meters=14.95, intensity_type="INTERVAL",
+    )
+    kwargs.update(overrides)
+    return ActivityLap(**kwargs)
+
+
+def test_activity_lap_table_exists_with_expected_columns(tmp_path):
+    conn = connect(tmp_path / "test.db")
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(activity_lap)").fetchall()}
+
+    assert columns == {
+        "activity_id", "lap_index", "distance_meters", "duration_seconds", "avg_speed_mps", "avg_hr",
+        "max_hr", "avg_cadence", "avg_power_watts", "elevation_gain_meters", "intensity_type",
+    }
+
+
+def test_replace_and_get_activity_laps_round_trip_in_lap_order(tmp_path):
+    conn = connect(tmp_path / "test.db")
+
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(lap_index=2, avg_hr=149.0), _lap(lap_index=1)])
+    laps = repository.get_activity_laps(conn, "garmin:555")
+
+    assert [lap.lap_index for lap in laps] == [1, 2]
+    assert laps[0] == _lap(lap_index=1) and laps[1].avg_hr == 149.0
+
+
+def test_replace_activity_laps_replaces_the_previous_set_and_keeps_other_activities(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(lap_index=1), _lap(lap_index=2), _lap(lap_index=3)])
+    repository.replace_activity_laps(conn, "garmin:999", [_lap(activity_id="garmin:999", lap_index=1)])
+
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(lap_index=1, avg_hr=140.0)])
+
+    first = repository.get_activity_laps(conn, "garmin:555")
+    assert len(first) == 1 and first[0].avg_hr == 140.0
+    assert len(repository.get_activity_laps(conn, "garmin:999")) == 1
+
+
+def test_get_activity_laps_returns_empty_list_for_unknown_activity_and_null_fields_stay_none(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    assert repository.get_activity_laps(conn, "garmin:nope") == []
+
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(avg_power_watts=None, elevation_gain_meters=None)])
+
+    lap = repository.get_activity_laps(conn, "garmin:555")[0]
+    assert lap.avg_power_watts is None and lap.elevation_gain_meters is None

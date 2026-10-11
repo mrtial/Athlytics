@@ -164,6 +164,27 @@ class Activity:
 
 
 @dataclass(frozen=True)
+class ActivityLap:
+    """One lap/split of an activity (e.g. a mile auto-lap), in neutral units.
+
+    `activity_id` is the full `activity.id` (e.g. "garmin:24675159797"). Fields a
+    device or sport doesn't record (power, elevation on a treadmill) are None.
+    """
+
+    activity_id: str
+    lap_index: int
+    distance_meters: float | None = None
+    duration_seconds: float | None = None
+    avg_speed_mps: float | None = None
+    avg_hr: float | None = None
+    max_hr: float | None = None
+    avg_cadence: float | None = None
+    avg_power_watts: float | None = None
+    elevation_gain_meters: float | None = None
+    intensity_type: str | None = None
+
+
+@dataclass(frozen=True)
 class StrengthSet:
     """A single set within a strength-training workout (currently Tonal-only),
     holding per-set detail (weight, reps, 1RM, power, ROM, struggling score)

@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from core.storage.models import (
     Activity,
+    ActivityLap,
     CoachNote,
     MetricReading,
     MetricSummary,
@@ -651,6 +652,43 @@ def get_activities(
 
     rows = conn.execute(query, params).fetchall()
     return [_activity_from_row(row) for row in rows]
+
+
+def replace_activity_laps(conn: sqlite3.Connection, activity_id: str, laps: list[ActivityLap]) -> None:
+    """Delete-then-insert every lap of one activity, so re-hydrating an activity
+    (or an overlapping range) is idempotent and never leaves stale extra laps."""
+    conn.execute("DELETE FROM activity_lap WHERE activity_id = ?", (activity_id,))
+    conn.executemany(
+        """
+        INSERT INTO activity_lap (
+            activity_id, lap_index, distance_meters, duration_seconds, avg_speed_mps, avg_hr,
+            max_hr, avg_cadence, avg_power_watts, elevation_gain_meters, intensity_type
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                activity_id, lap.lap_index, lap.distance_meters, lap.duration_seconds, lap.avg_speed_mps,
+                lap.avg_hr, lap.max_hr, lap.avg_cadence, lap.avg_power_watts, lap.elevation_gain_meters,
+                lap.intensity_type,
+            )
+            for lap in laps
+        ],
+    )
+    conn.commit()
+
+
+def get_activity_laps(conn: sqlite3.Connection, activity_id: str) -> list[ActivityLap]:
+    rows = conn.execute(
+        """
+        SELECT activity_id, lap_index, distance_meters, duration_seconds, avg_speed_mps, avg_hr,
+               max_hr, avg_cadence, avg_power_watts, elevation_gain_meters, intensity_type
+        FROM activity_lap
+        WHERE activity_id = ?
+        ORDER BY lap_index
+        """,
+        (activity_id,),
+    ).fetchall()
+    return [ActivityLap(*row) for row in rows]
 
 
 def upsert_strength_sets(conn: sqlite3.Connection, sets: list[StrengthSet]) -> int:

@@ -17,6 +17,7 @@ from core.providers.normalize import normalize_activity_type
 from core.security.credentials import CredentialStore
 from core.storage.models import (
     Activity,
+    ActivityLap,
     MetricReading,
     SleepRestlessMoment,
     SleepSession,
@@ -977,6 +978,37 @@ class GarminProvider:
                 )
             )
         return activities
+
+    @staticmethod
+    def _parse_activity_laps(raw: dict | None, activity_id: str) -> list[ActivityLap]:
+        """Map get_activity_splits()'s response to ActivityLap rows for one activity.
+
+        `activity_id` is the full activity.id (e.g. "garmin:123"). Missing or
+        empty payloads yield no laps; absent per-lap keys stay None (never 0).
+        """
+        if not isinstance(raw, dict):
+            return []
+        laps = []
+        for position, lap in enumerate(raw.get("lapDTOs") or [], start=1):
+            def opt_float(key: str) -> float | None:
+                return float(lap[key]) if lap.get(key) is not None else None
+
+            laps.append(
+                ActivityLap(
+                    activity_id=activity_id,
+                    lap_index=int(lap.get("lapIndex") or position),
+                    distance_meters=opt_float("distance"),
+                    duration_seconds=opt_float("duration"),
+                    avg_speed_mps=opt_float("averageSpeed"),
+                    avg_hr=opt_float("averageHR"),
+                    max_hr=opt_float("maxHR"),
+                    avg_cadence=opt_float("averageRunCadence"),
+                    avg_power_watts=opt_float("averagePower"),
+                    elevation_gain_meters=opt_float("elevationGain"),
+                    intensity_type=lap.get("intensityType"),
+                )
+            )
+        return laps
 
     def fetch_activities(self, start: date, end: date) -> list[Activity]:
         """Fetch full Activity objects across [start, end]."""

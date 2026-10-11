@@ -16,7 +16,7 @@ from core.providers.garmin import (
 from core.security.credentials import CredentialStore
 from core.storage.db import connect
 from core.storage import repository
-from core.storage.models import MetricReading
+from core.storage.models import ActivityLap, MetricReading
 
 
 class _FakeInnerClient:
@@ -899,3 +899,37 @@ def test_parsed_activity_detail_survives_a_database_round_trip(tmp_path):
     assert run.hr_zone_3_s == pytest.approx(3328.787)
     assert run.start_time_local == datetime(2026, 1, 10, 9, 17, 8) and run.utc_offset_minutes == -240
     assert stored["9000000002"].elevation_gain is None
+
+
+def test_parse_activity_laps_maps_lap_fields_and_lap_distances_sum_to_the_run():
+    run = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail"))[0]
+
+    laps = GarminProvider._parse_activity_laps(_load_fixture("get_activity_splits_run"), activity_id="garmin:9000000001")
+
+    assert len(laps) == 8
+    first, last = laps[0], laps[-1]
+    assert first.activity_id == "garmin:9000000001" and first.lap_index == 1
+    assert first.distance_meters == pytest.approx(1609.34) and first.duration_seconds == pytest.approx(601.72, abs=0.01)
+    assert first.avg_speed_mps == pytest.approx(2.675, abs=0.001)
+    assert (first.avg_hr, first.max_hr) == (138.0, 156.0)
+    assert first.avg_cadence == pytest.approx(171.09, abs=0.01) and first.avg_power_watts == 287.0
+    assert first.elevation_gain_meters == pytest.approx(14.95) and first.intensity_type == "INTERVAL"
+    assert last.lap_index == 8 and last.distance_meters == pytest.approx(548.48)  # partial final lap
+    assert sum(lap.distance_meters for lap in laps) == pytest.approx(run.distance_meters, rel=0.005)
+    assert sum(lap.duration_seconds for lap in laps) == pytest.approx(run.duration_seconds, rel=0.005)
+
+
+def test_parse_activity_laps_treadmill_has_no_elevation_and_keeps_none():
+    laps = GarminProvider._parse_activity_laps(
+        _load_fixture("get_activity_splits_treadmill"), activity_id="garmin:9000000002"
+    )
+
+    assert len(laps) == 2
+    assert all(lap.elevation_gain_meters is None for lap in laps)
+    assert laps[1].avg_hr == 153.0 and laps[1].max_hr == 174.0
+
+
+def test_parse_activity_laps_tolerates_empty_or_missing_payloads():
+    assert GarminProvider._parse_activity_laps({}, activity_id="garmin:1") == []
+    assert GarminProvider._parse_activity_laps({"lapDTOs": None}, activity_id="garmin:1") == []
+    assert GarminProvider._parse_activity_laps(None, activity_id="garmin:1") == []

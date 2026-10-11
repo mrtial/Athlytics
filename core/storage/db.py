@@ -100,6 +100,21 @@ CREATE TABLE IF NOT EXISTS activity (
     norm_power REAL
 );
 
+CREATE TABLE IF NOT EXISTS activity_lap (
+    activity_id TEXT NOT NULL,            -- FK-by-convention to activity.id (e.g. "garmin:123")
+    lap_index INTEGER NOT NULL,
+    distance_meters REAL,
+    duration_seconds REAL,
+    avg_speed_mps REAL,
+    avg_hr REAL,
+    max_hr REAL,
+    avg_cadence REAL,
+    avg_power_watts REAL,
+    elevation_gain_meters REAL,
+    intensity_type TEXT,
+    PRIMARY KEY (activity_id, lap_index)
+);
+
 CREATE INDEX IF NOT EXISTS idx_activity_start_time ON activity(start_time);
 CREATE INDEX IF NOT EXISTS idx_activity_type ON activity(activity_type);
 
