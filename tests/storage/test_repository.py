@@ -1045,3 +1045,59 @@ def test_connect_migrates_legacy_activity_table_adding_detail_columns_idempotent
         "SELECT avg_hr, hr_zone_3_s, aerobic_training_effect, start_time_local FROM activity WHERE id = 'garmin:1'"
     ).fetchone()
     assert row == (150.0, None, None, None)
+
+
+def _detailed_activity(**overrides):
+    kwargs = dict(
+        id="garmin:555", source="garmin", activity_id="555", activity_name="Running",
+        activity_type="running", sport_type="running", start_time=datetime(2026, 1, 10, 13, 17, 8),
+        duration_seconds=4223.7, distance_meters=11813.9, calories=862.0, avg_hr=150.0,
+        max_hr=176.0, avg_speed=2.8, max_speed=4.1, elevation_gain=69.0, elevation_loss=88.0,
+        created_at=datetime(2026, 1, 11, 0, 0),
+        start_time_local=datetime(2026, 1, 10, 9, 17, 8), utc_offset_minutes=-240,
+        moving_duration_seconds=4205.0,
+        hr_zone_1_s=64.0, hr_zone_2_s=205.6, hr_zone_3_s=3328.8, hr_zone_4_s=610.0, hr_zone_5_s=11.0,
+        aerobic_training_effect=3.8, anaerobic_training_effect=0.7,
+        training_effect_label="AEROBIC_BASE", activity_training_load=154.8,
+        avg_cadence=174.2, avg_power=293.0, norm_power=300.0,
+    )
+    kwargs.update(overrides)
+    return Activity(**kwargs)
+
+
+def test_activity_detail_fields_round_trip_through_both_read_paths(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    original = _detailed_activity()
+    repository.upsert_activities(conn, [original])
+
+    listed = repository.get_activities(conn)[0]
+    by_id = repository.get_activity_by_id(conn, "garmin:555")
+
+    assert listed == original
+    assert by_id == original
+
+
+def test_activity_without_detail_fields_reads_back_none_not_zero(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    plain = _detailed_activity(
+        start_time_local=None, utc_offset_minutes=None, moving_duration_seconds=None,
+        hr_zone_1_s=None, hr_zone_2_s=None, hr_zone_3_s=None, hr_zone_4_s=None, hr_zone_5_s=None,
+        aerobic_training_effect=None, anaerobic_training_effect=None, training_effect_label=None,
+        activity_training_load=None, avg_cadence=None, avg_power=None, norm_power=None,
+    )
+    repository.upsert_activities(conn, [plain])
+
+    got = repository.get_activity_by_id(conn, "garmin:555")
+
+    assert got.hr_zone_3_s is None and got.start_time_local is None and got.avg_power is None
+
+
+def test_upsert_activities_updates_detail_fields_when_row_already_exists(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [_detailed_activity(hr_zone_3_s=None, aerobic_training_effect=None)])
+
+    repository.upsert_activities(conn, [_detailed_activity(hr_zone_3_s=3328.8, aerobic_training_effect=3.8)])
+
+    got = repository.get_activity_by_id(conn, "garmin:555")
+    assert got.hr_zone_3_s == 3328.8
+    assert got.aerobic_training_effect == 3.8

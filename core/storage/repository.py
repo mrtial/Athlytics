@@ -471,6 +471,55 @@ def _activity_source_rank(source: str) -> int:
         return len(ACTIVITY_SOURCE_PRIORITY)
 
 
+_ACTIVITY_COLUMNS = (
+    "id, source, activity_id, activity_name, activity_type, sport_type, "
+    "start_time, duration_seconds, distance_meters, calories, "
+    "avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at, "
+    "start_time_local, utc_offset_minutes, moving_duration_seconds, "
+    "hr_zone_1_s, hr_zone_2_s, hr_zone_3_s, hr_zone_4_s, hr_zone_5_s, "
+    "aerobic_training_effect, anaerobic_training_effect, training_effect_label, "
+    "activity_training_load, avg_cadence, avg_power, norm_power"
+)
+
+
+def _activity_from_row(row) -> Activity:
+    """Map one row selected with _ACTIVITY_COLUMNS (in that order) to an Activity."""
+    return Activity(
+        id=row[0],
+        source=row[1],
+        activity_id=row[2],
+        activity_name=row[3],
+        activity_type=row[4],
+        sport_type=row[5],
+        start_time=datetime.fromisoformat(row[6]),
+        duration_seconds=row[7],
+        distance_meters=row[8],
+        calories=row[9],
+        avg_hr=row[10],
+        max_hr=row[11],
+        avg_speed=row[12],
+        max_speed=row[13],
+        elevation_gain=row[14],
+        elevation_loss=row[15],
+        created_at=datetime.fromisoformat(row[16]),
+        start_time_local=datetime.fromisoformat(row[17]) if row[17] else None,
+        utc_offset_minutes=row[18],
+        moving_duration_seconds=row[19],
+        hr_zone_1_s=row[20],
+        hr_zone_2_s=row[21],
+        hr_zone_3_s=row[22],
+        hr_zone_4_s=row[23],
+        hr_zone_5_s=row[24],
+        aerobic_training_effect=row[25],
+        anaerobic_training_effect=row[26],
+        training_effect_label=row[27],
+        activity_training_load=row[28],
+        avg_cadence=row[29],
+        avg_power=row[30],
+        norm_power=row[31],
+    )
+
+
 def upsert_activities(conn: sqlite3.Connection, activities: list[Activity]) -> int:
     """Insert/update activities, applying symmetric cross-source dedup:
     a same-activity_type, close-in-time Activity from a *different* source
@@ -501,12 +550,10 @@ def upsert_activities(conn: sqlite3.Connection, activities: list[Activity]) -> i
             continue
 
         conn.execute(
-            """
+            f"""
             INSERT INTO activity (
-                id, source, activity_id, activity_name, activity_type, sport_type,
-                start_time, duration_seconds, distance_meters, calories,
-                avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                {_ACTIVITY_COLUMNS}
+            ) VALUES ({', '.join('?' * 32)})
             ON CONFLICT(id) DO UPDATE SET
                 activity_name = excluded.activity_name,
                 activity_type = excluded.activity_type,
@@ -520,7 +567,22 @@ def upsert_activities(conn: sqlite3.Connection, activities: list[Activity]) -> i
                 avg_speed = excluded.avg_speed,
                 max_speed = excluded.max_speed,
                 elevation_gain = excluded.elevation_gain,
-                elevation_loss = excluded.elevation_loss
+                elevation_loss = excluded.elevation_loss,
+                start_time_local = excluded.start_time_local,
+                utc_offset_minutes = excluded.utc_offset_minutes,
+                moving_duration_seconds = excluded.moving_duration_seconds,
+                hr_zone_1_s = excluded.hr_zone_1_s,
+                hr_zone_2_s = excluded.hr_zone_2_s,
+                hr_zone_3_s = excluded.hr_zone_3_s,
+                hr_zone_4_s = excluded.hr_zone_4_s,
+                hr_zone_5_s = excluded.hr_zone_5_s,
+                aerobic_training_effect = excluded.aerobic_training_effect,
+                anaerobic_training_effect = excluded.anaerobic_training_effect,
+                training_effect_label = excluded.training_effect_label,
+                activity_training_load = excluded.activity_training_load,
+                avg_cadence = excluded.avg_cadence,
+                avg_power = excluded.avg_power,
+                norm_power = excluded.norm_power
             """,
             (
                 activity.id,
@@ -540,6 +602,21 @@ def upsert_activities(conn: sqlite3.Connection, activities: list[Activity]) -> i
                 activity.elevation_gain,
                 activity.elevation_loss,
                 activity.created_at.isoformat(),
+                activity.start_time_local.isoformat() if activity.start_time_local else None,
+                activity.utc_offset_minutes,
+                activity.moving_duration_seconds,
+                activity.hr_zone_1_s,
+                activity.hr_zone_2_s,
+                activity.hr_zone_3_s,
+                activity.hr_zone_4_s,
+                activity.hr_zone_5_s,
+                activity.aerobic_training_effect,
+                activity.anaerobic_training_effect,
+                activity.training_effect_label,
+                activity.activity_training_load,
+                activity.avg_cadence,
+                activity.avg_power,
+                activity.norm_power,
             ),
         )
         inserted += 1
@@ -554,10 +631,8 @@ def get_activities(
     activity_type: str | None = None,
     limit: int = 50,
 ) -> list[Activity]:
-    query = """
-        SELECT id, source, activity_id, activity_name, activity_type, sport_type,
-               start_time, duration_seconds, distance_meters, calories,
-               avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
+    query = f"""
+        SELECT {_ACTIVITY_COLUMNS}
         FROM activity
         WHERE 1=1
     """
@@ -575,28 +650,7 @@ def get_activities(
     params.append(limit)
 
     rows = conn.execute(query, params).fetchall()
-    return [
-        Activity(
-            id=row[0],
-            source=row[1],
-            activity_id=row[2],
-            activity_name=row[3],
-            activity_type=row[4],
-            sport_type=row[5],
-            start_time=datetime.fromisoformat(row[6]),
-            duration_seconds=row[7],
-            distance_meters=row[8],
-            calories=row[9],
-            avg_hr=row[10],
-            max_hr=row[11],
-            avg_speed=row[12],
-            max_speed=row[13],
-            elevation_gain=row[14],
-            elevation_loss=row[15],
-            created_at=datetime.fromisoformat(row[16]),
-        )
-        for row in rows
-    ]
+    return [_activity_from_row(row) for row in rows]
 
 
 def upsert_strength_sets(conn: sqlite3.Connection, sets: list[StrengthSet]) -> int:
@@ -761,10 +815,8 @@ def find_known_movements(conn: sqlite3.Connection, query: str) -> list[dict]:
 
 def get_activity_by_id(conn: sqlite3.Connection, activity_id: str) -> Activity | None:
     row = conn.execute(
-        """
-        SELECT id, source, activity_id, activity_name, activity_type, sport_type,
-               start_time, duration_seconds, distance_meters, calories,
-               avg_hr, max_hr, avg_speed, max_speed, elevation_gain, elevation_loss, created_at
+        f"""
+        SELECT {_ACTIVITY_COLUMNS}
         FROM activity
         WHERE id = ? OR activity_id = ?
         """,
@@ -772,25 +824,7 @@ def get_activity_by_id(conn: sqlite3.Connection, activity_id: str) -> Activity |
     ).fetchone()
     if row is None:
         return None
-    return Activity(
-        id=row[0],
-        source=row[1],
-        activity_id=row[2],
-        activity_name=row[3],
-        activity_type=row[4],
-        sport_type=row[5],
-        start_time=datetime.fromisoformat(row[6]),
-        duration_seconds=row[7],
-        distance_meters=row[8],
-        calories=row[9],
-        avg_hr=row[10],
-        max_hr=row[11],
-        avg_speed=row[12],
-        max_speed=row[13],
-        elevation_gain=row[14],
-        elevation_loss=row[15],
-        created_at=datetime.fromisoformat(row[16]),
-    )
+    return _activity_from_row(row)
 
 
 def update_activity_display_fields(
