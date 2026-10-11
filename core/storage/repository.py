@@ -677,6 +677,27 @@ def replace_activity_laps(conn: sqlite3.Connection, activity_id: str, laps: list
     conn.commit()
 
 
+def get_activity_ids_missing_laps(
+    conn: sqlite3.Connection, source: str, since: date, until: date
+) -> list[tuple[str, str]]:
+    """(activity.id, provider activity_id) for every `source` activity starting
+    within [since, until] (UTC dates, inclusive) that has no activity_lap rows
+    yet, oldest first. Drives lap hydration: only never-hydrated activities
+    cost an API call."""
+    rows = conn.execute(
+        """
+        SELECT a.id, a.activity_id
+        FROM activity a
+        WHERE a.source = ?
+          AND date(a.start_time) BETWEEN date(?) AND date(?)
+          AND NOT EXISTS (SELECT 1 FROM activity_lap l WHERE l.activity_id = a.id)
+        ORDER BY a.start_time
+        """,
+        (source, since.isoformat(), until.isoformat()),
+    ).fetchall()
+    return [(row[0], row[1]) for row in rows]
+
+
 def get_activity_laps(conn: sqlite3.Connection, activity_id: str) -> list[ActivityLap]:
     rows = conn.execute(
         """

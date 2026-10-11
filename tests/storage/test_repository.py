@@ -1154,3 +1154,39 @@ def test_get_activity_laps_returns_empty_list_for_unknown_activity_and_null_fiel
 
     lap = repository.get_activity_laps(conn, "garmin:555")[0]
     assert lap.avg_power_watts is None and lap.elevation_gain_meters is None
+
+
+def _plain_activity(activity_id, source="garmin", start=datetime(2026, 1, 10, 13, 0), activity_type="running"):
+    return Activity(
+        id=f"{source}:{activity_id}", source=source, activity_id=activity_id, activity_name="Run",
+        activity_type=activity_type, sport_type=activity_type, start_time=start, duration_seconds=1800.0,
+        distance_meters=5000.0, calories=300.0, avg_hr=150.0, max_hr=170.0, avg_speed=2.7, max_speed=3.5,
+        elevation_gain=None, elevation_loss=None, created_at=datetime(2026, 1, 12),
+    )
+
+
+def test_get_activity_ids_missing_laps_returns_only_that_sources_unhydrated_activities_in_range(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [
+        _plain_activity("1", start=datetime(2026, 1, 10, 13, 0)),                       # in range, no laps -> selected
+        _plain_activity("2", start=datetime(2026, 1, 11, 13, 0)),                       # in range, has laps -> skipped
+        _plain_activity("3", start=datetime(2026, 1, 20, 13, 0)),                       # out of range -> skipped
+        _plain_activity("4", source="strava", start=datetime(2026, 1, 10, 18, 0), activity_type="cycling"),  # other source
+    ])
+    repository.replace_activity_laps(conn, "garmin:2", [_lap(activity_id="garmin:2")])
+
+    missing = repository.get_activity_ids_missing_laps(conn, "garmin", date(2026, 1, 10), date(2026, 1, 12))
+
+    assert missing == [("garmin:1", "1")]
+
+
+def test_get_activity_ids_missing_laps_orders_oldest_first_for_stable_resumption(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [
+        _plain_activity("b", start=datetime(2026, 1, 11, 13, 0)),
+        _plain_activity("a", start=datetime(2026, 1, 10, 13, 0)),
+    ])
+
+    missing = repository.get_activity_ids_missing_laps(conn, "garmin", date(2026, 1, 1), date(2026, 1, 31))
+
+    assert [raw for _, raw in missing] == ["a", "b"]

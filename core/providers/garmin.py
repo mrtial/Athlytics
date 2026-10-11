@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time as time_module
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -64,6 +65,14 @@ SYNC_RESYNC_GRACE_DAYS = 3  # re-walk the trailing 3 days on every sync so a
                             # from them would be a cycle, and this module
                             # has no lower-level shared home for the
                             # constant to live instead.
+
+ACTIVITY_HYDRATION_MAX_BACKFILL_DAYS = 90  # first-run cap for lap hydration: one
+                                           # get_activity_splits call per activity,
+                                           # so an unbounded since= would issue
+                                           # hundreds of sequential calls (same
+                                           # livelock risk as sleep hydration).
+
+ACTIVITY_DETAIL_PACE_SECONDS = 0.5  # pause between per-activity detail calls
 
 SLEEP_HYDRATION_MAX_BACKFILL_DAYS = 30  # first-run cap: sleep hydration is
                                          # one Garmin API call per day (unlike
@@ -684,6 +693,61 @@ class GarminProvider:
             # that. Leave the checkpoint untouched so the next sync retries
             # this window.
             logger.warning("Garmin sleep-detail hydration failed", exc_info=True)
+            return f"hydration failed: {exc}"
+
+    def hydrate_activity_laps(self, conn: sqlite3.Connection, since: date, until: date | None = None) -> dict:
+        """Fetch and persist laps for every Garmin activity in [since, until]
+        that has none yet. Never-hydrated activities only, so a repeat call is
+        free. Rate-limit and auth errors propagate (the caller leaves its
+        checkpoint untouched so the window is retried); any other per-activity
+        failure is logged and skipped so one bad activity cannot discard the rest."""
+        from core.storage import repository
+
+        until = until or date.today()
+        activities = 0
+        laps_total = 0
+        for activity_id, raw_activity_id in repository.get_activity_ids_missing_laps(conn, self.name, since, until):
+            try:
+                raw = self._call(self._client.get_activity_splits, raw_activity_id)
+                laps = self._parse_activity_laps(raw, activity_id=activity_id)
+                if laps:
+                    repository.replace_activity_laps(conn, activity_id, laps)
+                    activities += 1
+                    laps_total += len(laps)
+            except (RateLimitError, GarminAuthError):
+                raise
+            except Exception:
+                logger.warning("failed to hydrate laps for %s", activity_id, exc_info=True)
+            if ACTIVITY_DETAIL_PACE_SECONDS:
+                time_module.sleep(ACTIVITY_DETAIL_PACE_SECONDS)
+        return {"activities": activities, "laps": laps_total}
+
+    def sync_activity_hydration(
+        self, conn: sqlite3.Connection, start_date: date, end_date: date, force_full_history: bool
+    ) -> str:
+        """Checkpoint-driven wrapper around hydrate_activity_laps, run after
+        every Garmin sync from the same two call sites as sync_hydration
+        (mcp_server.server.sync_garmin_data and app.sync.perform_sync_pass).
+        Own checkpoint (`garmin_activity_laps`), a trailing grace-window re-walk,
+        a 90-day first-run cap, and skipped on force_full_history. Returns a
+        short status string; a failure leaves the checkpoint untouched."""
+        from core.storage import repository
+
+        if force_full_history:
+            return "skipped (full history sync)"
+        checkpoint = repository.get_checkpoint(conn, "garmin", "garmin_activity_laps")
+        hydrate_since = max(
+            start_date,
+            end_date - timedelta(days=ACTIVITY_HYDRATION_MAX_BACKFILL_DAYS),
+            (checkpoint - timedelta(days=SYNC_RESYNC_GRACE_DAYS)) if checkpoint else date.min,
+        )
+        try:
+            hydration = self.hydrate_activity_laps(conn, since=hydrate_since, until=end_date)
+            repository.set_checkpoint(conn, "garmin", "garmin_activity_laps", end_date)
+            activities_word = "activity" if hydration["activities"] == 1 else "activities"
+            return f"{hydration['activities']} {activities_word} ({hydration['laps']} laps)"
+        except Exception as exc:
+            logger.warning("Garmin activity-lap hydration failed", exc_info=True)
             return f"hydration failed: {exc}"
 
     @staticmethod

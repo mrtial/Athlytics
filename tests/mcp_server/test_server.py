@@ -357,6 +357,9 @@ async def test_sync_garmin_data_tool_forwards_force_full_history(tmp_path, monke
         def __init__(self, *args, **kwargs):
             pass
 
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            return "skipped (full history sync)" if force_full_history else "0 activities (0 laps)"
+
         def sync_hydration(self, conn, start_date, end_date, force_full_history):
             return "skipped (full history sync)" if force_full_history else "0 nights"
 
@@ -408,6 +411,9 @@ async def test_sync_garmin_data_hydrates_sleep_detail_and_advances_checkpoint(tm
         def __init__(self, *args, **kwargs):
             pass
 
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            return "0 activities (0 laps)"
+
         def sync_hydration(self, conn, start_date, end_date, force_full_history):
             assert force_full_history is False
             repository.set_checkpoint(conn, "garmin", "garmin_sleep_detail", end_date)
@@ -443,6 +449,11 @@ async def test_sync_garmin_data_skips_sleep_hydration_on_full_history(tmp_path, 
 
         def __init__(self, *args, **kwargs):
             pass
+
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            if force_full_history:
+                return "skipped (full history sync)"
+            raise AssertionError("must not hydrate on force_full_history=True")
 
         def sync_hydration(self, conn, start_date, end_date, force_full_history):
             if force_full_history:
@@ -1368,3 +1379,35 @@ def test_refetch_garmin_activity_range_rejects_start_after_end(tmp_path, monkeyp
 
     with pytest.raises(ValueError, match="must be on or before"):
         refetch_garmin_activity_range("2026-08-25", "2026-08-20")
+
+
+@pytest.mark.anyio
+async def test_sync_garmin_data_also_hydrates_activity_laps_and_reports_its_status(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+    seen = {}
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            return "0 nights (0 stage segments, 0 restless moments)"
+
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            seen["force_full_history"] = force_full_history
+            return "3 activities (24 laps)"
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", lambda conn, provider, backfill_start, end, **kw: {"resting_hr": "complete"})
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("sync_garmin_data", {"days": 3})
+
+    assert result.is_error is not True
+    assert result.structured_content["garmin_activity_laps"] == "3 activities (24 laps)"
+    assert seen["force_full_history"] is False

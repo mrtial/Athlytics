@@ -933,3 +933,151 @@ def test_parse_activity_laps_tolerates_empty_or_missing_payloads():
     assert GarminProvider._parse_activity_laps({}, activity_id="garmin:1") == []
     assert GarminProvider._parse_activity_laps({"lapDTOs": None}, activity_id="garmin:1") == []
     assert GarminProvider._parse_activity_laps(None, activity_id="garmin:1") == []
+
+
+# ---- activity lap hydration -------------------------------------------------
+
+@pytest.fixture(autouse=False)
+def _no_activity_detail_pacing(monkeypatch):
+    monkeypatch.setattr("core.providers.garmin.ACTIVITY_DETAIL_PACE_SECONDS", 0)
+
+
+def _seed_two_fixture_activities(conn):
+    repository.upsert_activities(conn, GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail")))
+
+
+class _SplitsClient(_StubGarminClient):
+    """Returns the captured splits fixtures by activity id and records every call."""
+
+    calls: list = []
+
+    def get_activity_splits(self, activity_id):
+        type(self).calls.append(str(activity_id))
+        return {
+            "9000000001": _load_fixture("get_activity_splits_run"),
+            "9000000002": _load_fixture("get_activity_splits_treadmill"),
+        }[str(activity_id)]
+
+
+def _splits_provider(tmp_path, client_cls):
+    client_cls.calls = []
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    return GarminProvider(store, tmp_path / "tokens", garmin_client_factory=client_cls)
+
+
+def test_hydrate_activity_laps_stores_laps_for_each_unhydrated_garmin_activity(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    result = provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+    assert result == {"activities": 2, "laps": 10}
+    assert len(repository.get_activity_laps(conn, "garmin:9000000001")) == 8
+    assert len(repository.get_activity_laps(conn, "garmin:9000000002")) == 2
+
+
+def test_hydrate_activity_laps_does_not_refetch_activities_that_already_have_laps(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+    provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+    _SplitsClient.calls = []
+
+    result = provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+    assert result == {"activities": 0, "laps": 0}
+    assert _SplitsClient.calls == []
+
+
+def test_hydrate_activity_laps_isolates_per_activity_failures(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+
+    class _FirstFailsClient(_SplitsClient):
+        def get_activity_splits(self, activity_id):
+            if str(activity_id) == "9000000001":
+                raise RuntimeError("simulated malformed response")
+            return super().get_activity_splits(activity_id)
+
+    provider = _splits_provider(tmp_path, _FirstFailsClient)
+    result = provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+    assert result == {"activities": 1, "laps": 2}
+    assert repository.get_activity_laps(conn, "garmin:9000000001") == []
+    assert len(repository.get_activity_laps(conn, "garmin:9000000002")) == 2
+
+
+def test_hydrate_activity_laps_propagates_rate_limits_so_the_checkpoint_is_not_advanced(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+
+    class _RateLimitedClient(_SplitsClient):
+        def get_activity_splits(self, activity_id):
+            from garminconnect import GarminConnectTooManyRequestsError
+            raise GarminConnectTooManyRequestsError("429")
+
+    provider = _splits_provider(tmp_path, _RateLimitedClient)
+
+    with pytest.raises(RateLimitError):
+        provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+
+def test_sync_activity_hydration_skips_on_force_full_history_and_leaves_checkpoint(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    result = provider.sync_activity_hydration(conn, date(2026, 1, 1), date(2026, 1, 15), True)
+
+    assert result == "skipped (full history sync)"
+    assert _SplitsClient.calls == []
+    assert repository.get_checkpoint(conn, "garmin", "garmin_activity_laps") is None
+
+
+def test_sync_activity_hydration_hydrates_and_advances_checkpoint(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    result = provider.sync_activity_hydration(conn, date(2026, 1, 1), date(2026, 1, 15), False)
+
+    assert result == "2 activities (10 laps)"
+    assert repository.get_checkpoint(conn, "garmin", "garmin_activity_laps") == date(2026, 1, 15)
+
+
+def test_sync_activity_hydration_walks_a_grace_window_behind_the_checkpoint_and_caps_the_first_run(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = _splits_provider(tmp_path, _SplitsClient)
+    captured = []
+    provider.hydrate_activity_laps = lambda conn, since, until=None: captured.append(since) or {"activities": 0, "laps": 0}
+
+    # first run, ten-year-old start: capped to the last 90 days
+    provider.sync_activity_hydration(conn, date(2016, 9, 15), date(2026, 9, 15), False)
+    # existing checkpoint: re-walk SYNC_RESYNC_GRACE_DAYS behind it
+    repository.set_checkpoint(conn, "garmin", "garmin_activity_laps", date(2026, 9, 10))
+    provider.sync_activity_hydration(conn, date(2026, 8, 1), date(2026, 9, 15), False)
+    # checkpoint close to start_date: clamp to start_date
+    repository.set_checkpoint(conn, "garmin", "garmin_activity_laps", date(2026, 9, 2))
+    provider.sync_activity_hydration(conn, date(2026, 9, 1), date(2026, 9, 15), False)
+
+    assert captured == [
+        date(2026, 9, 15) - timedelta(days=90),
+        date(2026, 9, 10) - timedelta(days=SYNC_RESYNC_GRACE_DAYS),
+        date(2026, 9, 1),
+    ]
+
+
+def test_sync_activity_hydration_reports_failure_and_leaves_the_checkpoint_for_retry(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    def _boom(conn, since, until=None):
+        raise RuntimeError("garmin down")
+
+    provider.hydrate_activity_laps = _boom
+
+    result = provider.sync_activity_hydration(conn, date(2026, 9, 1), date(2026, 9, 15), False)
+
+    assert result == "hydration failed: garmin down"
+    assert repository.get_checkpoint(conn, "garmin", "garmin_activity_laps") is None

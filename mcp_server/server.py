@@ -528,6 +528,7 @@ def sync_garmin_data(days: int = 30, force_full_history: bool = False) -> dict[s
         # pass) -- see its docstring for why hydration must run after every
         # Garmin sync, not just this one.
         results["garmin_sleep_detail"] = provider.sync_hydration(conn, start_date, end_date, force_full_history)
+        results["garmin_activity_laps"] = provider.sync_activity_hydration(conn, start_date, end_date, force_full_history)
         return results
 
 
