@@ -1273,3 +1273,98 @@ async def test_refetch_garmin_sleep_detail_range_passes_explicit_bounds(tmp_path
 
     assert captured["since"] == date(2026, 9, 10)
     assert captured["until"] == date(2026, 9, 12)
+
+
+def _detailed_garmin_activity(activity_id="777", start=datetime(2026, 8, 24, 13, 17, 8)):
+    from core.storage.models import Activity
+
+    return Activity(
+        id=f"garmin:{activity_id}", source="garmin", activity_id=activity_id, activity_name="Running",
+        activity_type="running", sport_type="running", start_time=start, duration_seconds=4223.7,
+        distance_meters=11813.9, calories=862.0, avg_hr=150.0, max_hr=176.0, avg_speed=2.8, max_speed=4.1,
+        elevation_gain=69.0, elevation_loss=88.0, created_at=datetime(2026, 8, 25),
+        hr_zone_3_s=3328.8, aerobic_training_effect=3.8,
+    )
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_activity_range_tool_raises_when_credentials_not_found(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("refetch_garmin_activity_range", {"start": "2026-08-17", "end": "2026-08-24"})
+
+    assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_activity_range_tool_upserts_activities_with_detail_fields(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+    calls = []
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fetch_activities(self, start, end):
+            calls.append((start, end))
+            return [_detailed_garmin_activity()]
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("refetch_garmin_activity_range", {"start": "2026-08-24", "end": "2026-08-25"})
+
+    assert result.is_error is not True
+    assert result.structured_content["activities_found"] == 1
+    assert calls == [(date(2026, 8, 24), date(2026, 8, 25))]
+    conn = connect(db_path)
+    stored = repository.get_activity_by_id(conn, "garmin:777")
+    conn.close()
+    assert stored.hr_zone_3_s == 3328.8 and stored.aerobic_training_effect == 3.8
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_activity_range_tool_never_touches_the_sync_checkpoint(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.set_checkpoint(conn, "garmin", "activity_duration", date(2026, 8, 26))
+    conn.close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fetch_activities(self, start, end):
+            return [_detailed_garmin_activity()]
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        await client.call_tool("refetch_garmin_activity_range", {"start": "2026-08-17", "end": "2026-08-24"})
+
+    conn = connect(db_path)
+    checkpoint = repository.get_checkpoint(conn, "garmin", "activity_duration")
+    conn.close()
+    assert checkpoint == date(2026, 8, 26)
+
+
+def test_refetch_garmin_activity_range_rejects_start_after_end(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    _save_stub_garmin_credentials(tmp_path)
+
+    from mcp_server.server import refetch_garmin_activity_range
+
+    with pytest.raises(ValueError, match="must be on or before"):
+        refetch_garmin_activity_range("2026-08-25", "2026-08-20")

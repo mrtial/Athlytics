@@ -626,6 +626,49 @@ def refetch_garmin_sleep_detail_range(start: str, end: str) -> dict:
         return provider.hydrate_recent_sleep(conn, since=start_date, until=end_date)
 
 
+def _garmin_provider():
+    """Build a GarminProvider from the stored credentials, or raise ValueError if
+    Garmin isn't connected. Shared by the newer Garmin MCP tools."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "garmin_credentials.enc"
+    token_cache_dir = data_dir / "garmin_tokens"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Garmin credentials not found. Please connect your Garmin account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.garmin import GarminProvider
+
+    store = CredentialStore(get_or_create_secret_key(secret_key_path), credentials_path)
+    return GarminProvider(store, token_cache_dir)
+
+
+@mcp.tool()
+def refetch_garmin_activity_range(start: str, end: str) -> dict[str, str | int]:
+    """Force a direct refetch of Garmin activities over an explicit date range and upsert them, bypassing the sync checkpoint entirely.
+
+    Use this to backfill the detail fields added to `activity` after rows were first synced (local start time and UTC offset, moving duration, HR zone seconds, training effect, training load, cadence, power) -- refetch_garmin_metric_range only upserts metric readings, never `activity` rows, so it cannot populate them. Keep ranges to roughly 90 days per call.
+
+    Always safe to call on already-synced history (upserts are idempotent on activity id) and never reads or writes sync_checkpoint.
+    """
+    from datetime import date as dt_date
+
+    start_date = dt_date.fromisoformat(start)
+    end_date = dt_date.fromisoformat(end)
+    if start_date > end_date:
+        raise ValueError(f"start ({start}) must be on or before end ({end})")
+
+    provider = _garmin_provider()
+    activities = provider.fetch_activities(start_date, end_date)
+
+    with _connection() as conn:
+        repository.upsert_activities(conn, activities)
+
+    return {"start": start, "end": end, "activities_found": len(activities)}
+
+
 @mcp.tool()
 def sync_strava_data(days: int = 30, force_full_history: bool = False) -> dict[str, str]:
     """Trigger a sync from Strava to pull activity data into Athlytics.
