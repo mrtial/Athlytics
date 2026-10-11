@@ -61,6 +61,10 @@ Enter the SMS or Authenticator code when prompted. The resulting session tokens 
 - **Training & Performance**: `vo2_max`, `training_load`, `race_prediction_5k`, `race_prediction_10k`, `race_prediction_half_marathon`, `race_prediction_marathon`.
 - **Activity & Volume**: `steps`, `activity_distance`, `activity_duration`, `activity_calories`.
 
+### Activity Detail
+
+Every synced Garmin activity also keeps the training-relevant detail Garmin returns alongside the summary: local start time and UTC offset, moving time, time in each heart-rate zone, aerobic/anaerobic training effect, per-activity training load, running cadence and power. Per-lap pace, heart rate, cadence and power are hydrated after each sync (one extra Garmin call per new activity, 90-day first-run cap) into their own table, and the minute-by-minute series is fetched live on request and never stored. To backfill existing activities after upgrading, run the `refetch_garmin_activity_range` tool over the range you want (about 90 days per call). See [Provider Detail Data](provider-detail-data.md) for what is kept and why.
+
 ---
 
 ## 🚴 Strava

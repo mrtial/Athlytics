@@ -129,7 +129,10 @@ Athlytics ships with pre-configured playbooks in the `skills/` directory (automa
 - `get_metric_series(metric_type, start, end)`: Fetches raw daily readings across an ISO date range.
 - `get_trend(metric_type, window=30)`: Computes rolling average and period-over-period delta.
 - `get_anomalies(since=None)`: Flags readings exceeding 2 standard deviations ($|z| \ge 2.0$) from baseline.
-- `get_activities(start_date, end_date, activity_type, limit)`: Fetches normalized workout sessions.
+- `get_activities(start_date, end_date, activity_type, limit)`: Fetches normalized workout sessions, including (for Garmin) local start time with UTC offset, moving time, HR zone seconds, training effect, training load, cadence and power.
+- `get_activity_laps(activity_id)`: Per-lap pace, HR, cadence, power and elevation (miles and pace per mile) from locally hydrated Garmin data. Use it to check how a tempo block or long run was paced.
+- `get_activity_series(activity_id, resolution_seconds=60)`: Minute-by-minute HR, pace, cadence, power and elevation for one Garmin activity, fetched **live** from Garmin and downsampled; never stored.
+- `get_training_execution(start_date, end_date, activity_type='running')`: How each session was actually run (share of time in HR zones, training effect and load, first-vs-last-half HR drift from laps) plus a weekly roll-up. Days are the activity's own local days; treadmill runs are flagged; missing data is null and noted.
 - `get_sleep_detail(date)`: Full per-night sleep detail (stage breakdown, timing, sub-score qualifiers, stage timeline, restlessness) for one date, from locally hydrated Garmin data.
 - `get_sleep_pattern(start_date, end_date)`: Aggregated sleep-pattern analysis over a date range (avg/min/max duration vs. sleep-need target, qualifier-band counts, stage split, bedtime/wake-time consistency, worst nights).
 - `get_targets(status='active')`: Fetches active, completed, or abandoned targets.
@@ -145,6 +148,7 @@ Athlytics ships with pre-configured playbooks in the `skills/` directory (automa
 - `log_coach_note(date, category, note, tags)`: Records qualitative observations (categories: `injury`, `nutrition`, `feeling`, `gear`, `milestone`, `general`).
 - `sync_garmin_data(days=30, force_full_history=False)`: On-demand sync from Garmin Connect.
 - `refetch_garmin_sleep_detail_range(start, end)`: Force a direct re-hydration of Garmin sleep detail (session, stage timeline, restlessness) over an explicit date range, bypassing the sync checkpoint.
+- `refetch_garmin_activity_range(start, end)`: Force a direct refetch of Garmin activities over an explicit date range (use it to backfill the activity detail fields on already-synced rows), bypassing the sync checkpoint.
 - `sync_strava_data(days=30, force_full_history=False)`: On-demand sync from Strava.
 - `sync_mi_fitness_data(days=30, force_full_history=False)`: On-demand sync from Mi Fitness.
 - `sync_tonal_data(days=30, force_full_history=False)`: On-demand sync from Tonal.
