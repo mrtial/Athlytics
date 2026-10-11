@@ -925,6 +925,21 @@ class GarminProvider:
             elev_gain = float(act["elevationGain"]) if act.get("elevationGain") is not None else None
             elev_loss = float(act["elevationLoss"]) if act.get("elevationLoss") is not None else None
 
+            def opt_float(key: str) -> float | None:
+                return float(act[key]) if act.get(key) is not None else None
+
+            # Local wall-clock start + offset: the day an activity "belongs to"
+            # must come from the provider's own local time, never an assumed zone.
+            start_local = None
+            utc_offset_minutes = None
+            raw_local = act.get("startTimeLocal")
+            if isinstance(raw_local, str):
+                start_local = datetime.fromisoformat(raw_local)
+                if start_local.tzinfo is not None:
+                    start_local = start_local.replace(tzinfo=None)
+                if act.get("startTimeGMT") is not None:
+                    utc_offset_minutes = round((start_local - ts).total_seconds() / 60)
+
             activities.append(
                 Activity(
                     id=f"garmin:{act_id_str}",
@@ -944,6 +959,21 @@ class GarminProvider:
                     elevation_gain=elev_gain,
                     elevation_loss=elev_loss,
                     created_at=now,
+                    start_time_local=start_local,
+                    utc_offset_minutes=utc_offset_minutes,
+                    moving_duration_seconds=opt_float("movingDuration"),
+                    hr_zone_1_s=opt_float("hrTimeInZone_1"),
+                    hr_zone_2_s=opt_float("hrTimeInZone_2"),
+                    hr_zone_3_s=opt_float("hrTimeInZone_3"),
+                    hr_zone_4_s=opt_float("hrTimeInZone_4"),
+                    hr_zone_5_s=opt_float("hrTimeInZone_5"),
+                    aerobic_training_effect=opt_float("aerobicTrainingEffect"),
+                    anaerobic_training_effect=opt_float("anaerobicTrainingEffect"),
+                    training_effect_label=act.get("trainingEffectLabel"),
+                    activity_training_load=opt_float("activityTrainingLoad"),
+                    avg_cadence=opt_float("averageRunningCadenceInStepsPerMinute"),
+                    avg_power=opt_float("avgPower"),
+                    norm_power=opt_float("normPower"),
                 )
             )
         return activities

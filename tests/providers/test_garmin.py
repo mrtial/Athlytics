@@ -825,3 +825,77 @@ def test_sync_hydration_isolates_failure_and_leaves_checkpoint_untouched(tmp_pat
     assert "simulated rate limit error" in result
     # The checkpoint must not advance past a failed hydration.
     assert repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail") is None
+
+
+def test_parse_activity_records_extracts_detail_fields_for_an_outdoor_run():
+    raw = _load_fixture("get_activities_by_date_detail")
+
+    run = GarminProvider._parse_activity_records(raw)[0]
+
+    assert run.activity_type == "running" and run.sport_type == "running"
+    assert run.start_time == datetime(2026, 1, 10, 13, 17, 8)
+    assert run.start_time_local == datetime(2026, 1, 10, 9, 17, 8)
+    assert run.utc_offset_minutes == -240
+    assert run.moving_duration_seconds == pytest.approx(4205.0)
+    assert (run.hr_zone_1_s, run.hr_zone_2_s, run.hr_zone_3_s, run.hr_zone_4_s, run.hr_zone_5_s) == pytest.approx(
+        (64.034, 205.625, 3328.787, 610.007, 10.999)
+    )
+    assert run.aerobic_training_effect == pytest.approx(3.8, abs=0.01)
+    assert run.anaerobic_training_effect == pytest.approx(0.7, abs=0.01)
+    assert run.training_effect_label == "AEROBIC_BASE"
+    assert run.activity_training_load == pytest.approx(154.77, abs=0.01)
+    assert run.avg_cadence == pytest.approx(174.22, abs=0.01)
+    assert run.avg_power == pytest.approx(293.0) and run.norm_power == pytest.approx(300.0)
+
+
+def test_parse_activity_records_hr_zone_seconds_sum_to_the_activity_duration():
+    for run in GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail")):
+        zones = [run.hr_zone_1_s, run.hr_zone_2_s, run.hr_zone_3_s, run.hr_zone_4_s, run.hr_zone_5_s]
+        assert sum(zones) == pytest.approx(run.duration_seconds, rel=0.01)
+
+
+def test_parse_activity_records_treadmill_keeps_missing_elevation_as_none_not_zero():
+    treadmill = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail"))[1]
+
+    assert treadmill.sport_type == "treadmill_running" and treadmill.activity_type == "running"
+    assert treadmill.elevation_gain is None and treadmill.elevation_loss is None
+    assert treadmill.training_effect_label == "RECOVERY"
+    assert treadmill.start_time_local == datetime(2026, 1, 11, 10, 44, 42)
+    assert treadmill.utc_offset_minutes == -240
+    assert treadmill.hr_zone_5_s == 0.0  # a real zero (time in zone 5), distinct from missing
+
+
+def test_parse_activity_records_without_detail_keys_leaves_detail_fields_none():
+    legacy = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date"))[0]
+
+    for field in (
+        "moving_duration_seconds", "hr_zone_1_s", "hr_zone_3_s", "hr_zone_5_s",
+        "aerobic_training_effect", "anaerobic_training_effect", "training_effect_label",
+        "activity_training_load", "avg_cadence", "avg_power", "norm_power",
+    ):
+        assert getattr(legacy, field) is None, field
+
+
+def test_parse_activity_records_utc_offset_handles_half_hour_zones_and_missing_local_time():
+    base = {"activityId": 1, "activityName": "Run", "activityType": {"typeKey": "running"}, "duration": 600.0}
+
+    india = GarminProvider._parse_activity_records(
+        [{**base, "startTimeGMT": "2026-01-10 13:17:08", "startTimeLocal": "2026-01-10 18:47:08"}]
+    )[0]
+    no_local = GarminProvider._parse_activity_records([{**base, "startTimeGMT": "2026-01-10 13:17:08"}])[0]
+
+    assert india.utc_offset_minutes == 330
+    assert no_local.start_time_local is None and no_local.utc_offset_minutes is None
+
+
+def test_parsed_activity_detail_survives_a_database_round_trip(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    parsed = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail"))
+
+    repository.upsert_activities(conn, parsed)
+    stored = {a.activity_id: a for a in repository.get_activities(conn)}
+
+    run = stored["9000000001"]
+    assert run.hr_zone_3_s == pytest.approx(3328.787)
+    assert run.start_time_local == datetime(2026, 1, 10, 9, 17, 8) and run.utc_offset_minutes == -240
+    assert stored["9000000002"].elevation_gain is None

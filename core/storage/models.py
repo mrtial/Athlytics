@@ -141,7 +141,7 @@ class Activity:
     anaerobic_training_effect: float | None = None
     training_effect_label: str | None = None
     activity_training_load: float | None = None
-    avg_cadence: float | None = None  # steps/min for foot sports, rpm for cycling
+    avg_cadence: float | None = None  # running cadence, steps/min (not yet populated for cycling)
     avg_power: float | None = None  # watts
     norm_power: float | None = None  # watts
 
