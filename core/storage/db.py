@@ -82,7 +82,22 @@ CREATE TABLE IF NOT EXISTS activity (
     max_speed REAL,
     elevation_gain REAL,
     elevation_loss REAL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    start_time_local TEXT,
+    utc_offset_minutes INTEGER,
+    moving_duration_seconds REAL,
+    hr_zone_1_s REAL,
+    hr_zone_2_s REAL,
+    hr_zone_3_s REAL,
+    hr_zone_4_s REAL,
+    hr_zone_5_s REAL,
+    aerobic_training_effect REAL,
+    anaerobic_training_effect REAL,
+    training_effect_label TEXT,
+    activity_training_load REAL,
+    avg_cadence REAL,
+    avg_power REAL,
+    norm_power REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_activity_start_time ON activity(start_time);
@@ -202,6 +217,28 @@ CREATE TABLE IF NOT EXISTS sleep_restless_moment (
 """
 
 
+# Nullable detail columns added to `activity` after its initial CREATE TABLE
+# (see docs/provider-detail-data.md): NULL means "no data", never 0. Must stay
+# in step with the CREATE TABLE above for fresh installs.
+ACTIVITY_DETAIL_COLUMNS: tuple[tuple[str, str], ...] = (
+    ("start_time_local", "TEXT"),
+    ("utc_offset_minutes", "INTEGER"),
+    ("moving_duration_seconds", "REAL"),
+    ("hr_zone_1_s", "REAL"),
+    ("hr_zone_2_s", "REAL"),
+    ("hr_zone_3_s", "REAL"),
+    ("hr_zone_4_s", "REAL"),
+    ("hr_zone_5_s", "REAL"),
+    ("aerobic_training_effect", "REAL"),
+    ("anaerobic_training_effect", "REAL"),
+    ("training_effect_label", "TEXT"),
+    ("activity_training_load", "REAL"),
+    ("avg_cadence", "REAL"),
+    ("avg_power", "REAL"),
+    ("norm_power", "REAL"),
+)
+
+
 def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.executescript(SCHEMA)
@@ -239,4 +276,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
         )
     # Create the index unconditionally; CREATE INDEX IF NOT EXISTS is idempotent
     conn.execute("CREATE INDEX IF NOT EXISTS idx_strength_set_movement_occurred ON strength_set(movement_id, occurred_at)")
+
+    activity_columns = {row[1] for row in conn.execute("PRAGMA table_info(activity)").fetchall()}
+    for column, column_type in ACTIVITY_DETAIL_COLUMNS:
+        if column not in activity_columns:
+            conn.execute(f"ALTER TABLE activity ADD COLUMN {column} {column_type}")
 

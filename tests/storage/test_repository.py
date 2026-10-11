@@ -996,3 +996,52 @@ def test_get_sleep_sessions_range(tmp_path):
     repository.upsert_sleep_session(conn, _make_session("garmin:2026-09-20", date(2026, 9, 20)))
     in_range = repository.get_sleep_sessions_range(conn, date(2026, 9, 14), date(2026, 9, 15))
     assert {s.id for s in in_range} == {"garmin:2026-09-14", "garmin:2026-09-15"}
+
+
+ACTIVITY_DETAIL_COLUMNS = {
+    "start_time_local", "utc_offset_minutes", "moving_duration_seconds",
+    "hr_zone_1_s", "hr_zone_2_s", "hr_zone_3_s", "hr_zone_4_s", "hr_zone_5_s",
+    "aerobic_training_effect", "anaerobic_training_effect", "training_effect_label",
+    "activity_training_load", "avg_cadence", "avg_power", "norm_power",
+}
+
+
+def test_fresh_database_activity_table_has_detail_columns(tmp_path):
+    conn = connect(tmp_path / "test.db")
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(activity)").fetchall()}
+
+    assert ACTIVITY_DETAIL_COLUMNS <= columns
+
+
+def test_connect_migrates_legacy_activity_table_adding_detail_columns_idempotently(tmp_path):
+    """A database created before the detail columns existed: CREATE TABLE IF NOT
+    EXISTS no-ops on it, so the columns must be added by _migrate, keep the
+    existing rows, and leave their new fields NULL (no data, not zero)."""
+    db_path = tmp_path / "test.db"
+    legacy_conn = sqlite3.connect(db_path)
+    legacy_conn.executescript(
+        """
+        CREATE TABLE activity (
+            id TEXT PRIMARY KEY, source TEXT NOT NULL, activity_id TEXT NOT NULL,
+            activity_name TEXT, activity_type TEXT NOT NULL, sport_type TEXT,
+            start_time TEXT NOT NULL, duration_seconds REAL NOT NULL, distance_meters REAL,
+            calories REAL, avg_hr REAL, max_hr REAL, avg_speed REAL, max_speed REAL,
+            elevation_gain REAL, elevation_loss REAL, created_at TEXT NOT NULL
+        );
+        INSERT INTO activity VALUES ('garmin:1','garmin','1','Run','running','running',
+            '2026-01-10T13:17:08',4223.7,11813.9,862,150,176,2.8,4.1,69.0,88.2,'2026-01-11T00:00:00');
+        """
+    )
+    legacy_conn.commit()
+    legacy_conn.close()
+
+    conn = connect(db_path)
+    connect(db_path).close()  # a second connect() must be a no-op, not a duplicate-column error
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(activity)").fetchall()}
+    assert ACTIVITY_DETAIL_COLUMNS <= columns
+    row = conn.execute(
+        "SELECT avg_hr, hr_zone_3_s, aerobic_training_effect, start_time_local FROM activity WHERE id = 'garmin:1'"
+    ).fetchone()
+    assert row == (150.0, None, None, None)
