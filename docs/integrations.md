@@ -15,6 +15,8 @@ Athlytics brings together your wellness, recovery, cardio, and strength training
 7. [Security & Encryption Architecture](#security--encryption-architecture)
 8. [Deduplication & Synchronization Mechanics](#deduplication--synchronization-mechanics)
 
+Adding richer per-workout or per-night detail for a provider? See [Provider Detail Data: What to Keep and Why](provider-detail-data.md).
+
 ---
 
 ## 📊 Supported Providers Overview
