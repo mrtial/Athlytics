@@ -695,6 +695,45 @@ class GarminProvider:
             logger.warning("Garmin sleep-detail hydration failed", exc_info=True)
             return f"hydration failed: {exc}"
 
+    @staticmethod
+    def _parse_activity_series(raw: dict | None) -> list[dict]:
+        """Map get_activity_details() into per-sample dicts in neutral units.
+
+        Descriptors name each metric's column; a metric the device or sport does
+        not record (power on a bike without a meter, cadence on a hike) is simply
+        absent and stays None in every sample.
+        """
+        if not isinstance(raw, dict):
+            return []
+        index = {m.get("key"): m.get("metricsIndex") for m in raw.get("metricDescriptors") or []}
+        columns = {
+            "elapsed_s": "sumDuration",
+            "distance_m": "sumDistance",
+            "heart_rate": "directHeartRate",
+            "speed_mps": "directSpeed",
+            "cadence_spm": "directDoubleCadence",
+            "power_watts": "directPower",
+            "elevation_m": "directElevation",
+        }
+        samples = []
+        for row in raw.get("activityDetailMetrics") or []:
+            values = row.get("metrics") or []
+
+            def value_of(key: str) -> float | None:
+                i = index.get(key)
+                if i is None or i >= len(values) or values[i] is None:
+                    return None
+                return float(values[i])
+
+            sample = {name: value_of(key) for name, key in columns.items()}
+            if sample["elapsed_s"] is not None:
+                samples.append(sample)
+        return samples
+
+    def fetch_activity_series(self, raw_activity_id: str) -> list[dict]:
+        """Live-fetch the full-resolution time series for one activity (never stored)."""
+        return self._parse_activity_series(self._call(self._client.get_activity_details, raw_activity_id, 2000, 0))
+
     def hydrate_activity_laps(self, conn: sqlite3.Connection, since: date, until: date | None = None) -> dict:
         """Fetch and persist laps for every Garmin activity in [since, until]
         that has none yet. Never-hydrated activities only, so a repeat call is

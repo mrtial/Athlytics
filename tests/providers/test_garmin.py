@@ -1081,3 +1081,37 @@ def test_sync_activity_hydration_reports_failure_and_leaves_the_checkpoint_for_r
 
     assert result == "hydration failed: garmin down"
     assert repository.get_checkpoint(conn, "garmin", "garmin_activity_laps") is None
+
+
+def _series_payload(keys, rows):
+    return {
+        "metricDescriptors": [{"metricsIndex": i, "key": k} for i, k in enumerate(keys)],
+        "activityDetailMetrics": [{"metrics": list(r)} for r in rows],
+    }
+
+
+def test_parse_activity_series_maps_descriptors_to_neutral_unit_samples():
+    keys = ["sumDuration", "sumDistance", "directHeartRate", "directSpeed", "directDoubleCadence", "directPower", "directElevation"]
+    raw = _series_payload(keys, [(0.0, 0.0, 94.0, 0.0, 0.0, 0.0, 18.0), (284.0, 736.5, 144.0, 2.92, 177.0, 351.0, 21.6)])
+
+    samples = GarminProvider._parse_activity_series(raw)
+
+    assert samples[1] == {
+        "elapsed_s": 284.0, "distance_m": 736.5, "heart_rate": 144.0, "speed_mps": 2.92,
+        "cadence_spm": 177.0, "power_watts": 351.0, "elevation_m": 21.6,
+    }
+
+
+def test_parse_activity_series_missing_descriptors_and_values_stay_none():
+    # A device/sport without power or cadence (e.g. a bike ride with only HR and speed).
+    raw = _series_payload(["sumDuration", "directHeartRate", "directSpeed"], [(0.0, None, 3.0)])
+
+    sample = GarminProvider._parse_activity_series(raw)[0]
+
+    assert sample["heart_rate"] is None and sample["speed_mps"] == 3.0
+    assert sample["power_watts"] is None and sample["cadence_spm"] is None and sample["distance_m"] is None
+
+
+def test_parse_activity_series_tolerates_empty_payloads():
+    assert GarminProvider._parse_activity_series({}) == []
+    assert GarminProvider._parse_activity_series(None) == []
