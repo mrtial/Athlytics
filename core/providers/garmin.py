@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import time as time_module
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable
@@ -17,6 +18,7 @@ from core.providers.normalize import normalize_activity_type
 from core.security.credentials import CredentialStore
 from core.storage.models import (
     Activity,
+    ActivityLap,
     MetricReading,
     SleepRestlessMoment,
     SleepSession,
@@ -63,6 +65,14 @@ SYNC_RESYNC_GRACE_DAYS = 3  # re-walk the trailing 3 days on every sync so a
                             # from them would be a cycle, and this module
                             # has no lower-level shared home for the
                             # constant to live instead.
+
+ACTIVITY_HYDRATION_MAX_BACKFILL_DAYS = 90  # first-run cap for lap hydration: one
+                                           # get_activity_splits call per activity,
+                                           # so an unbounded since= would issue
+                                           # hundreds of sequential calls (same
+                                           # livelock risk as sleep hydration).
+
+ACTIVITY_DETAIL_PACE_SECONDS = 0.5  # pause between per-activity detail calls
 
 SLEEP_HYDRATION_MAX_BACKFILL_DAYS = 30  # first-run cap: sleep hydration is
                                          # one Garmin API call per day (unlike
@@ -686,6 +696,100 @@ class GarminProvider:
             return f"hydration failed: {exc}"
 
     @staticmethod
+    def _parse_activity_series(raw: dict | None) -> list[dict]:
+        """Map get_activity_details() into per-sample dicts in neutral units.
+
+        Descriptors name each metric's column; a metric the device or sport does
+        not record (power on a bike without a meter, cadence on a hike) is simply
+        absent and stays None in every sample.
+        """
+        if not isinstance(raw, dict):
+            return []
+        index = {m.get("key"): m.get("metricsIndex") for m in raw.get("metricDescriptors") or []}
+        columns = {
+            "elapsed_s": "sumDuration",
+            "distance_m": "sumDistance",
+            "heart_rate": "directHeartRate",
+            "speed_mps": "directSpeed",
+            "cadence_spm": "directDoubleCadence",
+            "power_watts": "directPower",
+            "elevation_m": "directElevation",
+        }
+        samples = []
+        for row in raw.get("activityDetailMetrics") or []:
+            values = row.get("metrics") or []
+
+            def value_of(key: str) -> float | None:
+                i = index.get(key)
+                if i is None or i >= len(values) or values[i] is None:
+                    return None
+                return float(values[i])
+
+            sample = {name: value_of(key) for name, key in columns.items()}
+            if sample["elapsed_s"] is not None:
+                samples.append(sample)
+        return samples
+
+    def fetch_activity_series(self, raw_activity_id: str) -> list[dict]:
+        """Live-fetch the full-resolution time series for one activity (never stored)."""
+        return self._parse_activity_series(self._call(self._client.get_activity_details, raw_activity_id, 2000, 0))
+
+    def hydrate_activity_laps(self, conn: sqlite3.Connection, since: date, until: date | None = None) -> dict:
+        """Fetch and persist laps for every Garmin activity in [since, until]
+        that has none yet. Never-hydrated activities only, so a repeat call is
+        free. Rate-limit and auth errors propagate (the caller leaves its
+        checkpoint untouched so the window is retried); any other per-activity
+        failure is logged and skipped so one bad activity cannot discard the rest."""
+        from core.storage import repository
+
+        until = until or date.today()
+        activities = 0
+        laps_total = 0
+        for activity_id, raw_activity_id in repository.get_activity_ids_missing_laps(conn, self.name, since, until):
+            try:
+                raw = self._call(self._client.get_activity_splits, raw_activity_id)
+                laps = self._parse_activity_laps(raw, activity_id=activity_id)
+                if laps:
+                    repository.replace_activity_laps(conn, activity_id, laps)
+                    activities += 1
+                    laps_total += len(laps)
+            except (RateLimitError, GarminAuthError):
+                raise
+            except Exception:
+                logger.warning("failed to hydrate laps for %s", activity_id, exc_info=True)
+            if ACTIVITY_DETAIL_PACE_SECONDS:
+                time_module.sleep(ACTIVITY_DETAIL_PACE_SECONDS)
+        return {"activities": activities, "laps": laps_total}
+
+    def sync_activity_hydration(
+        self, conn: sqlite3.Connection, start_date: date, end_date: date, force_full_history: bool
+    ) -> str:
+        """Checkpoint-driven wrapper around hydrate_activity_laps, run after
+        every Garmin sync from the same two call sites as sync_hydration
+        (mcp_server.server.sync_garmin_data and app.sync.perform_sync_pass).
+        Own checkpoint (`garmin_activity_laps`), a trailing grace-window re-walk,
+        a 90-day first-run cap, and skipped on force_full_history. Returns a
+        short status string; a failure leaves the checkpoint untouched."""
+        from core.storage import repository
+
+        if force_full_history:
+            return "skipped (full history sync)"
+        checkpoint = repository.get_checkpoint(conn, "garmin", "garmin_activity_laps")
+        hydrate_since = max(
+            start_date,
+            end_date - timedelta(days=ACTIVITY_HYDRATION_MAX_BACKFILL_DAYS),
+            (checkpoint - timedelta(days=SYNC_RESYNC_GRACE_DAYS)) if checkpoint else date.min,
+        )
+        try:
+            hydration = self.hydrate_activity_laps(conn, since=hydrate_since, until=end_date)
+            repository.set_checkpoint(conn, "garmin", "garmin_activity_laps", end_date)
+            activities_word = "activity" if hydration["activities"] == 1 else "activities"
+            return f"{hydration['activities']} {activities_word} ({hydration['laps']} laps)"
+        except Exception as exc:
+            logger.warning("Garmin activity-lap hydration failed", exc_info=True)
+            return f"hydration failed: {exc}"
+
+    @staticmethod
     def _parse_steps(raw: list[dict], day: date) -> list[MetricReading]:
         """Map one day's get_steps_data() response to a single daily-total
         MetricReading, summing all intraday entries."""
@@ -925,6 +1029,21 @@ class GarminProvider:
             elev_gain = float(act["elevationGain"]) if act.get("elevationGain") is not None else None
             elev_loss = float(act["elevationLoss"]) if act.get("elevationLoss") is not None else None
 
+            def opt_float(key: str) -> float | None:
+                return float(act[key]) if act.get(key) is not None else None
+
+            # Local wall-clock start + offset: the day an activity "belongs to"
+            # must come from the provider's own local time, never an assumed zone.
+            start_local = None
+            utc_offset_minutes = None
+            raw_local = act.get("startTimeLocal")
+            if isinstance(raw_local, str):
+                start_local = datetime.fromisoformat(raw_local)
+                if start_local.tzinfo is not None:
+                    start_local = start_local.replace(tzinfo=None)
+                if act.get("startTimeGMT") is not None:
+                    utc_offset_minutes = round((start_local - ts).total_seconds() / 60)
+
             activities.append(
                 Activity(
                     id=f"garmin:{act_id_str}",
@@ -944,9 +1063,55 @@ class GarminProvider:
                     elevation_gain=elev_gain,
                     elevation_loss=elev_loss,
                     created_at=now,
+                    start_time_local=start_local,
+                    utc_offset_minutes=utc_offset_minutes,
+                    moving_duration_seconds=opt_float("movingDuration"),
+                    hr_zone_1_s=opt_float("hrTimeInZone_1"),
+                    hr_zone_2_s=opt_float("hrTimeInZone_2"),
+                    hr_zone_3_s=opt_float("hrTimeInZone_3"),
+                    hr_zone_4_s=opt_float("hrTimeInZone_4"),
+                    hr_zone_5_s=opt_float("hrTimeInZone_5"),
+                    aerobic_training_effect=opt_float("aerobicTrainingEffect"),
+                    anaerobic_training_effect=opt_float("anaerobicTrainingEffect"),
+                    training_effect_label=act.get("trainingEffectLabel"),
+                    activity_training_load=opt_float("activityTrainingLoad"),
+                    avg_cadence=opt_float("averageRunningCadenceInStepsPerMinute"),
+                    avg_power=opt_float("avgPower"),
+                    norm_power=opt_float("normPower"),
                 )
             )
         return activities
+
+    @staticmethod
+    def _parse_activity_laps(raw: dict | None, activity_id: str) -> list[ActivityLap]:
+        """Map get_activity_splits()'s response to ActivityLap rows for one activity.
+
+        `activity_id` is the full activity.id (e.g. "garmin:123"). Missing or
+        empty payloads yield no laps; absent per-lap keys stay None (never 0).
+        """
+        if not isinstance(raw, dict):
+            return []
+        laps = []
+        for position, lap in enumerate(raw.get("lapDTOs") or [], start=1):
+            def opt_float(key: str) -> float | None:
+                return float(lap[key]) if lap.get(key) is not None else None
+
+            laps.append(
+                ActivityLap(
+                    activity_id=activity_id,
+                    lap_index=int(lap.get("lapIndex") or position),
+                    distance_meters=opt_float("distance"),
+                    duration_seconds=opt_float("duration"),
+                    avg_speed_mps=opt_float("averageSpeed"),
+                    avg_hr=opt_float("averageHR"),
+                    max_hr=opt_float("maxHR"),
+                    avg_cadence=opt_float("averageRunCadence"),
+                    avg_power_watts=opt_float("averagePower"),
+                    elevation_gain_meters=opt_float("elevationGain"),
+                    intensity_type=lap.get("intensityType"),
+                )
+            )
+        return laps
 
     def fetch_activities(self, start: date, end: date) -> list[Activity]:
         """Fetch full Activity objects across [start, end]."""

@@ -127,8 +127,30 @@ class Activity:
     elevation_gain: float | None  # meters
     elevation_loss: float | None  # meters
     created_at: datetime
+    # Detail fields (docs/provider-detail-data.md): all optional, None means
+    # "no data" (never 0), so providers that lack them need no change.
+    start_time_local: datetime | None = None  # naive provider-local wall clock
+    utc_offset_minutes: int | None = None  # start_time_local - start_time, in minutes
+    moving_duration_seconds: float | None = None
+    hr_zone_1_s: float | None = None  # seconds in each heart-rate zone
+    hr_zone_2_s: float | None = None
+    hr_zone_3_s: float | None = None
+    hr_zone_4_s: float | None = None
+    hr_zone_5_s: float | None = None
+    aerobic_training_effect: float | None = None
+    anaerobic_training_effect: float | None = None
+    training_effect_label: str | None = None
+    activity_training_load: float | None = None
+    avg_cadence: float | None = None  # running cadence, steps/min (not yet populated for cycling)
+    avg_power: float | None = None  # watts
+    norm_power: float | None = None  # watts
 
     def __post_init__(self) -> None:
+        if self.start_time_local is not None and self.start_time_local.tzinfo is not None:
+            raise ValueError(
+                "Activity.start_time_local must be a naive datetime representing provider-local wall-clock time; "
+                f"got a timezone-aware value: {self.start_time_local!r}."
+            )
         if self.start_time.tzinfo is not None:
             raise ValueError(
                 "Activity.start_time must be a naive datetime representing UTC wall-clock time; "
@@ -139,6 +161,27 @@ class Activity:
                 "Activity.created_at must be a naive datetime representing UTC wall-clock time; "
                 f"got a timezone-aware value: {self.created_at!r}."
             )
+
+
+@dataclass(frozen=True)
+class ActivityLap:
+    """One lap/split of an activity (e.g. a mile auto-lap), in neutral units.
+
+    `activity_id` is the full `activity.id` (e.g. "garmin:24675159797"). Fields a
+    device or sport doesn't record (power, elevation on a treadmill) are None.
+    """
+
+    activity_id: str
+    lap_index: int
+    distance_meters: float | None = None
+    duration_seconds: float | None = None
+    avg_speed_mps: float | None = None
+    avg_hr: float | None = None
+    max_hr: float | None = None
+    avg_cadence: float | None = None
+    avg_power_watts: float | None = None
+    elevation_gain_meters: float | None = None
+    intensity_type: str | None = None
 
 
 @dataclass(frozen=True)

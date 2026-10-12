@@ -235,6 +235,8 @@ def test_full_onboarding_flow_end_to_end(app, client, monkeypatch):
     assert metrics == {
         "resting_hr": "complete",
         "garmin_sleep_detail": "0 nights (0 stage segments, 0 restless moments)",
+        # No activities synced in this flow, so no lap calls are made.
+        "garmin_activity_laps": "0 activities (0 laps)",
     }
 
     # Settings: persona/theme are changeable after onboarding.

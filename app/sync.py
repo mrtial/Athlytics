@@ -144,7 +144,11 @@ def perform_sync_pass(
                 # sync, exactly the same class of gap Tonal's sync_hydration
                 # was added to close for activity enrichment.
                 hydration_status = provider.sync_hydration(conn, backfill_start, end, force_full_backfill)
-                record_metric_statuses(conn, "garmin", {"garmin_sleep_detail": hydration_status})
+                activity_hydration_status = provider.sync_activity_hydration(conn, backfill_start, end, force_full_backfill)
+                record_metric_statuses(
+                    conn, "garmin",
+                    {"garmin_sleep_detail": hydration_status, "garmin_activity_laps": activity_hydration_status},
+                )
         finally:
             conn.close()
 

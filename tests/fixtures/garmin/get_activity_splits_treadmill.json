@@ -1,0 +1,31 @@
+{
+  "activityId": 9000000002,
+  "lapDTOs": [
+    {
+      "lapIndex": 1,
+      "distance": 1609.34,
+      "duration": 619.065,
+      "movingDuration": 619.065,
+      "averageSpeed": 2.5999999046325684,
+      "maxSpeed": 2.9019999504089355,
+      "averageHR": 133.0,
+      "maxHR": 150.0,
+      "averageRunCadence": 168.1875,
+      "averagePower": 260.0,
+      "intensityType": "INTERVAL"
+    },
+    {
+      "lapIndex": 2,
+      "distance": 1141.34,
+      "duration": 454.809,
+      "movingDuration": 423.0,
+      "averageSpeed": 2.509000062942505,
+      "maxSpeed": 2.947999954223633,
+      "averageHR": 153.0,
+      "maxHR": 174.0,
+      "averageRunCadence": 165.84375,
+      "averagePower": 248.0,
+      "intensityType": "INTERVAL"
+    }
+  ]
+}

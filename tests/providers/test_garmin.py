@@ -16,7 +16,7 @@ from core.providers.garmin import (
 from core.security.credentials import CredentialStore
 from core.storage.db import connect
 from core.storage import repository
-from core.storage.models import MetricReading
+from core.storage.models import ActivityLap, MetricReading
 
 
 class _FakeInnerClient:
@@ -825,3 +825,293 @@ def test_sync_hydration_isolates_failure_and_leaves_checkpoint_untouched(tmp_pat
     assert "simulated rate limit error" in result
     # The checkpoint must not advance past a failed hydration.
     assert repository.get_checkpoint(conn, "garmin", "garmin_sleep_detail") is None
+
+
+def test_parse_activity_records_extracts_detail_fields_for_an_outdoor_run():
+    raw = _load_fixture("get_activities_by_date_detail")
+
+    run = GarminProvider._parse_activity_records(raw)[0]
+
+    assert run.activity_type == "running" and run.sport_type == "running"
+    assert run.start_time == datetime(2026, 1, 10, 13, 17, 8)
+    assert run.start_time_local == datetime(2026, 1, 10, 9, 17, 8)
+    assert run.utc_offset_minutes == -240
+    assert run.moving_duration_seconds == pytest.approx(4205.0)
+    assert (run.hr_zone_1_s, run.hr_zone_2_s, run.hr_zone_3_s, run.hr_zone_4_s, run.hr_zone_5_s) == pytest.approx(
+        (64.034, 205.625, 3328.787, 610.007, 10.999)
+    )
+    assert run.aerobic_training_effect == pytest.approx(3.8, abs=0.01)
+    assert run.anaerobic_training_effect == pytest.approx(0.7, abs=0.01)
+    assert run.training_effect_label == "AEROBIC_BASE"
+    assert run.activity_training_load == pytest.approx(154.77, abs=0.01)
+    assert run.avg_cadence == pytest.approx(174.22, abs=0.01)
+    assert run.avg_power == pytest.approx(293.0) and run.norm_power == pytest.approx(300.0)
+
+
+def test_parse_activity_records_hr_zone_seconds_sum_to_the_activity_duration():
+    for run in GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail")):
+        zones = [run.hr_zone_1_s, run.hr_zone_2_s, run.hr_zone_3_s, run.hr_zone_4_s, run.hr_zone_5_s]
+        assert sum(zones) == pytest.approx(run.duration_seconds, rel=0.01)
+
+
+def test_parse_activity_records_treadmill_keeps_missing_elevation_as_none_not_zero():
+    treadmill = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail"))[1]
+
+    assert treadmill.sport_type == "treadmill_running" and treadmill.activity_type == "running"
+    assert treadmill.elevation_gain is None and treadmill.elevation_loss is None
+    assert treadmill.training_effect_label == "RECOVERY"
+    assert treadmill.start_time_local == datetime(2026, 1, 11, 10, 44, 42)
+    assert treadmill.utc_offset_minutes == -240
+    assert treadmill.hr_zone_5_s == 0.0  # a real zero (time in zone 5), distinct from missing
+
+
+def test_parse_activity_records_without_detail_keys_leaves_detail_fields_none():
+    legacy = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date"))[0]
+
+    for field in (
+        "moving_duration_seconds", "hr_zone_1_s", "hr_zone_3_s", "hr_zone_5_s",
+        "aerobic_training_effect", "anaerobic_training_effect", "training_effect_label",
+        "activity_training_load", "avg_cadence", "avg_power", "norm_power",
+    ):
+        assert getattr(legacy, field) is None, field
+
+
+def test_parse_activity_records_utc_offset_handles_half_hour_zones_and_missing_local_time():
+    base = {"activityId": 1, "activityName": "Run", "activityType": {"typeKey": "running"}, "duration": 600.0}
+
+    india = GarminProvider._parse_activity_records(
+        [{**base, "startTimeGMT": "2026-01-10 13:17:08", "startTimeLocal": "2026-01-10 18:47:08"}]
+    )[0]
+    no_local = GarminProvider._parse_activity_records([{**base, "startTimeGMT": "2026-01-10 13:17:08"}])[0]
+
+    assert india.utc_offset_minutes == 330
+    assert no_local.start_time_local is None and no_local.utc_offset_minutes is None
+
+
+def test_parsed_activity_detail_survives_a_database_round_trip(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    parsed = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail"))
+
+    repository.upsert_activities(conn, parsed)
+    stored = {a.activity_id: a for a in repository.get_activities(conn)}
+
+    run = stored["9000000001"]
+    assert run.hr_zone_3_s == pytest.approx(3328.787)
+    assert run.start_time_local == datetime(2026, 1, 10, 9, 17, 8) and run.utc_offset_minutes == -240
+    assert stored["9000000002"].elevation_gain is None
+
+
+def test_parse_activity_laps_maps_lap_fields_and_lap_distances_sum_to_the_run():
+    run = GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail"))[0]
+
+    laps = GarminProvider._parse_activity_laps(_load_fixture("get_activity_splits_run"), activity_id="garmin:9000000001")
+
+    assert len(laps) == 8
+    first, last = laps[0], laps[-1]
+    assert first.activity_id == "garmin:9000000001" and first.lap_index == 1
+    assert first.distance_meters == pytest.approx(1609.34) and first.duration_seconds == pytest.approx(601.72, abs=0.01)
+    assert first.avg_speed_mps == pytest.approx(2.675, abs=0.001)
+    assert (first.avg_hr, first.max_hr) == (138.0, 156.0)
+    assert first.avg_cadence == pytest.approx(171.09, abs=0.01) and first.avg_power_watts == 287.0
+    assert first.elevation_gain_meters == pytest.approx(14.95) and first.intensity_type == "INTERVAL"
+    assert last.lap_index == 8 and last.distance_meters == pytest.approx(548.48)  # partial final lap
+    assert sum(lap.distance_meters for lap in laps) == pytest.approx(run.distance_meters, rel=0.005)
+    assert sum(lap.duration_seconds for lap in laps) == pytest.approx(run.duration_seconds, rel=0.005)
+
+
+def test_parse_activity_laps_treadmill_has_no_elevation_and_keeps_none():
+    laps = GarminProvider._parse_activity_laps(
+        _load_fixture("get_activity_splits_treadmill"), activity_id="garmin:9000000002"
+    )
+
+    assert len(laps) == 2
+    assert all(lap.elevation_gain_meters is None for lap in laps)
+    assert laps[1].avg_hr == 153.0 and laps[1].max_hr == 174.0
+
+
+def test_parse_activity_laps_tolerates_empty_or_missing_payloads():
+    assert GarminProvider._parse_activity_laps({}, activity_id="garmin:1") == []
+    assert GarminProvider._parse_activity_laps({"lapDTOs": None}, activity_id="garmin:1") == []
+    assert GarminProvider._parse_activity_laps(None, activity_id="garmin:1") == []
+
+
+# ---- activity lap hydration -------------------------------------------------
+
+@pytest.fixture(autouse=False)
+def _no_activity_detail_pacing(monkeypatch):
+    monkeypatch.setattr("core.providers.garmin.ACTIVITY_DETAIL_PACE_SECONDS", 0)
+
+
+def _seed_two_fixture_activities(conn):
+    repository.upsert_activities(conn, GarminProvider._parse_activity_records(_load_fixture("get_activities_by_date_detail")))
+
+
+class _SplitsClient(_StubGarminClient):
+    """Returns the captured splits fixtures by activity id and records every call."""
+
+    calls: list = []
+
+    def get_activity_splits(self, activity_id):
+        type(self).calls.append(str(activity_id))
+        return {
+            "9000000001": _load_fixture("get_activity_splits_run"),
+            "9000000002": _load_fixture("get_activity_splits_treadmill"),
+        }[str(activity_id)]
+
+
+def _splits_provider(tmp_path, client_cls):
+    client_cls.calls = []
+    store = _credential_store(tmp_path, {"email": "a@example.com", "password": "x"})
+    return GarminProvider(store, tmp_path / "tokens", garmin_client_factory=client_cls)
+
+
+def test_hydrate_activity_laps_stores_laps_for_each_unhydrated_garmin_activity(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    result = provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+    assert result == {"activities": 2, "laps": 10}
+    assert len(repository.get_activity_laps(conn, "garmin:9000000001")) == 8
+    assert len(repository.get_activity_laps(conn, "garmin:9000000002")) == 2
+
+
+def test_hydrate_activity_laps_does_not_refetch_activities_that_already_have_laps(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+    provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+    _SplitsClient.calls = []
+
+    result = provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+    assert result == {"activities": 0, "laps": 0}
+    assert _SplitsClient.calls == []
+
+
+def test_hydrate_activity_laps_isolates_per_activity_failures(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+
+    class _FirstFailsClient(_SplitsClient):
+        def get_activity_splits(self, activity_id):
+            if str(activity_id) == "9000000001":
+                raise RuntimeError("simulated malformed response")
+            return super().get_activity_splits(activity_id)
+
+    provider = _splits_provider(tmp_path, _FirstFailsClient)
+    result = provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+    assert result == {"activities": 1, "laps": 2}
+    assert repository.get_activity_laps(conn, "garmin:9000000001") == []
+    assert len(repository.get_activity_laps(conn, "garmin:9000000002")) == 2
+
+
+def test_hydrate_activity_laps_propagates_rate_limits_so_the_checkpoint_is_not_advanced(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+
+    class _RateLimitedClient(_SplitsClient):
+        def get_activity_splits(self, activity_id):
+            from garminconnect import GarminConnectTooManyRequestsError
+            raise GarminConnectTooManyRequestsError("429")
+
+    provider = _splits_provider(tmp_path, _RateLimitedClient)
+
+    with pytest.raises(RateLimitError):
+        provider.hydrate_activity_laps(conn, since=date(2026, 1, 10), until=date(2026, 1, 11))
+
+
+def test_sync_activity_hydration_skips_on_force_full_history_and_leaves_checkpoint(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    result = provider.sync_activity_hydration(conn, date(2026, 1, 1), date(2026, 1, 15), True)
+
+    assert result == "skipped (full history sync)"
+    assert _SplitsClient.calls == []
+    assert repository.get_checkpoint(conn, "garmin", "garmin_activity_laps") is None
+
+
+def test_sync_activity_hydration_hydrates_and_advances_checkpoint(tmp_path, _no_activity_detail_pacing):
+    conn = connect(tmp_path / "test.db")
+    _seed_two_fixture_activities(conn)
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    result = provider.sync_activity_hydration(conn, date(2026, 1, 1), date(2026, 1, 15), False)
+
+    assert result == "2 activities (10 laps)"
+    assert repository.get_checkpoint(conn, "garmin", "garmin_activity_laps") == date(2026, 1, 15)
+
+
+def test_sync_activity_hydration_walks_a_grace_window_behind_the_checkpoint_and_caps_the_first_run(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = _splits_provider(tmp_path, _SplitsClient)
+    captured = []
+    provider.hydrate_activity_laps = lambda conn, since, until=None: captured.append(since) or {"activities": 0, "laps": 0}
+
+    # first run, ten-year-old start: capped to the last 90 days
+    provider.sync_activity_hydration(conn, date(2016, 9, 15), date(2026, 9, 15), False)
+    # existing checkpoint: re-walk SYNC_RESYNC_GRACE_DAYS behind it
+    repository.set_checkpoint(conn, "garmin", "garmin_activity_laps", date(2026, 9, 10))
+    provider.sync_activity_hydration(conn, date(2026, 8, 1), date(2026, 9, 15), False)
+    # checkpoint close to start_date: clamp to start_date
+    repository.set_checkpoint(conn, "garmin", "garmin_activity_laps", date(2026, 9, 2))
+    provider.sync_activity_hydration(conn, date(2026, 9, 1), date(2026, 9, 15), False)
+
+    assert captured == [
+        date(2026, 9, 15) - timedelta(days=90),
+        date(2026, 9, 10) - timedelta(days=SYNC_RESYNC_GRACE_DAYS),
+        date(2026, 9, 1),
+    ]
+
+
+def test_sync_activity_hydration_reports_failure_and_leaves_the_checkpoint_for_retry(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    provider = _splits_provider(tmp_path, _SplitsClient)
+
+    def _boom(conn, since, until=None):
+        raise RuntimeError("garmin down")
+
+    provider.hydrate_activity_laps = _boom
+
+    result = provider.sync_activity_hydration(conn, date(2026, 9, 1), date(2026, 9, 15), False)
+
+    assert result == "hydration failed: garmin down"
+    assert repository.get_checkpoint(conn, "garmin", "garmin_activity_laps") is None
+
+
+def _series_payload(keys, rows):
+    return {
+        "metricDescriptors": [{"metricsIndex": i, "key": k} for i, k in enumerate(keys)],
+        "activityDetailMetrics": [{"metrics": list(r)} for r in rows],
+    }
+
+
+def test_parse_activity_series_maps_descriptors_to_neutral_unit_samples():
+    keys = ["sumDuration", "sumDistance", "directHeartRate", "directSpeed", "directDoubleCadence", "directPower", "directElevation"]
+    raw = _series_payload(keys, [(0.0, 0.0, 94.0, 0.0, 0.0, 0.0, 18.0), (284.0, 736.5, 144.0, 2.92, 177.0, 351.0, 21.6)])
+
+    samples = GarminProvider._parse_activity_series(raw)
+
+    assert samples[1] == {
+        "elapsed_s": 284.0, "distance_m": 736.5, "heart_rate": 144.0, "speed_mps": 2.92,
+        "cadence_spm": 177.0, "power_watts": 351.0, "elevation_m": 21.6,
+    }
+
+
+def test_parse_activity_series_missing_descriptors_and_values_stay_none():
+    # A device/sport without power or cadence (e.g. a bike ride with only HR and speed).
+    raw = _series_payload(["sumDuration", "directHeartRate", "directSpeed"], [(0.0, None, 3.0)])
+
+    sample = GarminProvider._parse_activity_series(raw)[0]
+
+    assert sample["heart_rate"] is None and sample["speed_mps"] == 3.0
+    assert sample["power_watts"] is None and sample["cadence_spm"] is None and sample["distance_m"] is None
+
+
+def test_parse_activity_series_tolerates_empty_payloads():
+    assert GarminProvider._parse_activity_series({}) == []
+    assert GarminProvider._parse_activity_series(None) == []

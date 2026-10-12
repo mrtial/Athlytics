@@ -5,7 +5,7 @@ import pytest
 
 from core.storage import repository
 from core.storage.db import connect
-from core.storage.models import Activity, MetricReading, StrengthSet, SleepSession, SleepStageSegment, SleepRestlessMoment
+from core.storage.models import Activity, ActivityLap, MetricReading, StrengthSet, SleepSession, SleepStageSegment, SleepRestlessMoment
 
 
 def test_sleep_tables_exist(tmp_path):
@@ -996,3 +996,197 @@ def test_get_sleep_sessions_range(tmp_path):
     repository.upsert_sleep_session(conn, _make_session("garmin:2026-09-20", date(2026, 9, 20)))
     in_range = repository.get_sleep_sessions_range(conn, date(2026, 9, 14), date(2026, 9, 15))
     assert {s.id for s in in_range} == {"garmin:2026-09-14", "garmin:2026-09-15"}
+
+
+ACTIVITY_DETAIL_COLUMNS = {
+    "start_time_local", "utc_offset_minutes", "moving_duration_seconds",
+    "hr_zone_1_s", "hr_zone_2_s", "hr_zone_3_s", "hr_zone_4_s", "hr_zone_5_s",
+    "aerobic_training_effect", "anaerobic_training_effect", "training_effect_label",
+    "activity_training_load", "avg_cadence", "avg_power", "norm_power",
+}
+
+
+def test_fresh_database_activity_table_has_detail_columns(tmp_path):
+    conn = connect(tmp_path / "test.db")
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(activity)").fetchall()}
+
+    assert ACTIVITY_DETAIL_COLUMNS <= columns
+
+
+def test_connect_migrates_legacy_activity_table_adding_detail_columns_idempotently(tmp_path):
+    """A database created before the detail columns existed: CREATE TABLE IF NOT
+    EXISTS no-ops on it, so the columns must be added by _migrate, keep the
+    existing rows, and leave their new fields NULL (no data, not zero)."""
+    db_path = tmp_path / "test.db"
+    legacy_conn = sqlite3.connect(db_path)
+    legacy_conn.executescript(
+        """
+        CREATE TABLE activity (
+            id TEXT PRIMARY KEY, source TEXT NOT NULL, activity_id TEXT NOT NULL,
+            activity_name TEXT, activity_type TEXT NOT NULL, sport_type TEXT,
+            start_time TEXT NOT NULL, duration_seconds REAL NOT NULL, distance_meters REAL,
+            calories REAL, avg_hr REAL, max_hr REAL, avg_speed REAL, max_speed REAL,
+            elevation_gain REAL, elevation_loss REAL, created_at TEXT NOT NULL
+        );
+        INSERT INTO activity VALUES ('garmin:1','garmin','1','Run','running','running',
+            '2026-01-10T13:17:08',4223.7,11813.9,862,150,176,2.8,4.1,69.0,88.2,'2026-01-11T00:00:00');
+        """
+    )
+    legacy_conn.commit()
+    legacy_conn.close()
+
+    conn = connect(db_path)
+    connect(db_path).close()  # a second connect() must be a no-op, not a duplicate-column error
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(activity)").fetchall()}
+    assert ACTIVITY_DETAIL_COLUMNS <= columns
+    row = conn.execute(
+        "SELECT avg_hr, hr_zone_3_s, aerobic_training_effect, start_time_local FROM activity WHERE id = 'garmin:1'"
+    ).fetchone()
+    assert row == (150.0, None, None, None)
+
+
+def _detailed_activity(**overrides):
+    kwargs = dict(
+        id="garmin:555", source="garmin", activity_id="555", activity_name="Running",
+        activity_type="running", sport_type="running", start_time=datetime(2026, 1, 10, 13, 17, 8),
+        duration_seconds=4223.7, distance_meters=11813.9, calories=862.0, avg_hr=150.0,
+        max_hr=176.0, avg_speed=2.8, max_speed=4.1, elevation_gain=69.0, elevation_loss=88.0,
+        created_at=datetime(2026, 1, 11, 0, 0),
+        start_time_local=datetime(2026, 1, 10, 9, 17, 8), utc_offset_minutes=-240,
+        moving_duration_seconds=4205.0,
+        hr_zone_1_s=64.0, hr_zone_2_s=205.6, hr_zone_3_s=3328.8, hr_zone_4_s=610.0, hr_zone_5_s=11.0,
+        aerobic_training_effect=3.8, anaerobic_training_effect=0.7,
+        training_effect_label="AEROBIC_BASE", activity_training_load=154.8,
+        avg_cadence=174.2, avg_power=293.0, norm_power=300.0,
+    )
+    kwargs.update(overrides)
+    return Activity(**kwargs)
+
+
+def test_activity_detail_fields_round_trip_through_both_read_paths(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    original = _detailed_activity()
+    repository.upsert_activities(conn, [original])
+
+    listed = repository.get_activities(conn)[0]
+    by_id = repository.get_activity_by_id(conn, "garmin:555")
+
+    assert listed == original
+    assert by_id == original
+
+
+def test_activity_without_detail_fields_reads_back_none_not_zero(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    plain = _detailed_activity(
+        start_time_local=None, utc_offset_minutes=None, moving_duration_seconds=None,
+        hr_zone_1_s=None, hr_zone_2_s=None, hr_zone_3_s=None, hr_zone_4_s=None, hr_zone_5_s=None,
+        aerobic_training_effect=None, anaerobic_training_effect=None, training_effect_label=None,
+        activity_training_load=None, avg_cadence=None, avg_power=None, norm_power=None,
+    )
+    repository.upsert_activities(conn, [plain])
+
+    got = repository.get_activity_by_id(conn, "garmin:555")
+
+    assert got.hr_zone_3_s is None and got.start_time_local is None and got.avg_power is None
+
+
+def test_upsert_activities_updates_detail_fields_when_row_already_exists(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [_detailed_activity(hr_zone_3_s=None, aerobic_training_effect=None)])
+
+    repository.upsert_activities(conn, [_detailed_activity(hr_zone_3_s=3328.8, aerobic_training_effect=3.8)])
+
+    got = repository.get_activity_by_id(conn, "garmin:555")
+    assert got.hr_zone_3_s == 3328.8
+    assert got.aerobic_training_effect == 3.8
+
+
+def _lap(activity_id="garmin:555", lap_index=1, **overrides):
+    kwargs = dict(
+        activity_id=activity_id, lap_index=lap_index, distance_meters=1609.34, duration_seconds=601.7,
+        avg_speed_mps=2.675, avg_hr=138.0, max_hr=156.0, avg_cadence=171.1, avg_power_watts=287.0,
+        elevation_gain_meters=14.95, intensity_type="INTERVAL",
+    )
+    kwargs.update(overrides)
+    return ActivityLap(**kwargs)
+
+
+def test_activity_lap_table_exists_with_expected_columns(tmp_path):
+    conn = connect(tmp_path / "test.db")
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(activity_lap)").fetchall()}
+
+    assert columns == {
+        "activity_id", "lap_index", "distance_meters", "duration_seconds", "avg_speed_mps", "avg_hr",
+        "max_hr", "avg_cadence", "avg_power_watts", "elevation_gain_meters", "intensity_type",
+    }
+
+
+def test_replace_and_get_activity_laps_round_trip_in_lap_order(tmp_path):
+    conn = connect(tmp_path / "test.db")
+
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(lap_index=2, avg_hr=149.0), _lap(lap_index=1)])
+    laps = repository.get_activity_laps(conn, "garmin:555")
+
+    assert [lap.lap_index for lap in laps] == [1, 2]
+    assert laps[0] == _lap(lap_index=1) and laps[1].avg_hr == 149.0
+
+
+def test_replace_activity_laps_replaces_the_previous_set_and_keeps_other_activities(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(lap_index=1), _lap(lap_index=2), _lap(lap_index=3)])
+    repository.replace_activity_laps(conn, "garmin:999", [_lap(activity_id="garmin:999", lap_index=1)])
+
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(lap_index=1, avg_hr=140.0)])
+
+    first = repository.get_activity_laps(conn, "garmin:555")
+    assert len(first) == 1 and first[0].avg_hr == 140.0
+    assert len(repository.get_activity_laps(conn, "garmin:999")) == 1
+
+
+def test_get_activity_laps_returns_empty_list_for_unknown_activity_and_null_fields_stay_none(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    assert repository.get_activity_laps(conn, "garmin:nope") == []
+
+    repository.replace_activity_laps(conn, "garmin:555", [_lap(avg_power_watts=None, elevation_gain_meters=None)])
+
+    lap = repository.get_activity_laps(conn, "garmin:555")[0]
+    assert lap.avg_power_watts is None and lap.elevation_gain_meters is None
+
+
+def _plain_activity(activity_id, source="garmin", start=datetime(2026, 1, 10, 13, 0), activity_type="running"):
+    return Activity(
+        id=f"{source}:{activity_id}", source=source, activity_id=activity_id, activity_name="Run",
+        activity_type=activity_type, sport_type=activity_type, start_time=start, duration_seconds=1800.0,
+        distance_meters=5000.0, calories=300.0, avg_hr=150.0, max_hr=170.0, avg_speed=2.7, max_speed=3.5,
+        elevation_gain=None, elevation_loss=None, created_at=datetime(2026, 1, 12),
+    )
+
+
+def test_get_activity_ids_missing_laps_returns_only_that_sources_unhydrated_activities_in_range(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [
+        _plain_activity("1", start=datetime(2026, 1, 10, 13, 0)),                       # in range, no laps -> selected
+        _plain_activity("2", start=datetime(2026, 1, 11, 13, 0)),                       # in range, has laps -> skipped
+        _plain_activity("3", start=datetime(2026, 1, 20, 13, 0)),                       # out of range -> skipped
+        _plain_activity("4", source="strava", start=datetime(2026, 1, 10, 18, 0), activity_type="cycling"),  # other source
+    ])
+    repository.replace_activity_laps(conn, "garmin:2", [_lap(activity_id="garmin:2")])
+
+    missing = repository.get_activity_ids_missing_laps(conn, "garmin", date(2026, 1, 10), date(2026, 1, 12))
+
+    assert missing == [("garmin:1", "1")]
+
+
+def test_get_activity_ids_missing_laps_orders_oldest_first_for_stable_resumption(tmp_path):
+    conn = connect(tmp_path / "test.db")
+    repository.upsert_activities(conn, [
+        _plain_activity("b", start=datetime(2026, 1, 11, 13, 0)),
+        _plain_activity("a", start=datetime(2026, 1, 10, 13, 0)),
+    ])
+
+    missing = repository.get_activity_ids_missing_laps(conn, "garmin", date(2026, 1, 1), date(2026, 1, 31))
+
+    assert [raw for _, raw in missing] == ["a", "b"]

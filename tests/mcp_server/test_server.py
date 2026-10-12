@@ -1,7 +1,7 @@
 import dataclasses
 import json
 import re
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -357,6 +357,9 @@ async def test_sync_garmin_data_tool_forwards_force_full_history(tmp_path, monke
         def __init__(self, *args, **kwargs):
             pass
 
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            return "skipped (full history sync)" if force_full_history else "0 activities (0 laps)"
+
         def sync_hydration(self, conn, start_date, end_date, force_full_history):
             return "skipped (full history sync)" if force_full_history else "0 nights"
 
@@ -408,6 +411,9 @@ async def test_sync_garmin_data_hydrates_sleep_detail_and_advances_checkpoint(tm
         def __init__(self, *args, **kwargs):
             pass
 
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            return "0 activities (0 laps)"
+
         def sync_hydration(self, conn, start_date, end_date, force_full_history):
             assert force_full_history is False
             repository.set_checkpoint(conn, "garmin", "garmin_sleep_detail", end_date)
@@ -443,6 +449,11 @@ async def test_sync_garmin_data_skips_sleep_hydration_on_full_history(tmp_path, 
 
         def __init__(self, *args, **kwargs):
             pass
+
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            if force_full_history:
+                return "skipped (full history sync)"
+            raise AssertionError("must not hydrate on force_full_history=True")
 
         def sync_hydration(self, conn, start_date, end_date, force_full_history):
             if force_full_history:
@@ -1273,3 +1284,339 @@ async def test_refetch_garmin_sleep_detail_range_passes_explicit_bounds(tmp_path
 
     assert captured["since"] == date(2026, 9, 10)
     assert captured["until"] == date(2026, 9, 12)
+
+
+def _detailed_garmin_activity(activity_id="777", start=datetime(2026, 8, 24, 13, 17, 8)):
+    from core.storage.models import Activity
+
+    return Activity(
+        id=f"garmin:{activity_id}", source="garmin", activity_id=activity_id, activity_name="Running",
+        activity_type="running", sport_type="running", start_time=start, duration_seconds=4223.7,
+        distance_meters=11813.9, calories=862.0, avg_hr=150.0, max_hr=176.0, avg_speed=2.8, max_speed=4.1,
+        elevation_gain=69.0, elevation_loss=88.0, created_at=datetime(2026, 8, 25),
+        hr_zone_3_s=3328.8, aerobic_training_effect=3.8,
+    )
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_activity_range_tool_raises_when_credentials_not_found(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("refetch_garmin_activity_range", {"start": "2026-08-17", "end": "2026-08-24"})
+
+    assert result.is_error is True
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_activity_range_tool_upserts_activities_with_detail_fields(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+    calls = []
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fetch_activities(self, start, end):
+            calls.append((start, end))
+            return [_detailed_garmin_activity()]
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("refetch_garmin_activity_range", {"start": "2026-08-24", "end": "2026-08-25"})
+
+    assert result.is_error is not True
+    assert result.structured_content["activities_found"] == 1
+    assert calls == [(date(2026, 8, 24), date(2026, 8, 25))]
+    conn = connect(db_path)
+    stored = repository.get_activity_by_id(conn, "garmin:777")
+    conn.close()
+    assert stored.hr_zone_3_s == 3328.8 and stored.aerobic_training_effect == 3.8
+
+
+@pytest.mark.anyio
+async def test_refetch_garmin_activity_range_tool_never_touches_the_sync_checkpoint(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.set_checkpoint(conn, "garmin", "activity_duration", date(2026, 8, 26))
+    conn.close()
+    _save_stub_garmin_credentials(tmp_path)
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fetch_activities(self, start, end):
+            return [_detailed_garmin_activity()]
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+    async with Client(mcp) as client:
+        await client.call_tool("refetch_garmin_activity_range", {"start": "2026-08-17", "end": "2026-08-24"})
+
+    conn = connect(db_path)
+    checkpoint = repository.get_checkpoint(conn, "garmin", "activity_duration")
+    conn.close()
+    assert checkpoint == date(2026, 8, 26)
+
+
+def test_refetch_garmin_activity_range_rejects_start_after_end(tmp_path, monkeypatch):
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(tmp_path / "athlytics.db"))
+    _save_stub_garmin_credentials(tmp_path)
+
+    from mcp_server.server import refetch_garmin_activity_range
+
+    with pytest.raises(ValueError, match="must be on or before"):
+        refetch_garmin_activity_range("2026-08-25", "2026-08-20")
+
+
+@pytest.mark.anyio
+async def test_sync_garmin_data_also_hydrates_activity_laps_and_reports_its_status(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+    _save_stub_garmin_credentials(tmp_path)
+    seen = {}
+
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            return "0 nights (0 stage segments, 0 restless moments)"
+
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            seen["force_full_history"] = force_full_history
+            return "3 activities (24 laps)"
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+    monkeypatch.setattr("core.scheduler.sync.sync_all_metrics", lambda conn, provider, backfill_start, end, **kw: {"resting_hr": "complete"})
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("sync_garmin_data", {"days": 3})
+
+    assert result.is_error is not True
+    assert result.structured_content["garmin_activity_laps"] == "3 activities (24 laps)"
+    assert seen["force_full_history"] is False
+
+
+def _activity_with_local_time(**overrides):
+    kwargs = dict(
+        id="garmin:888", source="garmin", activity_id="888", activity_name="Running", activity_type="running",
+        sport_type="running", start_time=datetime(2026, 1, 10, 13, 17, 8), duration_seconds=4223.7,
+        distance_meters=11813.9, calories=862.0, avg_hr=150.0, max_hr=176.0, avg_speed=2.8, max_speed=4.1,
+        elevation_gain=69.0, elevation_loss=88.0, created_at=datetime(2026, 1, 11),
+        start_time_local=datetime(2026, 1, 10, 9, 17, 8), utc_offset_minutes=-240, hr_zone_3_s=3328.8,
+    )
+    kwargs.update(overrides)
+    return Activity(**kwargs)
+
+
+def test_with_utc_tzinfo_labels_start_time_local_with_the_activitys_own_utc_offset():
+    out = _with_utc_tzinfo(_activity_with_local_time())
+
+    assert out.start_time == datetime(2026, 1, 10, 13, 17, 8, tzinfo=timezone.utc)
+    assert out.start_time_local.utcoffset() == timedelta(hours=-4)
+    assert out.start_time_local == out.start_time  # aware datetimes compare by instant: same moment, local label
+
+
+def test_with_utc_tzinfo_drops_start_time_local_when_its_offset_is_unknown():
+    # Never mislabel a local wall-clock time as UTC: with no known offset it is withheld.
+    out = _with_utc_tzinfo(_activity_with_local_time(utc_offset_minutes=None))
+
+    assert out.start_time_local is None
+    assert out.start_time == datetime(2026, 1, 10, 13, 17, 8, tzinfo=timezone.utc)
+
+
+@pytest.mark.anyio
+async def test_get_activities_tool_returns_detail_fields_and_local_start_with_offset(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.upsert_activities(conn, [_activity_with_local_time()])
+    conn.close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_activities", {"activity_type": "running"})
+
+    activity = result.structured_content["result"][0]
+    assert activity["start_time_local"].endswith("-04:00") and activity["start_time_local"].startswith("2026-01-10T09:17:08")
+    assert activity["hr_zone_3_s"] == 3328.8
+    assert activity["utc_offset_minutes"] == -240
+
+
+def _tool_body(result):
+    """Body of a tool that returns a plain dict (FastMCP gives text content, not structured)."""
+    return result.structured_content or json.loads(result.content[0].text)
+
+
+def _seed_activity_with_laps(db_path):
+    from core.storage.models import ActivityLap
+
+    conn = connect(db_path)
+    repository.upsert_activities(conn, [_activity_with_local_time()])
+    repository.replace_activity_laps(conn, "garmin:888", [
+        ActivityLap("garmin:888", 1, 1609.34, 601.7, 2.675, 138.0, 156.0, 171.1, 287.0, 14.95, "INTERVAL"),
+        ActivityLap("garmin:888", 2, 1609.34, 551.7, 2.92, 149.0, 156.0, 175.5, 297.0, None, "INTERVAL"),
+    ])
+    conn.close()
+
+
+@pytest.mark.anyio
+async def test_get_activity_laps_tool_returns_laps_in_miles_and_pace_for_full_or_raw_activity_id(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    _seed_activity_with_laps(db_path)
+
+    async with Client(mcp) as client:
+        by_full = await client.call_tool("get_activity_laps", {"activity_id": "garmin:888"})
+        by_raw = await client.call_tool("get_activity_laps", {"activity_id": "888"})
+
+    out = _tool_body(by_full)
+    assert out == _tool_body(by_raw)
+    assert out["activity_id"] == "garmin:888" and out["sport_type"] == "running" and out["lap_count"] == 2
+    lap1, lap2 = out["laps"]
+    assert lap1 == {
+        "lap": 1, "distance_miles": 1.0, "duration_seconds": 601.7, "pace_per_mile": "10:02",
+        "avg_hr": 138.0, "max_hr": 156.0, "avg_cadence_spm": 171.1, "avg_power_watts": 287.0,
+        "elevation_gain_meters": 14.95, "intensity_type": "INTERVAL",
+    }
+    assert lap2["pace_per_mile"] == "9:11" and lap2["elevation_gain_meters"] is None
+
+
+@pytest.mark.anyio
+async def test_get_activity_laps_tool_reports_not_hydrated_for_an_activity_without_laps(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.upsert_activities(conn, [_activity_with_local_time()])
+    conn.close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_activity_laps", {"activity_id": "garmin:888"})
+
+    assert _tool_body(result) == {"activity_id": "garmin:888", "sport_type": "running", "status": "not_hydrated", "laps": []}
+
+
+@pytest.mark.anyio
+async def test_get_activity_laps_tool_errors_for_an_unknown_activity(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_activity_laps", {"activity_id": "garmin:nope"})
+
+    assert result.is_error is True
+
+
+def _stub_series_provider(monkeypatch, samples, calls):
+    class _StubProvider:
+        name = "garmin"
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def fetch_activity_series(self, raw_activity_id):
+            calls.append(raw_activity_id)
+            return samples
+
+    monkeypatch.setattr("core.providers.garmin.GarminProvider", _StubProvider)
+
+
+def _series_samples():
+    return [
+        {"elapsed_s": float(t), "distance_m": t * 3.0, "heart_rate": 140.0 + t / 10, "speed_mps": 3.0,
+         "cadence_spm": 176.0, "power_watts": None, "elevation_m": 10.0}
+        for t in range(0, 130)
+    ]
+
+
+@pytest.mark.anyio
+async def test_get_activity_series_tool_fetches_live_and_returns_downsampled_points(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.upsert_activities(conn, [_activity_with_local_time()])
+    conn.close()
+    _save_stub_garmin_credentials(tmp_path)
+    calls = []
+    _stub_series_provider(monkeypatch, _series_samples(), calls)
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_activity_series", {"activity_id": "garmin:888", "resolution_seconds": 60})
+
+    body = _tool_body(result)
+    assert calls == ["888"]  # the provider's raw id, not the prefixed one
+    assert body["activity_id"] == "garmin:888" and body["resolution_seconds"] == 60 and body["point_count"] == 3
+    first = body["points"][0]
+    assert first["t_seconds"] == 0 and first["pace_per_mile"] == "8:56" and first["cadence_spm"] == 176.0
+    assert first["power_watts"] is None
+
+
+@pytest.mark.anyio
+async def test_get_activity_series_tool_rejects_non_garmin_activities_and_bad_resolution(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.upsert_activities(conn, [
+        _activity_with_local_time(),
+        _activity_with_local_time(id="strava:9", source="strava", activity_id="9", start_time=datetime(2026, 1, 12, 7, 0),
+                                  start_time_local=None, utc_offset_minutes=None, activity_type="cycling", sport_type="Ride"),
+    ])
+    conn.close()
+    _save_stub_garmin_credentials(tmp_path)
+    _stub_series_provider(monkeypatch, _series_samples(), [])
+
+    async with Client(mcp) as client:
+        strava = await client.call_tool("get_activity_series", {"activity_id": "strava:9"})
+        too_fine = await client.call_tool("get_activity_series", {"activity_id": "garmin:888", "resolution_seconds": 5})
+        too_coarse = await client.call_tool("get_activity_series", {"activity_id": "garmin:888", "resolution_seconds": 900})
+        unknown = await client.call_tool("get_activity_series", {"activity_id": "garmin:nope"})
+
+    assert strava.is_error is True and too_fine.is_error is True and too_coarse.is_error is True and unknown.is_error is True
+
+
+@pytest.mark.anyio
+async def test_get_training_execution_tool_returns_runs_weekly_rollup_and_notes(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    conn = connect(db_path)
+    repository.upsert_activities(conn, [_activity_with_local_time(
+        hr_zone_1_s=64.0, hr_zone_2_s=206.0, hr_zone_3_s=3329.0, hr_zone_4_s=610.0, hr_zone_5_s=11.0,
+    )])
+    conn.close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_training_execution", {"start_date": "2026-01-10", "end_date": "2026-01-10"})
+
+    body = _tool_body(result)
+    assert body["start_date"] == "2026-01-10" and body["activity_type"] == "running"
+    assert [r["activity_id"] for r in body["runs"]] == ["garmin:888"]
+    assert body["runs"][0]["date"] == "2026-01-10" and body["runs"][0]["pct_zone_3"] == pytest.approx(78.9, abs=0.1)
+    assert body["weekly"]["run_count"] == 1 and body["weekly"]["runs_mostly_above_zone_2"] == 1
+
+
+@pytest.mark.anyio
+async def test_get_training_execution_tool_rejects_a_reversed_range(tmp_path, monkeypatch):
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("ATHLYTICS_DB_PATH", str(db_path))
+    connect(db_path).close()
+
+    async with Client(mcp) as client:
+        result = await client.call_tool("get_training_execution", {"start_date": "2026-01-12", "end_date": "2026-01-10"})
+
+    assert result.is_error is True

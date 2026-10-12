@@ -589,7 +589,11 @@ def test_perform_sync_pass_hydrates_garmin_sleep_detail_when_connected(tmp_path,
         def sync_hydration(self, conn, start_date, end_date, force_full_history):
             return "2 nights (8 stage segments, 5 restless moments)"
 
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            return "0 activities (0 laps)"
+
     monkeypatch.setattr("app.sync.GarminProvider", _FakeGarminProvider)
+    monkeypatch.setattr("app.sync.SYNC_PACE_SECONDS", 0)
 
     perform_sync_pass(db_path, garmin_store, tmp_path / "garmin_tokens")
 
@@ -600,6 +604,7 @@ def test_perform_sync_pass_hydrates_garmin_sleep_detail_when_connected(tmp_path,
     assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {
         "resting_hr": "complete",
         "garmin_sleep_detail": "2 nights (8 stage segments, 5 restless moments)",
+        "garmin_activity_laps": "0 activities (0 laps)",
     }
 
 
@@ -654,3 +659,52 @@ def test_run_provider_sync_records_run_and_metric_statuses(conn):
     assert status["auth_error"] is None
     assert status["last_run_at"] is not None
     assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {"steps": "complete"}
+
+
+def test_perform_sync_pass_records_garmin_activity_lap_hydration_status(tmp_path, monkeypatch):
+    """The background sync pass must hydrate activity laps after every Garmin
+    sync, same as the MCP sync_garmin_data tool (one shared hydration gap
+    already bit this codebase once: a background pass silently skipping a step
+    that only the MCP entry point ran)."""
+    from app.db import ensure_app_schema
+    from core.security.credentials import CredentialStore
+    from cryptography.fernet import Fernet
+
+    db_path = tmp_path / "test.db"
+    conn = connect(db_path)
+    ensure_app_schema(conn)
+    conn.close()
+
+    garmin_store = CredentialStore(Fernet.generate_key(), tmp_path / "garmin_credentials.enc")
+    garmin_store.save({"email": "a@example.com", "password": "x"})
+
+    class _FakeGarminProvider:
+        name = "garmin"
+
+        def __init__(self, credential_store, token_cache_dir, garmin_client_factory=None):
+            pass
+
+        def supported_metric_types(self):
+            return ["resting_hr"]
+
+        def fetch(self, metric_type, start, end):
+            return []
+
+        def sync_hydration(self, conn, start_date, end_date, force_full_history):
+            return "2 nights (8 stage segments, 5 restless moments)"
+
+        def sync_activity_hydration(self, conn, start_date, end_date, force_full_history):
+            return "3 activities (24 laps)"
+
+    monkeypatch.setattr("app.sync.GarminProvider", _FakeGarminProvider)
+    monkeypatch.setattr("app.sync.SYNC_PACE_SECONDS", 0)
+
+    perform_sync_pass(db_path, garmin_store, tmp_path / "garmin_tokens")
+
+    conn = connect(db_path)
+    status = get_sync_status(conn, "garmin")
+    assert {m["metric_type"]: m["status"] for m in status["metrics"]} == {
+        "resting_hr": "complete",
+        "garmin_sleep_detail": "2 nights (8 stage segments, 5 restless moments)",
+        "garmin_activity_laps": "3 activities (24 laps)",
+    }

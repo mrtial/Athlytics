@@ -66,6 +66,9 @@ def _connection():
         conn.close()
 
 
+_LOCAL_TIME_FIELDS = ("start_time_local",)
+
+
 def _with_utc_tzinfo(obj):
     """Attach UTC tzinfo to a dataclass instance's naive datetime fields.
 
@@ -85,8 +88,18 @@ def _with_utc_tzinfo(obj):
     updates = {
         f.name: value.replace(tzinfo=timezone.utc)
         for f in dataclasses.fields(obj)
-        if isinstance(value := getattr(obj, f.name), datetime) and value.tzinfo is None
+        if f.name not in _LOCAL_TIME_FIELDS
+        and isinstance(value := getattr(obj, f.name), datetime)
+        and value.tzinfo is None
     }
+    # Provider-local wall-clock fields are NOT UTC: label them with the record's
+    # own offset (utc_offset_minutes), or withhold them when it is unknown --
+    # never stamp a local time as UTC.
+    for name in _LOCAL_TIME_FIELDS:
+        local = getattr(obj, name, None)
+        if isinstance(local, datetime) and local.tzinfo is None:
+            offset = getattr(obj, "utc_offset_minutes", None)
+            updates[name] = local.replace(tzinfo=timezone(timedelta(minutes=offset))) if offset is not None else None
     if not updates:
         return obj
     new_obj = copy.copy(obj)
@@ -178,6 +191,80 @@ def get_activities(
             conn, start_date=s_date, end_date=e_date, activity_type=activity_type, limit=limit
         )
         return [_with_utc_tzinfo(a) for a in activities]
+
+
+@mcp.tool()
+def get_activity_laps(activity_id: str) -> dict:
+    """Per-lap detail for one activity: distance (miles), duration, pace per mile, average/max HR, cadence, power and elevation gain, from locally hydrated Garmin data (no live API call). `activity_id` accepts the full id ("garmin:24675159797") or the provider's raw id. Use it to judge how a session was run, e.g. whether a tempo block held a steady pace and heart rate, or how heart rate drifted across a long run. An activity whose laps haven't been hydrated yet returns {"status": "not_hydrated", "laps": []}; an unknown activity raises."""
+    from core.analytics.execution import METERS_PER_MILE, format_pace_per_mile
+
+    with _connection() as conn:
+        activity = repository.get_activity_by_id(conn, activity_id)
+        if activity is None:
+            raise ValueError(f"Activity not found: {activity_id}")
+        laps = repository.get_activity_laps(conn, activity.id)
+
+    if not laps:
+        return {"activity_id": activity.id, "sport_type": activity.sport_type, "status": "not_hydrated", "laps": []}
+    return {
+        "activity_id": activity.id,
+        "sport_type": activity.sport_type,
+        "lap_count": len(laps),
+        "laps": [
+            {
+                "lap": lap.lap_index,
+                "distance_miles": round(lap.distance_meters / METERS_PER_MILE, 2) if lap.distance_meters is not None else None,
+                "duration_seconds": lap.duration_seconds,
+                "pace_per_mile": format_pace_per_mile(lap.avg_speed_mps),
+                "avg_hr": lap.avg_hr,
+                "max_hr": lap.max_hr,
+                "avg_cadence_spm": lap.avg_cadence,
+                "avg_power_watts": lap.avg_power_watts,
+                "elevation_gain_meters": lap.elevation_gain_meters,
+                "intensity_type": lap.intensity_type,
+            }
+            for lap in laps
+        ],
+    }
+
+
+@mcp.tool()
+def get_activity_series(activity_id: str, resolution_seconds: int = 60) -> dict:
+    """Minute-by-minute (or finer) detail for one Garmin activity: heart rate, pace per mile, cadence, power and elevation over time, fetched LIVE from Garmin and downsampled to one point per `resolution_seconds` (10-600, default 60). Never stored -- a 70-minute run is ~1,400 raw points. Use it when per-lap numbers are not enough, e.g. to see exactly where a tempo block faded or when heart rate started climbing. Garmin activities only; `activity_id` accepts the full id ("garmin:24675159797") or the raw id."""
+    from core.analytics.execution import downsample_series
+
+    if not 10 <= resolution_seconds <= 600:
+        raise ValueError("resolution_seconds must be between 10 and 600")
+
+    with _connection() as conn:
+        activity = repository.get_activity_by_id(conn, activity_id)
+    if activity is None:
+        raise ValueError(f"Activity not found: {activity_id}")
+    if activity.source != "garmin":
+        raise ValueError(f"Time series is only available for Garmin activities (this one is from {activity.source})")
+
+    samples = _garmin_provider().fetch_activity_series(activity.activity_id)
+    points = downsample_series(samples, resolution_seconds)
+    return {
+        "activity_id": activity.id,
+        "sport_type": activity.sport_type,
+        "resolution_seconds": resolution_seconds,
+        "point_count": len(points),
+        "points": points,
+    }
+
+
+@mcp.tool()
+def get_training_execution(start_date: str, end_date: str, activity_type: str = "running") -> dict:
+    """How each session in a date range was actually run, plus a roll-up: per run, local date, distance (miles), average pace per mile and HR, share of time in HR zones 1-2 / 3 / 4-5, aerobic and anaerobic training effect, training load, cadence/power, and heart-rate drift between the first and last halves of the run (from laps); weekly totals, share of time per zone and how many runs spent most of their time above zone 2. Computed locally from hydrated Garmin data (no live API call). Days are the activity's own local days. Treadmill runs are flagged because their pace is less reliable. Anything missing (older activities without zone data, runs without laps) is null and noted, never zero. Use it for the weekly check-in's execution review: were easy runs actually easy, did the long run drift, what was the week's load."""
+    from core.analytics.execution import build_training_execution
+
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    if start > end:
+        raise ValueError(f"start_date ({start_date}) must be on or before end_date ({end_date})")
+    with _connection() as conn:
+        return build_training_execution(conn, start, end, activity_type=activity_type)
 
 
 @mcp.tool()
@@ -528,6 +615,7 @@ def sync_garmin_data(days: int = 30, force_full_history: bool = False) -> dict[s
         # pass) -- see its docstring for why hydration must run after every
         # Garmin sync, not just this one.
         results["garmin_sleep_detail"] = provider.sync_hydration(conn, start_date, end_date, force_full_history)
+        results["garmin_activity_laps"] = provider.sync_activity_hydration(conn, start_date, end_date, force_full_history)
         return results
 
 
@@ -624,6 +712,49 @@ def refetch_garmin_sleep_detail_range(start: str, end: str) -> dict:
 
     with _connection() as conn:
         return provider.hydrate_recent_sleep(conn, since=start_date, until=end_date)
+
+
+def _garmin_provider():
+    """Build a GarminProvider from the stored credentials, or raise ValueError if
+    Garmin isn't connected. Shared by the newer Garmin MCP tools."""
+    data_dir = _db_path().parent
+    secret_key_path = data_dir / ".env"
+    credentials_path = data_dir / "garmin_credentials.enc"
+    token_cache_dir = data_dir / "garmin_tokens"
+
+    if not credentials_path.exists() or not secret_key_path.exists():
+        raise ValueError("Garmin credentials not found. Please connect your Garmin account in Athlytics settings first.")
+
+    from core.config import get_or_create_secret_key
+    from core.security.credentials import CredentialStore
+    from core.providers.garmin import GarminProvider
+
+    store = CredentialStore(get_or_create_secret_key(secret_key_path), credentials_path)
+    return GarminProvider(store, token_cache_dir)
+
+
+@mcp.tool()
+def refetch_garmin_activity_range(start: str, end: str) -> dict[str, str | int]:
+    """Force a direct refetch of Garmin activities over an explicit date range and upsert them, bypassing the sync checkpoint entirely.
+
+    Use this to backfill the detail fields added to `activity` after rows were first synced (local start time and UTC offset, moving duration, HR zone seconds, training effect, training load, cadence, power) -- refetch_garmin_metric_range only upserts metric readings, never `activity` rows, so it cannot populate them. Keep ranges to roughly 90 days per call.
+
+    Always safe to call on already-synced history (upserts are idempotent on activity id) and never reads or writes sync_checkpoint.
+    """
+    from datetime import date as dt_date
+
+    start_date = dt_date.fromisoformat(start)
+    end_date = dt_date.fromisoformat(end)
+    if start_date > end_date:
+        raise ValueError(f"start ({start}) must be on or before end ({end})")
+
+    provider = _garmin_provider()
+    activities = provider.fetch_activities(start_date, end_date)
+
+    with _connection() as conn:
+        repository.upsert_activities(conn, activities)
+
+    return {"start": start, "end": end, "activities_found": len(activities)}
 
 
 @mcp.tool()
