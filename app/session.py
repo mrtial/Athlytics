@@ -9,6 +9,9 @@ SESSION_LIFETIME = timedelta(days=30)
 def create_session(conn: sqlite3.Connection) -> str:
     token = secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc)
+    # Opportunistic cleanup: nothing else ever deletes expired rows. ISO-8601
+    # UTC strings with the same offset compare correctly as text.
+    conn.execute("DELETE FROM session WHERE expires_at <= ?", (now.isoformat(),))
     conn.execute(
         "INSERT INTO session (token, created_at, expires_at) VALUES (?, ?, ?)",
         (token, now.isoformat(), (now + SESSION_LIFETIME).isoformat()),
