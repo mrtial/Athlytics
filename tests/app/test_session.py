@@ -40,6 +40,18 @@ def test_is_valid_session_false_for_expired_token(conn):
     assert is_valid_session(conn, token) is False
 
 
+def test_create_session_prunes_expired_sessions(conn):
+    stale = create_session(conn)
+    expired = datetime.now(timezone.utc) - timedelta(seconds=1)
+    conn.execute("UPDATE session SET expires_at = ? WHERE token = ?", (expired.isoformat(), stale))
+    conn.commit()
+
+    fresh = create_session(conn)
+
+    tokens = {row[0] for row in conn.execute("SELECT token FROM session").fetchall()}
+    assert tokens == {fresh}
+
+
 def test_delete_session_invalidates_it(conn):
     token = create_session(conn)
 

@@ -7,6 +7,14 @@ from app.session import SESSION_COOKIE_NAME, is_valid_session
 router = APIRouter()
 
 
+@router.get("/healthz")
+def healthz():
+    """Liveness probe for the Docker HEALTHCHECK. Touches no DB and never
+    issues a session -- unlike GET /login, which re-issues one for a
+    passwordless admin on every request."""
+    return {"status": "ok"}
+
+
 @router.get("/")
 def root(request: Request, conn=Depends(get_conn)):
     status = onboarding_status(conn, request.app.state)

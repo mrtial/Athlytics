@@ -35,7 +35,11 @@ def test_dockerfile_default_command_runs_the_fastapi_app_via_uvicorn_factory():
 def test_dockerfile_declares_a_healthcheck_against_an_unauthenticated_route():
     text = _dockerfile_text()
     assert "HEALTHCHECK" in text
-    assert "/login" in text
+    # /healthz, not /login: GET /login issues a new session for a
+    # passwordless admin, so probing it every 30s bloated the session table.
+    probe = text[text.index("HEALTHCHECK"):].split("\n\n", 1)[0]
+    assert "/healthz" in probe
+    assert "/login" not in probe
 
 
 def test_dockerfile_does_not_start_the_mcp_server_as_the_default_command():

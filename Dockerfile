@@ -25,13 +25,13 @@ RUN pip install --no-cache-dir .
 # there is no separate process or command for the scheduler.
 EXPOSE 8000
 
-# GET /login is registered unconditionally by app/routes/auth.py
-# regardless of onboarding/admin state (Plan 4 Task 4), so it's a safe,
-# credential-free healthcheck target that's always reachable once the
-# server is up. Uses stdlib urllib rather than curl/wget, neither of
+# GET /healthz (app/routes/root.py) is a credential-free, DB-free liveness
+# route. Don't probe /login: for a passwordless admin it issues a new session
+# and redirects, so every probe both failed (redirect loop) and added rows to
+# the session table. Uses stdlib urllib rather than curl/wget, neither of
 # which python:3.11-slim installs by default.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/login', timeout=3).status == 200 else 1)"
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz', timeout=3).status == 200 else 1)"
 
 # Default command: the dashboard/API server + background scheduler.
 # The MCP server (mcp_server/server.py) is deliberately NOT started
